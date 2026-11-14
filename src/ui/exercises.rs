@@ -18,15 +18,34 @@ pub fn draw(frame: &mut Frame, app: &mut App, area: Rect) {
         ExerciseView::List => draw_list(frame, app, &state, area),
         ExerciseView::Work => draw_work(frame, app, &mut state, area),
     }
+    let en = app.is_english();
     if consent_pending {
         let r = centered(area, 72, 9);
         frame.render_widget(Clear, r);
-        frame.render_widget(Paragraph::new("Executar estes testes compila e executa seu código local; isso NÃO é sandbox. O processo tem as permissões da sua conta.\n\nNada foi rodado ainda. Enter aceita; Esc recusa.").wrap(Wrap { trim: true }).block(Block::bordered().title(" Consentimento necessário ").border_style(theme.border_style(true))), r);
+        frame.render_widget(
+            Paragraph::new(if en {
+                "Running these tests compiles and executes your local code; this is NOT sandboxed. The process runs with your user permissions.\n\nNothing has run yet. Enter accepts; Esc declines."
+            } else {
+                "Executar estes testes compila e executa seu código local; isso NÃO é sandbox. O processo tem as permissões da sua conta.\n\nNada foi rodado ainda. Enter aceita; Esc recusa."
+            })
+            .wrap(Wrap { trim: true })
+            .block(
+                Block::bordered()
+                    .title(if en {
+                        " Consent required "
+                    } else {
+                        " Consentimento necessário "
+                    })
+                    .border_style(theme.border_style(true)),
+            ),
+            r,
+        );
     }
     app.exercises = Some(state);
 }
 
 fn draw_list(frame: &mut Frame, app: &App, state: &ExerciseState, area: Rect) {
+    let en = app.is_english();
     let theme = &app.theme;
     let Some(cur) = app.curriculum.as_ref() else {
         return;
@@ -34,8 +53,16 @@ fn draw_list(frame: &mut Frame, app: &App, state: &ExerciseState, area: Rect) {
     let exercises: Vec<_> = cur.exercises().collect();
     if exercises.is_empty() {
         frame.render_widget(
-            Paragraph::new("Ainda não há exercícios disponíveis.")
-                .block(Block::bordered().title(" Exercícios ")),
+            Paragraph::new(if en {
+                "No exercises available yet."
+            } else {
+                "Ainda não há exercícios disponíveis."
+            })
+            .block(Block::bordered().title(if en {
+                " Exercises "
+            } else {
+                " Exercícios "
+            })),
             area,
         );
         return;
@@ -57,7 +84,11 @@ fn draw_list(frame: &mut Frame, app: &App, state: &ExerciseState, area: Rect) {
         })
         .collect();
     let block = Block::bordered()
-        .title(" Exercícios · testes Cargo determinísticos ")
+        .title(if en {
+            " Exercises · deterministic Cargo tests "
+        } else {
+            " Exercícios · testes Cargo determinísticos "
+        })
         .border_style(theme.border_style(true));
     let mut list =
         ListState::default().with_selected(Some(state.selected.min(items.len().saturating_sub(1))));
@@ -87,22 +118,35 @@ fn draw_list(frame: &mut Frame, app: &App, state: &ExerciseState, area: Rect) {
         let preview = vec![
             Line::styled(exercise.title.clone(), theme.title()),
             Line::from(exercise.statement.clone()),
-            Line::styled(format!("Revisar: {lessons}"), theme.dim()),
             Line::styled(
-                if saved {
-                    "Enter retomar resposta · F5 testa apenas após consentimento"
+                if en {
+                    format!("Review: {lessons}")
                 } else {
-                    "Enter abrir código inicial · quatro dicas disponíveis"
+                    format!("Revisar: {lessons}")
                 },
                 theme.dim(),
             ),
             Line::styled(
-                if state.return_screen == crate::app::Screen::LessonView {
-                    "Esc volta à lição, preservando sua posição e quizzes."
-                } else if state.return_screen == crate::app::Screen::Progress {
-                    "Esc volta a Meu Progresso."
-                } else {
-                    "Esc volta ao curso."
+                match (saved, en) {
+                    (true, true) => "Enter resume answer · F5 runs tests only after consent",
+                    (true, false) => "Enter retomar resposta · F5 testa apenas após consentimento",
+                    (false, true) => "Enter open starter code · four hints available",
+                    (false, false) => "Enter abrir código inicial · quatro dicas disponíveis",
+                },
+                theme.dim(),
+            ),
+            Line::styled(
+                match (&state.return_screen, en) {
+                    (crate::app::Screen::LessonView, true) => {
+                        "Esc returns to the lesson, keeping your scroll and quizzes."
+                    }
+                    (crate::app::Screen::LessonView, false) => {
+                        "Esc volta à lição, preservando sua posição e quizzes."
+                    }
+                    (crate::app::Screen::Progress, true) => "Esc returns to My Progress.",
+                    (crate::app::Screen::Progress, false) => "Esc volta a Meu Progresso.",
+                    (_, true) => "Esc returns to the course.",
+                    (_, false) => "Esc volta ao curso.",
                 },
                 theme.dim(),
             ),
@@ -111,7 +155,11 @@ fn draw_list(frame: &mut Frame, app: &App, state: &ExerciseState, area: Rect) {
         frame.render_widget(
             Paragraph::new(preview).wrap(Wrap { trim: true }).block(
                 Block::bordered()
-                    .title(" Antes de praticar ")
+                    .title(if en {
+                        " Before you practice "
+                    } else {
+                        " Antes de praticar "
+                    })
                     .border_style(theme.border_style(false)),
             ),
             panels[1],
@@ -120,6 +168,7 @@ fn draw_list(frame: &mut Frame, app: &App, state: &ExerciseState, area: Rect) {
 }
 
 fn draw_work(frame: &mut Frame, app: &App, state: &mut ExerciseState, area: Rect) {
+    let en = app.is_english();
     let theme = &app.theme;
     let Some(exercise) = state.exercise(app).cloned() else {
         return;
@@ -144,7 +193,11 @@ fn draw_work(frame: &mut Frame, app: &App, state: &mut ExerciseState, area: Rect
     frame.render_widget(
         statement.scroll((session.statement_scroll, 0)).block(
             Block::bordered()
-                .title(" Enunciado · F9 rolar · Shift+F9 subir ")
+                .title(if en {
+                    " Prompt · F9 scroll · Shift+F9 scroll up "
+                } else {
+                    " Enunciado · F9 rolar · Shift+F9 subir "
+                })
                 .border_style(theme.border_style(false)),
         ),
         rows[0],
@@ -191,10 +244,11 @@ fn draw_work(frame: &mut Frame, app: &App, state: &mut ExerciseState, area: Rect
             .scroll((editor.scroll_row as u16, editor.scroll_col as u16))
             .block(
                 Block::bordered()
-                    .title(if editor.dirty {
-                        " Seu código · não salvo · Ctrl+S "
-                    } else {
-                        " Seu código · Ctrl+S salvar · F5 testar "
+                    .title(match (editor.dirty, en) {
+                        (true, true) => " Your code · unsaved · Ctrl+S ",
+                        (true, false) => " Seu código · não salvo · Ctrl+S ",
+                        (false, true) => " Your code · Ctrl+S save · F5 test ",
+                        (false, false) => " Seu código · Ctrl+S salvar · F5 testar ",
                     })
                     .border_style(theme.border_style(true)),
             ),
@@ -210,7 +264,19 @@ fn draw_work(frame: &mut Frame, app: &App, state: &mut ExerciseState, area: Rect
 
     let hint = exercise.hints.get(session.hint_index);
     let hint_text = if session.shown_hints == 0 {
-        "F1 revela a primeira dica.\nF2/F3 revisam dicas já reveladas.".to_string()
+        if en {
+            "F1 reveals the first hint.\nF2/F3 review revealed hints.".to_string()
+        } else {
+            "F1 revela a primeira dica.\nF2/F3 revisam dicas já reveladas.".to_string()
+        }
+    } else if en {
+        format!(
+            "Hint {}/{} · {} revealed\n{}\n\nF2 previous · F3 next\nF1 reveals another hint",
+            session.hint_index + 1,
+            exercise.hints.len(),
+            session.shown_hints,
+            hint.map(String::as_str).unwrap_or("")
+        )
     } else {
         format!(
             "Dica {}/{} · {} reveladas\n{}\n\nF2 anterior · F3 próxima\nF1 revela outra dica",
@@ -230,7 +296,11 @@ fn draw_work(frame: &mut Frame, app: &App, state: &mut ExerciseState, area: Rect
     frame.render_widget(
         hints.scroll((session.hint_scroll, 0)).block(
             Block::bordered()
-                .title(" Dicas · F4/Shift+F4 rolar ")
+                .title(if en {
+                    " Hints · F4/Shift+F4 scroll "
+                } else {
+                    " Dicas · F4/Shift+F4 rolar "
+                })
                 .border_style(theme.border_style(false)),
         ),
         hints_area,
@@ -249,10 +319,11 @@ fn draw_work(frame: &mut Frame, app: &App, state: &mut ExerciseState, area: Rect
         };
         let (base, bonus) =
             crate::learn::calculate_v3_practice_xp(session.shown_hints, session.ai_used);
-        let xp_note = if bonus > 0 {
-            format!("XP: {base}+{bonus} s/ dicas")
-        } else {
-            format!("Dicas: {} (bônus indep. usado)", session.shown_hints)
+        let xp_note = match (bonus > 0, en) {
+            (true, true) => format!("XP: {base}+{bonus} no hints"),
+            (true, false) => format!("XP: {base}+{bonus} s/ dicas"),
+            (false, true) => format!("Hints: {} (indep. bonus used)", session.shown_hints),
+            (false, false) => format!("Dicas: {} (bônus indep. usado)", session.shown_hints),
         };
         let mood_style = match mood {
             crate::learn::FerrisMood::Neutral => theme.title().add_modifier(Modifier::BOLD),
@@ -263,7 +334,7 @@ fn draw_work(frame: &mut Frame, app: &App, state: &mut ExerciseState, area: Rect
             Paragraph::new(vec![
                 Line::from(vec![
                     Span::styled(format!(" {} ", mood.ascii()), mood_style),
-                    Span::styled(mood.label(), theme.base()),
+                    Span::styled(mood.label_for(en), theme.base()),
                 ]),
                 Line::from(Span::styled(xp_note, theme.dim())),
             ])
@@ -277,15 +348,23 @@ fn draw_work(frame: &mut Frame, app: &App, state: &mut ExerciseState, area: Rect
         );
     }
 
-    let result = match session.outcome {
-        ExerciseOutcome::NotRun => "Ainda não executado".to_string(),
-        ExerciseOutcome::Running => "Testes em execução…".to_string(),
-        ExerciseOutcome::Passed => "✓ Todos os testes passaram".to_string(),
-        ExerciseOutcome::TestsFailed => "✗ Um ou mais testes falharam".to_string(),
-        ExerciseOutcome::CompileFailed => "! O código não compilou".to_string(),
-        ExerciseOutcome::TimedOut => "⏱ Testes excederam o limite de tempo".to_string(),
-        ExerciseOutcome::Cancelled => "Execução cancelada".to_string(),
-        ExerciseOutcome::StartFailed => "Não foi possível iniciar os testes".to_string(),
+    let result = match (session.outcome, en) {
+        (ExerciseOutcome::NotRun, true) => "Not run yet".to_string(),
+        (ExerciseOutcome::NotRun, false) => "Ainda não executado".to_string(),
+        (ExerciseOutcome::Running, true) => "Running tests…".to_string(),
+        (ExerciseOutcome::Running, false) => "Testes em execução…".to_string(),
+        (ExerciseOutcome::Passed, true) => "✓ All tests passed".to_string(),
+        (ExerciseOutcome::Passed, false) => "✓ Todos os testes passaram".to_string(),
+        (ExerciseOutcome::TestsFailed, true) => "✗ One or more tests failed".to_string(),
+        (ExerciseOutcome::TestsFailed, false) => "✗ Um ou mais testes falharam".to_string(),
+        (ExerciseOutcome::CompileFailed, true) => "! Code did not compile".to_string(),
+        (ExerciseOutcome::CompileFailed, false) => "! O código não compilou".to_string(),
+        (ExerciseOutcome::TimedOut, true) => "⏱ Tests exceeded the time limit".to_string(),
+        (ExerciseOutcome::TimedOut, false) => "⏱ Testes excederam o limite de tempo".to_string(),
+        (ExerciseOutcome::Cancelled, true) => "Execution cancelled".to_string(),
+        (ExerciseOutcome::Cancelled, false) => "Execução cancelada".to_string(),
+        (ExerciseOutcome::StartFailed, true) => "Could not start the test runner".to_string(),
+        (ExerciseOutcome::StartFailed, false) => "Não foi possível iniciar os testes".to_string(),
     };
     let result_line = Line::from(Span::styled(
         result,
@@ -296,14 +375,25 @@ fn draw_work(frame: &mut Frame, app: &App, state: &mut ExerciseState, area: Rect
         },
     ));
     let result_block = Block::bordered()
-        .title(format!(
-            " Resultado · PgUp/PgDn · {} ",
-            if session.output_scroll == 0 {
-                "fim".to_string()
-            } else {
-                format!("{} linhas acima", session.output_scroll)
-            }
-        ))
+        .title(if en {
+            format!(
+                " Output · PgUp/PgDn · {} ",
+                if session.output_scroll == 0 {
+                    "end".to_string()
+                } else {
+                    format!("{} lines above", session.output_scroll)
+                }
+            )
+        } else {
+            format!(
+                " Resultado · PgUp/PgDn · {} ",
+                if session.output_scroll == 0 {
+                    "fim".to_string()
+                } else {
+                    format!("{} linhas acima", session.output_scroll)
+                }
+            )
+        })
         .border_style(theme.border_style(false));
     let body = result_block.inner(rows[2]);
     frame.render_widget(result_block, rows[2]);

@@ -8,6 +8,7 @@ use crate::app::App;
 use crate::config::{AiProvider, AiSettings};
 use crate::create::{AgentRole, CreateState, CreateView, Focus};
 use crate::execution::StreamKind;
+use crate::i18n::bi;
 
 struct ExecPanelState<'a> {
     running: bool,
@@ -16,6 +17,7 @@ struct ExecPanelState<'a> {
 }
 
 pub fn draw(frame: &mut Frame, app: &mut App, area: Rect) {
+    let en = app.is_english();
     let theme = app.theme;
     let config = app.config.clone();
     let running = app.exec.running;
@@ -25,7 +27,7 @@ pub fn draw(frame: &mut Frame, app: &mut App, area: Rect) {
         return;
     };
     match state.view {
-        CreateView::Start => draw_start(frame, &config, state, area),
+        CreateView::Start => draw_start(frame, &config, state, area, en),
         CreateView::Workspace => draw_workspace(
             frame,
             &theme,
@@ -37,21 +39,30 @@ pub fn draw(frame: &mut Frame, app: &mut App, area: Rect) {
                 running_label: running_label.as_deref(),
                 input_open,
             },
+            en,
         ),
     }
     if state.consent_request.is_some() {
-        draw_consent(frame, area, &theme);
+        draw_consent(frame, area, &theme, en);
     }
     if state.agent.consent_pending.is_some() {
         let popup = centered(area, 72, 10);
-        let msg = "O Agente está configurado para API remota compatível com OpenAI.\n\nEnviar esta pergunta, arquivo atual e diagnósticos para o provedor remoto?\n\nEnter autoriza (e salva para próximas) · Esc cancela e usa Guia local";
+        let msg = bi(
+            "O Agente está configurado para API remota compatível com OpenAI.\n\nEnviar esta pergunta, arquivo atual e diagnósticos para o provedor remoto?\n\nEnter autoriza (e salva para próximas) · Esc cancela e usa Guia local",
+            "The Agent is configured for an OpenAI-compatible remote API.\n\nSend this question, the current file, and diagnostics to the remote provider?\n\nEnter authorizes (and saves for future requests) · Esc cancels and uses Local Guide",
+            en,
+        );
         frame.render_widget(ratatui::widgets::Clear, popup);
         frame.render_widget(
             Paragraph::new(msg)
                 .style(theme.warning())
                 .block(
                     Block::bordered()
-                        .title(" Consentimento para API remota ")
+                        .title(bi(
+                            " Consentimento para API remota ",
+                            " Remote API Consent ",
+                            en,
+                        ))
                         .border_style(theme.border_style(true)),
                 )
                 .wrap(Wrap { trim: true }),
@@ -59,35 +70,57 @@ pub fn draw(frame: &mut Frame, app: &mut App, area: Rect) {
         );
     }
     if state.agent.model_picker.open {
-        crate::ui::mentor::draw_model_picker(
+        crate::ui::mentor::draw_model_picker_for(
             frame,
             &theme,
             &state.agent.model_picker,
             &config.ai.ollama_model,
             area,
+            en,
         );
     }
     if let Some(prompt) = &state.prompt {
         let popup = centered(area, 72, 8);
         let title = match prompt.kind {
-            crate::create::PromptKind::NewProject => {
-                "Novo projeto Cargo (nome ou ~/pasta/nome · Tab preenche pasta)"
+            crate::create::PromptKind::NewProject => bi(
+                "Novo projeto Cargo (nome ou ~/pasta/nome · Tab preenche pasta)",
+                "New Cargo project (name or ~/folder/name · Tab completes path)",
+                en,
+            ),
+            crate::create::PromptKind::OpenPath => {
+                bi("Abrir caminho do projeto", "Open project path", en)
             }
-            crate::create::PromptKind::OpenPath => "Abrir caminho do projeto",
-            crate::create::PromptKind::NewFile => "Novo arquivo .rs (ex.: src/util.rs)",
-            crate::create::PromptKind::AddDependency => {
-                "Adicionar dependência (nome ou nome@versão; pode usar rede)"
+            crate::create::PromptKind::NewFile => bi(
+                "Novo arquivo .rs (ex.: src/util.rs)",
+                "New .rs file (e.g. src/util.rs)",
+                en,
+            ),
+            crate::create::PromptKind::AddDependency => bi(
+                "Adicionar dependência (nome ou nome@versão; pode usar rede)",
+                "Add dependency (name or name@version; may use network)",
+                en,
+            ),
+            crate::create::PromptKind::RemoveDependency => {
+                bi("Remover dependência (nome)", "Remove dependency (name)", en)
             }
-            crate::create::PromptKind::RemoveDependency => "Remover dependência (nome)",
-            crate::create::PromptKind::ProjectSearch => {
-                "Buscar em todo o projeto (texto ou símbolo)"
-            }
-            crate::create::PromptKind::SetProjectsDir => {
-                "Pasta padrão para novos projetos (vazio = padrão)"
-            }
+            crate::create::PromptKind::ProjectSearch => bi(
+                "Buscar em todo o projeto (texto ou símbolo)",
+                "Search across the entire project (text or symbol)",
+                en,
+            ),
+            crate::create::PromptKind::SetProjectsDir => bi(
+                "Pasta padrão para novos projetos (vazio = padrão)",
+                "Default folder for new projects (empty = default)",
+                en,
+            ),
         };
+        let footer = bi(
+            "Enter confirma · Esc cancela",
+            "Enter confirms · Esc cancels",
+            en,
+        );
         let msg = format!(
-            "{title}\n> {}_\n{}\nEnter confirma · Esc cancela",
+            "{title}\n> {}_\n{}\n{footer}",
             prompt.text,
             prompt.error.as_deref().unwrap_or("")
         );
@@ -105,12 +138,22 @@ pub fn draw(frame: &mut Frame, app: &mut App, area: Rect) {
     }
 }
 
-fn draw_start(frame: &mut Frame, config: &crate::config::Config, state: &CreateState, area: Rect) {
+fn draw_start(
+    frame: &mut Frame,
+    config: &crate::config::Config,
+    state: &CreateState,
+    area: Rect,
+    en: bool,
+) {
     let theme = crate::theme::Theme::for_id(config.ui.theme);
     let mut options: Vec<String> = [
-        "Criar projeto novo",
-        "Abrir projeto Cargo por caminho",
-        "Reabrir último projeto",
+        bi("Criar projeto novo", "Create new project", en),
+        bi(
+            "Abrir projeto Cargo por caminho",
+            "Open Cargo project by path",
+            en,
+        ),
+        bi("Reabrir último projeto", "Reopen last project", en),
     ]
     .into_iter()
     .map(String::from)
@@ -121,21 +164,33 @@ fn draw_start(frame: &mut Frame, config: &crate::config::Config, state: &CreateS
             .recent_projects
             .iter()
             .take(8)
-            .map(|p| format!("Recente: {p}")),
+            .map(|p| format!("{}: {p}", bi("Recente", "Recent", en))),
     );
-    let last = config
-        .workspace
-        .last_project
-        .as_deref()
-        .unwrap_or("nenhum salvo");
+    let last =
+        config
+            .workspace
+            .last_project
+            .as_deref()
+            .unwrap_or(bi("nenhum salvo", "none saved", en));
     let items: Vec<ListItem> = options
         .iter()
         .enumerate()
         .map(|(i, title)| {
             let detail = if i == 0 {
                 match config.workspace.projects_dir.as_deref() {
-                    Some(custom) => format!("  (pasta: {custom} · d altera)"),
-                    None => "  (pasta padrão · d escolhe pasta)".to_string(),
+                    Some(custom) => {
+                        if en {
+                            format!("  (folder: {custom} · d changes)")
+                        } else {
+                            format!("  (pasta: {custom} · d altera)")
+                        }
+                    }
+                    None => bi(
+                        "  (pasta padrão · d escolhe pasta)",
+                        "  (default folder · d chooses folder)",
+                        en,
+                    )
+                    .to_string(),
                 }
             } else if i == 2 {
                 format!("  ({last})")
@@ -155,7 +210,11 @@ fn draw_start(frame: &mut Frame, config: &crate::config::Config, state: &CreateS
         })
         .collect();
     let block = Block::bordered()
-        .title(" Modo Criar · Projetos Cargo ")
+        .title(bi(
+            " Modo Criar · Projetos Cargo ",
+            " Create Mode · Cargo Projects ",
+            en,
+        ))
         .border_style(theme.border_style(true));
     let status_height = u16::from(state.last_failure.is_some()) * 3;
     let chunks =
@@ -165,7 +224,7 @@ fn draw_start(frame: &mut Frame, config: &crate::config::Config, state: &CreateS
     frame.render_stateful_widget(List::new(items).block(block), chunks[0], &mut list_state);
     if let Some(reason) = &state.last_failure {
         frame.render_widget(
-            Paragraph::new(format!("Erro:\n{reason}"))
+            Paragraph::new(format!("{}: \n{reason}", bi("Erro", "Error", en)))
                 .wrap(Wrap { trim: true })
                 .style(theme.warning()),
             chunks[1],
@@ -180,6 +239,7 @@ fn draw_workspace(
     state: &mut CreateState,
     area: Rect,
     exec: ExecPanelState<'_>,
+    en: bool,
 ) {
     if !state.lib_menu_open {
         state.lib_modal_area = Rect::default();
@@ -191,7 +251,7 @@ fn draw_workspace(
         state.lab_modal_area = Rect::default();
     }
     let top_parts = Layout::vertical([Constraint::Length(1), Constraint::Min(3)]).split(area);
-    draw_workspace_top_bar(frame, theme, state, top_parts[0]);
+    draw_workspace_top_bar(frame, theme, state, top_parts[0], en);
     let workspace_area = top_parts[1];
 
     let cols = if state.agent.open {
@@ -238,7 +298,7 @@ fn draw_workspace(
         .collect();
     let file_list = List::new(files).block(
         Block::bordered()
-            .title(" Arquivos ")
+            .title(bi(" Arquivos ", " Files ", en))
             .border_style(theme.border_style(state.focus == Focus::Files)),
     );
     let mut file_state =
@@ -332,7 +392,7 @@ fn draw_workspace(
         .as_ref()
         .and_then(|p| p.file_name())
         .map(|p| p.to_string_lossy().to_string())
-        .unwrap_or_else(|| "sem arquivo".into());
+        .unwrap_or_else(|| bi("sem arquivo", "no file", en).into());
     let dirty = if state.editor.dirty { " ●" } else { "" };
     frame.render_widget(
         Paragraph::new(Text::from(lines))
@@ -366,7 +426,11 @@ fn draw_workspace(
         })
         .collect();
     let running_status = if exec.running {
-        format!(" · {} rodando", exec.running_label.unwrap_or("cargo"))
+        format!(
+            " · {} {}",
+            exec.running_label.unwrap_or("cargo"),
+            bi("rodando", "running", en)
+        )
     } else {
         String::new()
     };
@@ -391,19 +455,25 @@ fn draw_workspace(
     if exec.input_open {
         frame.render_widget(
             Paragraph::new(format!(
-                "stdin > {}_\nEnter enviar · Ctrl+D EOF · Shift+Tab foco",
-                state.console_input
+                "stdin > {}_\n{}",
+                state.console_input,
+                bi(
+                    "Enter enviar · Ctrl+D EOF · Shift+Tab foco",
+                    "Enter sends · Ctrl+D EOF · Shift+Tab focus",
+                    en,
+                )
             ))
             .style(theme.base()),
             console_parts[1],
         );
     }
     let diag_text = if state.diags.is_empty() {
-        "Sem diagnósticos".to_string()
+        bi("Sem diagnósticos", "No diagnostics", en).to_string()
     } else {
         format!(
-            "{} diagnóstico(s)\n{}",
+            "{} {}\n{}",
             state.diags.len(),
+            bi("diagnóstico(s)", "diagnostic(s)", en),
             state
                 .diags
                 .iter()
@@ -417,7 +487,11 @@ fn draw_workspace(
         Paragraph::new(diag_text)
             .block(
                 Block::bordered()
-                    .title(format!(" Diagnósticos · {} ", state.lsp_status))
+                    .title(format!(
+                        " {} · {} ",
+                        bi("Diagnósticos", "Diagnostics", en),
+                        state.lsp_status
+                    ))
                     .border_style(theme.border_style(false)),
             )
             .wrap(Wrap { trim: true }),
@@ -425,7 +499,7 @@ fn draw_workspace(
     );
 
     if state.agent.open {
-        draw_agent_panel(frame, theme, ai, state, cols[3]);
+        draw_agent_panel(frame, theme, ai, state, cols[3], en);
     }
 
     if let Some(search) = &state.editor.search {
@@ -437,7 +511,8 @@ fn draw_workspace(
         };
         frame.render_widget(
             Paragraph::new(format!(
-                "buscar: {} {}",
+                "{}: {} {}",
+                bi("buscar", "find", en),
                 search.query,
                 search.message.as_deref().unwrap_or("")
             ))
@@ -470,16 +545,28 @@ fn draw_workspace(
                 )
             })
             .collect();
-        suggestions.push(Line::from("↑↓ escolher · Enter/Tab aceitar · Esc fechar"));
+        suggestions.push(Line::from(bi(
+            "↑↓ escolher · Enter/Tab aceitar · Esc fechar",
+            "↑↓ choose · Enter/Tab accept · Esc close",
+            en,
+        )));
         suggestions.push(Line::styled(
-            "Sugestões locais por prefixo (sem análise de tipos)",
+            bi(
+                "Sugestões locais por prefixo (sem análise de tipos)",
+                "Local prefix suggestions (no type analysis)",
+                en,
+            ),
             theme.dim(),
         ));
         frame.render_widget(ratatui::widgets::Clear, popup);
         frame.render_widget(
             Paragraph::new(suggestions).block(
                 Block::bordered()
-                    .title(" Autocomplete · Ctrl+Espaço ")
+                    .title(bi(
+                        " Autocomplete · Ctrl+Espaço ",
+                        " Autocomplete · Ctrl+Space ",
+                        en,
+                    ))
                     .border_style(theme.border_style(true)),
             ),
             popup,
@@ -506,25 +593,32 @@ fn draw_workspace(
         frame.render_widget(
             Paragraph::new(lines).wrap(Wrap { trim: true }).block(
                 Block::bordered()
-                    .title(" Ajuda · F1/Esc fechar ")
+                    .title(bi(" Ajuda · F1/Esc fechar ", " Help · F1/Esc close ", en))
                     .border_style(theme.border_style(true)),
             ),
             box_rect,
         );
     } else if let Some((symbol, x, y)) = state.hovered_doc.as_ref() {
         let code = state.editor.buf.to_string_lossy();
-        let resolved = crate::doc_hint::resolve_symbol_doc(symbol, &code);
+        let resolved = crate::doc_hint::resolve_symbol_doc_for(symbol, &code, en);
         let local_doc = state.workspace_index.find_doc(symbol);
         if resolved.is_some() || local_doc.is_some() {
             let (title, summary, url) = if let Some(doc) = local_doc {
                 let u = resolved
                     .as_ref()
-                    .map(|r| r.best_url().to_string())
-                    .unwrap_or_else(|| "https://rust-br.github.io/rust-book-pt-br/".to_string());
+                    .map(|r| r.best_url_for(en).to_string())
+                    .unwrap_or_else(|| {
+                        bi(
+                            "https://rust-br.github.io/rust-book-pt-br/",
+                            "https://doc.rust-lang.org/book/",
+                            en,
+                        )
+                        .to_string()
+                    });
                 (symbol.clone(), doc, u)
             } else {
                 let r = resolved.expect("checked is_some above");
-                let u = r.best_url().to_string();
+                let u = r.best_url_for(en).to_string();
                 (r.title, r.summary, u)
             };
             let width = 70.min(workspace_area.width.saturating_sub(2)).max(24);
@@ -567,14 +661,21 @@ fn draw_workspace(
                     Line::from(Span::styled(title, theme.title())),
                     Line::from(summary),
                     Line::from(Span::styled(
-                        format!("{url} · clique para abrir doc"),
+                        format!(
+                            "{url} · {}",
+                            bi("clique para abrir doc", "click to open docs", en)
+                        ),
                         theme.dim(),
                     )),
                 ])
                 .wrap(Wrap { trim: true })
                 .block(
                     Block::bordered()
-                        .title(" Ajuda Rust · clique para documentação PT/EN ")
+                        .title(bi(
+                            " Ajuda Rust · clique para documentação PT/EN ",
+                            " Rust Help · click for EN/PT docs ",
+                            en,
+                        ))
                         .border_style(theme.border_style(true)),
                 ),
                 box_rect,
@@ -586,11 +687,11 @@ fn draw_workspace(
         editor_area.width.saturating_sub(line_num_width) as usize,
     );
     if state.lib_menu_open {
-        draw_libraries_modal(frame, theme, state, area);
+        draw_libraries_modal(frame, theme, state, area, en);
     } else if state.build_menu_open {
-        draw_build_modal(frame, theme, state, area);
+        draw_build_modal(frame, theme, state, area, en);
     } else if state.lab.open {
-        draw_lab_modal(frame, theme, state, area);
+        draw_lab_modal(frame, theme, state, area, en);
     }
 }
 
@@ -599,6 +700,7 @@ fn draw_workspace_top_bar(
     theme: &crate::theme::Theme,
     state: &mut CreateState,
     area: Rect,
+    en: bool,
 ) {
     state.top_lib_btn_area = Rect::default();
     state.top_build_btn_area = Rect::default();
@@ -606,14 +708,22 @@ fn draw_workspace_top_bar(
         return;
     }
     let lib_text = if state.lib_menu_open {
-        " [ ▲ Bibliotecas (F9) ] "
+        bi(" [ ▲ Bibliotecas (F9) ] ", " [ ▲ Libraries (F9) ] ", en)
     } else {
-        " [ ▼ Bibliotecas (F9) ] "
+        bi(" [ ▼ Bibliotecas (F9) ] ", " [ ▼ Libraries (F9) ] ", en)
     };
     let build_text = if state.build_menu_open {
-        " [ ▲ Compilar Linux/Win (F4) ] "
+        bi(
+            " [ ▲ Compilar Linux/Win (F4) ] ",
+            " [ ▲ Build Linux/Win (F4) ] ",
+            en,
+        )
     } else {
-        " [ Compilar Linux/Win (F4) ] "
+        bi(
+            " [ Compilar Linux/Win (F4) ] ",
+            " [ Build Linux/Win (F4) ] ",
+            en,
+        )
     };
     let lib_w = lib_text.chars().count() as u16;
     let build_w = build_text.chars().count() as u16;
@@ -670,13 +780,18 @@ fn draw_libraries_modal(
     theme: &crate::theme::Theme,
     state: &mut CreateState,
     area: Rect,
+    en: bool,
 ) {
     let modal = centered(area, 82, 20);
     state.lib_modal_area = modal;
     frame.render_widget(ratatui::widgets::Clear, modal);
     frame.render_widget(
         Block::bordered()
-            .title(" ▼ Bibliotecas Visuais, Efeitos & Mini Engine ")
+            .title(bi(
+                " ▼ Bibliotecas Visuais, Efeitos & Mini Engine ",
+                " ▼ Visual, Effects & Mini-Engine Libraries ",
+                en,
+            ))
             .border_style(theme.border_style(true)),
         modal,
     );
@@ -693,14 +808,19 @@ fn draw_libraries_modal(
 
     frame.render_widget(
         Paragraph::new(Span::styled(
-            "Clique/Enter adiciona · T insere template · D abre docs · Esc fecha",
+            bi(
+                "Clique/Enter adiciona · T insere template · D abre docs · Esc fecha",
+                "Click/Enter adds · T inserts template · D opens docs · Esc closes",
+                en,
+            ),
             theme.dim(),
         )),
         parts[0],
     );
 
     let cols = Layout::horizontal([Constraint::Length(28), Constraint::Min(18)]).split(parts[1]);
-    let items: Vec<ListItem> = crate::doc_hint::EXTRA_LIBRARIES
+    let libs = crate::doc_hint::extra_libraries(en);
+    let items: Vec<ListItem> = libs
         .iter()
         .enumerate()
         .map(|(idx, lib)| {
@@ -722,9 +842,7 @@ fn draw_libraries_modal(
         .collect();
     frame.render_widget(List::new(items), cols[0]);
 
-    let selected = crate::doc_hint::EXTRA_LIBRARIES
-        .get(state.lib_menu_sel)
-        .unwrap_or(&crate::doc_hint::EXTRA_LIBRARIES[0]);
+    let selected = libs.get(state.lib_menu_sel).unwrap_or(&libs[0]);
     let mut details = vec![
         Line::from(Span::styled(
             format!("{} · {}", selected.name, selected.category),
@@ -733,19 +851,28 @@ fn draw_libraries_modal(
         Line::from(selected.summary),
         Line::default(),
         Line::from(vec![
-            Span::styled("Como funciona: ", theme.title()),
+            Span::styled(bi("Como funciona: ", "How it works: ", en), theme.title()),
             Span::raw(selected.docs_pt),
         ]),
         Line::from(vec![
-            Span::styled("Inserção automática: ", theme.title()),
+            Span::styled(
+                bi("Inserção automática: ", "Auto import: ", en),
+                theme.title(),
+            ),
             Span::raw(selected.use_line),
         ]),
         Line::from(vec![
-            Span::styled("Símbolos principais: ", theme.title()),
+            Span::styled(
+                bi("Símbolos principais: ", "Key symbols: ", en),
+                theme.title(),
+            ),
             Span::raw(selected.key_items),
         ]),
         Line::default(),
-        Line::from(Span::styled("Exemplo rápido:", theme.dim())),
+        Line::from(Span::styled(
+            bi("Exemplo rápido:", "Quick example:", en),
+            theme.dim(),
+        )),
     ];
     for line in selected.example.lines() {
         details.push(Line::from(Span::styled(line, theme.success())));
@@ -753,13 +880,21 @@ fn draw_libraries_modal(
     frame.render_widget(
         Paragraph::new(details)
             .wrap(Wrap { trim: true })
-            .block(Block::bordered().title(" Documentação da Biblioteca ")),
+            .block(Block::bordered().title(bi(
+                " Documentação da Biblioteca ",
+                " Library Documentation ",
+                en,
+            ))),
         cols[1],
     );
 
     frame.render_widget(
         Paragraph::new(Span::styled(
-            format!("[ Docs: {} ] (clique ou D)", selected.doc_url),
+            format!(
+                "[ Docs: {} ] ({})",
+                selected.doc_url,
+                bi("clique ou D", "click or D", en)
+            ),
             theme.dim(),
         )),
         parts[2],
@@ -771,13 +906,18 @@ fn draw_build_modal(
     theme: &crate::theme::Theme,
     state: &mut CreateState,
     area: Rect,
+    en: bool,
 ) {
     let modal = centered(area, 72, 11);
     state.build_modal_area = modal;
     frame.render_widget(ratatui::widgets::Clear, modal);
     frame.render_widget(
         Block::bordered()
-            .title(" Compilar & Executar App (Linux / Windows / Bevy) ")
+            .title(bi(
+                " Compilar & Executar App (Linux / Windows / Bevy) ",
+                " Build & Run App (Linux / Windows / Bevy) ",
+                en,
+            ))
             .border_style(theme.border_style(true)),
         modal,
     );
@@ -794,18 +934,42 @@ fn draw_build_modal(
 
     frame.render_widget(
         Paragraph::new(Span::styled(
-            "Escolha como compilar ou abrir seu projeto visual/CLI/Bevy:",
+            bi(
+                "Escolha como compilar ou abrir seu projeto visual/CLI/Bevy:",
+                "Choose how to build or launch your visual/CLI/Bevy project:",
+                en,
+            ),
             theme.dim(),
         )),
         parts[0],
     );
 
     let options = [
-        "Abrir em janela própria (GUI / Bevy / Mini Engine)",
-        "Rodar em outro terminal (cargo run externo — ideal p/ Bevy)",
-        "Compilar executável Linux release (target/release/...)",
-        "Compilar executável Windows .exe (x86_64-pc-windows-gnu)",
-        "Build padrão debug no workspace (cargo build)",
+        bi(
+            "Abrir em janela própria (GUI / Bevy / Mini Engine)",
+            "Open in separate window (GUI / Bevy / Mini Engine)",
+            en,
+        ),
+        bi(
+            "Rodar em outro terminal (cargo run externo — ideal p/ Bevy)",
+            "Run in another terminal (external cargo run — ideal for Bevy)",
+            en,
+        ),
+        bi(
+            "Compilar executável Linux release (target/release/...)",
+            "Build Linux release binary (target/release/...)",
+            en,
+        ),
+        bi(
+            "Compilar executável Windows .exe (x86_64-pc-windows-gnu)",
+            "Cross-compile Windows .exe (x86_64-pc-windows-gnu)",
+            en,
+        ),
+        bi(
+            "Build padrão debug no workspace (cargo build)",
+            "Standard workspace debug build (cargo build)",
+            en,
+        ),
     ];
     let items: Vec<ListItem> = options
         .iter()
@@ -828,7 +992,11 @@ fn draw_build_modal(
 
     frame.render_widget(
         Paragraph::new(Span::styled(
-            "Enter ou clique confirma · ↑/↓ navega · Esc fecha",
+            bi(
+                "Enter ou clique confirma · ↑/↓ navega · Esc fecha",
+                "Enter or click confirms · ↑/↓ navigates · Esc closes",
+                en,
+            ),
             theme.dim(),
         )),
         parts[2],
@@ -841,18 +1009,22 @@ fn draw_agent_panel(
     ai: &AiSettings,
     state: &mut CreateState,
     area: Rect,
+    en: bool,
 ) {
     let mut provider_label = match ai.provider {
         AiProvider::Ollama => format!("Ollama · {}", ai.ollama_model),
         AiProvider::Remote => format!("API · {}", ai.remote_model),
-        AiProvider::Disabled => "Guia local".to_string(),
+        AiProvider::Disabled => bi("Guia local", "Local guide", en).to_string(),
     };
     if state.agent_running() {
-        provider_label.push_str(" · pensando…");
+        provider_label.push_str(bi(" · pensando…", " · thinking…", en));
     }
     let focused = state.focus == Focus::Agent;
     let block = Block::bordered()
-        .title(format!(" Agente · {provider_label} "))
+        .title(format!(
+            " {} · {provider_label} ",
+            bi("Agente", "Agent", en)
+        ))
         .border_style(theme.border_style(focused));
     let inner_area = block.inner(area);
     frame.render_widget(block, area);
@@ -874,7 +1046,11 @@ fn draw_agent_panel(
             lines.push(Line::default());
         }
         let (prefix, header_style, body_style) = match msg.role {
-            AgentRole::User => ("Você: ".to_string(), theme.title(), theme.base()),
+            AgentRole::User => (
+                bi("Você: ", "You: ", en).to_string(),
+                theme.title(),
+                theme.base(),
+            ),
             AgentRole::Agent => (format!("{}: ", msg.sender), theme.success(), theme.base()),
             AgentRole::System => (format!("{}: ", msg.sender), theme.dim(), theme.dim()),
         };
@@ -901,7 +1077,11 @@ fn draw_agent_panel(
     if state.agent.proposed_code.is_some() {
         frame.render_widget(
             Paragraph::new(Line::from(Span::styled(
-                "★ Código pronto: Alt+Enter (ou /aplicar) aplica no editor (Ctrl+Z desfaz)",
+                bi(
+                    "★ Código pronto: Alt+Enter (ou /aplicar) aplica no editor (Ctrl+Z desfaz)",
+                    "★ Code ready: Alt+Enter (or /apply) applies to editor (Ctrl+Z undoes)",
+                    en,
+                ),
                 theme.success(),
             ))),
             parts[1],
@@ -915,7 +1095,11 @@ fn draw_agent_panel(
             Span::styled("_", if focused { theme.title() } else { theme.dim() }),
         ]),
         Line::from(Span::styled(
-            "Enter envia · Alt+O modelo · Alt+Enter aplicar · Esc editor",
+            bi(
+                "Enter envia · Alt+O modelo · Alt+Enter aplicar · Esc editor",
+                "Enter sends · Alt+O model · Alt+Enter apply · Esc editor",
+                en,
+            ),
             theme.dim(),
         )),
     ];
@@ -925,16 +1109,20 @@ fn draw_agent_panel(
     );
 }
 
-fn draw_consent(frame: &mut Frame, area: Rect, theme: &crate::theme::Theme) {
+fn draw_consent(frame: &mut Frame, area: Rect, theme: &crate::theme::Theme, en: bool) {
     let popup = centered(area, 74, 12);
-    let text = "Execução local NÃO é sandbox.\nSeu código e dependências rodam com permissões da sua conta: podem acessar arquivos, rede e iniciar processos.\n\nF5 aceita entrada por linhas (não é terminal completo). Dependências podem usar a rede.\n\nNada foi executado ainda. Enter autoriza comandos futuros; Esc recusa.";
+    let text = bi(
+        "Execução local NÃO é sandbox.\nSeu código e dependências rodam com permissões da sua conta: podem acessar arquivos, rede e iniciar processos.\n\nF5 aceita entrada por linhas (não é terminal completo). Dependências podem usar a rede.\n\nNada foi executado ainda. Enter autoriza comandos futuros; Esc recusa.",
+        "Local execution is NOT sandboxed.\nYour code and dependencies run with your account permissions: they may access files, network, and spawn processes.\n\nF5 reads line-by-line input (not a full terminal). Dependencies may access the network.\n\nNothing has run yet. Enter authorizes future commands; Esc declines.",
+        en,
+    );
     frame.render_widget(ratatui::widgets::Clear, popup);
     frame.render_widget(
         Paragraph::new(text)
             .style(Style::default().fg(theme.warning))
             .block(
                 Block::bordered()
-                    .title(" Consentimento de execução ")
+                    .title(bi(" Consentimento de execução ", " Execution Consent ", en))
                     .border_style(theme.border_style(true)),
             )
             .wrap(Wrap { trim: true }),
@@ -947,13 +1135,18 @@ fn draw_lab_modal(
     theme: &crate::theme::Theme,
     state: &mut CreateState,
     area: Rect,
+    en: bool,
 ) {
     let modal = centered(area, 88, 24);
     state.lab_modal_area = modal;
     frame.render_widget(ratatui::widgets::Clear, modal);
     frame.render_widget(
         Block::bordered()
-            .title(format!(" Laboratório RustLab · {} ", state.lab.tab.title()))
+            .title(format!(
+                " {} · {} ",
+                crate::i18n::bi("Laboratório RustLab", "RustLab Lab", en),
+                state.lab.tab.title_for(en)
+            ))
             .border_style(theme.border_style(true)),
         modal,
     );
@@ -974,9 +1167,9 @@ fn draw_lab_modal(
         .flat_map(|tab| {
             let active = *tab == state.lab.tab;
             let label = if active {
-                format!("[{}]", tab.short_title())
+                format!("[{}]", tab.short_title_for(en))
             } else {
-                tab.short_title().to_string()
+                tab.short_title_for(en).to_string()
             };
             let style = if active {
                 theme.selection()
@@ -993,47 +1186,91 @@ fn draw_lab_modal(
 
     let footer_hint = match state.lab.tab {
         crate::lab_tools::LabToolTab::RaioXMemoria => {
-            draw_lab_xray(frame, theme, state, parts[1]);
-            "R recalcula · 1-9/0/Tab troca ferramenta · PgUp/PgDn rola · Esc fecha"
+            draw_lab_xray(frame, theme, state, parts[1], en);
+            crate::i18n::bi(
+                "R recalcula · 1-9/0/Tab troca ferramenta · PgUp/PgDn rola · Esc fecha",
+                "R recalculate · 1-9/0/Tab switch tool · PgUp/PgDn scroll · Esc close",
+                en,
+            )
         }
         crate::lab_tools::LabToolTab::LenteCompilador => {
-            draw_lab_lens(frame, theme, state, parts[1]);
-            "S alterna Modo 10 Anos (ELI10) · ↑↓ solução · Enter envia p/ Agente · Esc fecha"
+            draw_lab_lens(frame, theme, state, parts[1], en);
+            crate::i18n::bi(
+                "S alterna Modo 10 Anos (ELI10) · ↑↓ solução · Enter envia p/ Agente · Esc fecha",
+                "S toggle 10-Year-Old Mode (ELI10) · ↑↓ fix · Enter send to Agent · Esc close",
+                en,
+            )
         }
         crate::lab_tools::LabToolTab::DebuggerVisual => {
-            draw_lab_debugger(frame, theme, state, parts[1]);
-            "N/F10 over · S into · C bp · B ● · G gdb/lldb nativo · R reinicia · X para"
+            draw_lab_debugger(frame, theme, state, parts[1], en);
+            crate::i18n::bi(
+                "N/F10 over · S into · C bp · B ● · G gdb/lldb nativo · R reinicia · X para",
+                "N/F10 over · S into · C bp · B ● · G native gdb/lldb · R restart · X stop",
+                en,
+            )
         }
         crate::lab_tools::LabToolTab::ConserteOCodigo => {
-            draw_lab_quests(frame, theme, state, parts[1]);
-            "↑↓ escolhe missão · Enter carrega quebrado no editor · V valida conserto + XP"
+            draw_lab_quests(frame, theme, state, parts[1], en);
+            crate::i18n::bi(
+                "↑↓ escolhe missão · Enter carrega quebrado no editor · V valida conserto + XP",
+                "↑↓ pick quest · Enter load broken code · V verify fix + XP",
+                en,
+            )
         }
         crate::lab_tools::LabToolTab::PlaygroundComunidade => {
-            draw_lab_playground(frame, theme, state, parts[1]);
-            "O abre Playground · E exporta Markdown · ↑↓ abordagem · T aplica no editor"
+            draw_lab_playground(frame, theme, state, parts[1], en);
+            crate::i18n::bi(
+                "O abre Playground · E exporta Markdown · ↑↓ abordagem · T aplica no editor",
+                "O open Playground · E export Markdown · ↑↓ approach · T apply in editor",
+                en,
+            )
         }
         crate::lab_tools::LabToolTab::EcossistemasModernos => {
-            draw_lab_ecosystems(frame, theme, state, parts[1]);
-            "↑↓ trilha · Enter/T insere template completo · D adiciona dep ao Cargo.toml"
+            draw_lab_ecosystems(frame, theme, state, parts[1], en);
+            crate::i18n::bi(
+                "↑↓ trilha · Enter/T insere template completo · D adiciona dep ao Cargo.toml",
+                "↑↓ track · Enter/T insert full template · D add dep to Cargo.toml",
+                en,
+            )
         }
         crate::lab_tools::LabToolTab::MapaLifetimes => {
-            draw_lab_lifetimes(frame, theme, state, parts[1]);
-            "L alterna marcadores ┣/┃/✘ na margem · R recalcula · PgUp/PgDn rola · Esc fecha"
+            draw_lab_lifetimes(frame, theme, state, parts[1], en);
+            crate::i18n::bi(
+                "L alterna marcadores ┣/┃/✘ na margem · R recalcula · PgUp/PgDn rola · Esc fecha",
+                "L toggle ┣/┃/✘ gutter markers · R recalculate · PgUp/PgDn scroll · Esc close",
+                en,
+            )
         }
         crate::lab_tools::LabToolTab::LayoutMemoria => {
-            draw_lab_layout(frame, theme, state, parts[1]);
-            "R recalcula · O/Enter envia ordem otimizada de campos ao Agente · Esc fecha"
+            draw_lab_layout(frame, theme, state, parts[1], en);
+            crate::i18n::bi(
+                "R recalcula · O/Enter envia ordem otimizada de campos ao Agente · Esc fecha",
+                "R recalculate · O/Enter send optimized field order to Agent · Esc close",
+                en,
+            )
         }
         crate::lab_tools::LabToolTab::DesacucararMacros => {
-            draw_lab_desugar(frame, theme, state, parts[1]);
-            "↑↓ escolhe macro/syntax sugar · Enter envia expansão ao Agente · Esc fecha"
+            draw_lab_desugar(frame, theme, state, parts[1], en);
+            crate::i18n::bi(
+                "↑↓ escolhe macro/syntax sugar · Enter envia expansão ao Agente · Esc fecha",
+                "↑↓ pick macro/syntax sugar · Enter send expansion to Agent · Esc close",
+                en,
+            )
         }
         crate::lab_tools::LabToolTab::PoliglotaIntuicao => {
-            draw_lab_polyglot_intuition(frame, theme, state, parts[1]);
+            draw_lab_polyglot_intuition(frame, theme, state, parts[1], en);
             if state.lab.polyglot_mode_flashcards {
-                "T Dicionário · ↑↓ card · C Compila ✔ · E Dá Erro ✘ (+25 XP/SRS) · Esc fecha"
+                crate::i18n::bi(
+                    "T Dicionário · ↑↓ card · C Compila ✔ · E Dá Erro ✘ (+25 XP/SRS) · Esc fecha",
+                    "T Dictionary · ↑↓ card · C Compiles ✔ · E Error ✘ (+25 XP/SRS) · Esc close",
+                    en,
+                )
             } else {
-                "T Flashcards · ↑↓ tópico · F filtro py/js/c++ · Enter carrega exemplo Rust"
+                crate::i18n::bi(
+                    "T Flashcards · ↑↓ tópico · F filtro py/js/c++ · Enter carrega exemplo Rust",
+                    "T Flashcards · ↑↓ topic · F filter py/js/c++ · Enter load Rust example",
+                    en,
+                )
             }
         }
     };
@@ -1057,21 +1294,30 @@ fn draw_lab_xray(
     theme: &crate::theme::Theme,
     state: &mut CreateState,
     area: Rect,
+    en: bool,
 ) {
     let report = state.lab.last_xray.clone().unwrap_or_else(|| {
-        crate::lab_tools::MemoryXRayReport::analyze(&state.editor.buf.to_string_lossy())
+        crate::lab_tools::MemoryXRayReport::analyze_for(&state.editor.buf.to_string_lossy(), en)
     });
     let lines: Vec<Line> = report
-        .summary_lines()
+        .summary_lines_for(en)
         .into_iter()
         .map(|s| {
-            let style = if s.contains("CONFLITO") || s.contains("✗ movido") {
+            let style = if s.contains("CONFLITO")
+                || s.contains("CONFLICT")
+                || s.contains("✗ movido")
+                || s.contains("✗ moved")
+            {
                 theme.error()
-            } else if s.contains("Zero-Cost") || s.contains("[✓ ativo]") {
+            } else if s.contains("Zero-Cost") || s.contains("[✓ ativo]") || s.contains("[✓ active]")
+            {
                 theme.success()
             } else if s.starts_with("Medidor")
+                || s.starts_with("Meter")
                 || s.starts_with("Mapa Visual")
+                || s.starts_with("Visual")
                 || s.starts_with("Eventos")
+                || s.starts_with("Events")
             {
                 theme.title()
             } else {
@@ -1088,14 +1334,14 @@ fn draw_lab_lens(
     theme: &crate::theme::Theme,
     state: &mut CreateState,
     area: Rect,
+    en: bool,
 ) {
     let diag_text = state.diagnostics_text_summary();
     let code = state.editor.buf.to_string_lossy();
-    let lens = state
-        .lab
-        .last_lens
-        .clone()
-        .unwrap_or_else(|| crate::lab_tools::SocraticErrorLens::analyze(&diag_text, &code));
+    let lens =
+        state.lab.last_lens.clone().unwrap_or_else(|| {
+            crate::lab_tools::SocraticErrorLens::analyze_for(&diag_text, &code, en)
+        });
     let mut lines = vec![
         Line::from(Span::styled(
             format!("[{}] {}", lens.code, lens.title),
@@ -1103,15 +1349,27 @@ fn draw_lab_lens(
         )),
         Line::from(Span::styled(
             if state.lab.eli10_mode {
-                format!("Modo 10 Anos (ELI10): {}", lens.eli10_metaphor)
+                format!(
+                    "{}{}",
+                    crate::i18n::bi("Modo 10 Anos (ELI10): ", "10-Year-Old Mode (ELI10): ", en),
+                    lens.eli10_metaphor
+                )
             } else {
-                format!("Pergunta Socrática: {}", lens.socratic_question)
+                format!(
+                    "{}{}",
+                    crate::i18n::bi("Pergunta Socrática: ", "Socratic Question: ", en),
+                    lens.socratic_question
+                )
             },
             theme.warning(),
         )),
         Line::default(),
         Line::from(Span::styled(
-            "Comparativo Antes → Depois (escolha 1..3):",
+            crate::i18n::bi(
+                "Comparativo Antes → Depois (escolha 1..3):",
+                "Before → After Comparison (pick 1..3):",
+                en,
+            ),
             theme.title(),
         )),
     ];
@@ -1128,11 +1386,17 @@ fn draw_lab_lens(
             if sel { theme.selection() } else { theme.base() },
         )));
         lines.push(Line::from(vec![
-            Span::styled("   Antes : ", theme.error()),
+            Span::styled(
+                crate::i18n::bi("   Antes : ", "   Before: ", en),
+                theme.error(),
+            ),
             Span::raw(fix.before.replace('\n', " | ")),
         ]));
         lines.push(Line::from(vec![
-            Span::styled("   Depois: ", theme.success()),
+            Span::styled(
+                crate::i18n::bi("   Depois: ", "   After : ", en),
+                theme.success(),
+            ),
             Span::raw(fix.after.replace('\n', " | ")),
         ]));
     }
@@ -1144,6 +1408,7 @@ fn draw_lab_debugger(
     theme: &crate::theme::Theme,
     state: &mut CreateState,
     area: Rect,
+    en: bool,
 ) {
     let bps: Vec<String> = state
         .lab
@@ -1153,45 +1418,70 @@ fn draw_lab_debugger(
         .map(|l| format!("L{l}"))
         .collect();
     let bp_text = if bps.is_empty() {
-        "nenhum (Alt+B na linha do editor)".to_string()
+        crate::i18n::bi(
+            "nenhum (Alt+B na linha do editor)",
+            "none (Alt+B on editor line)",
+            en,
+        )
+        .to_string()
     } else {
         bps.join(", ")
     };
+    let status_lbl = if state.lab.debugger.active {
+        crate::i18n::bi("ATIVO", "ACTIVE", en)
+    } else {
+        crate::i18n::bi("PARADO", "STOPPED", en)
+    };
     let mut lines = vec![Line::from(Span::styled(
         format!(
-            "Estado: {} · Breakpoints ●: {bp_text}",
-            if state.lab.debugger.active {
-                "ATIVO"
-            } else {
-                "PARADO"
-            }
+            "{}: {status_lbl} · Breakpoints ●: {bp_text}",
+            crate::i18n::bi("Estado", "State", en)
         ),
         theme.title(),
     ))];
     if let Some(step) = state.lab.debugger.current() {
         lines.push(Line::from(Span::styled(
-            format!(
-                "Passo {}/{} ▶ Linha {} em `{}`: {}",
-                step.step_index + 1,
-                state.lab.debugger.steps.len(),
-                step.line_1based,
-                step.func,
-                step.code_line
-            ),
+            if en {
+                format!(
+                    "Step {}/{} ▶ Line {} in `{}`: {}",
+                    step.step_index + 1,
+                    state.lab.debugger.steps.len(),
+                    step.line_1based,
+                    step.func,
+                    step.code_line
+                )
+            } else {
+                format!(
+                    "Passo {}/{} ▶ Linha {} em `{}`: {}",
+                    step.step_index + 1,
+                    state.lab.debugger.steps.len(),
+                    step.line_1based,
+                    step.func,
+                    step.code_line
+                )
+            },
             theme.success(),
         )));
         lines.push(Line::from(Span::styled(
             format!(
-                "Nota: {} · Call Stack: {}",
+                "{}: {} · Call Stack: {}",
+                crate::i18n::bi("Nota", "Note", en),
                 step.note,
                 step.call_stack.join(" → ")
             ),
             theme.dim(),
         )));
         lines.push(Line::default());
-        lines.push(Line::from(Span::styled("Variáveis Locais:", theme.title())));
+        lines.push(Line::from(Span::styled(
+            crate::i18n::bi("Variáveis Locais:", "Local Variables:", en),
+            theme.title(),
+        )));
         if step.locals.is_empty() {
-            lines.push(Line::from("  (nenhuma variável inicializada neste ponto)"));
+            lines.push(Line::from(crate::i18n::bi(
+                "  (nenhuma variável inicializada neste ponto)",
+                "  (no initialized variables at this point)",
+                en,
+            )));
         } else {
             for loc in &step.locals {
                 lines.push(Line::from(format!(
@@ -1206,25 +1496,35 @@ fn draw_lab_debugger(
         }
         if !step.stdout.is_empty() {
             lines.push(Line::default());
-            lines.push(Line::from(Span::styled("Saída capturada:", theme.title())));
+            lines.push(Line::from(Span::styled(
+                crate::i18n::bi("Saída capturada:", "Captured output:", en),
+                theme.title(),
+            )));
             for out in &step.stdout {
                 lines.push(Line::from(format!("  > {out}")));
             }
         }
     } else {
-        lines.push(Line::from(
+        lines.push(Line::from(crate::i18n::bi(
             "Pressione N/F10 ou R para iniciar a execução passo a passo do arquivo aberto.",
-        ));
+            "Press N/F10 or R to start step-by-step execution of the open file.",
+            en,
+        )));
     }
-    let probe = crate::lab_tools::detect_native_debugger();
+    let probe = crate::lab_tools::detect_native_debugger_for(en);
     lines.push(Line::default());
     lines.push(Line::from(Span::styled(
         format!(
-            "Debugger Nativo (opcional [G]): {} ({})",
+            "{}: {} ({})",
+            crate::i18n::bi(
+                "Debugger Nativo (opcional [G])",
+                "Native Debugger (optional [G])",
+                en
+            ),
             if probe.available {
-                "DISPONÍVEL"
+                crate::i18n::bi("DISPONÍVEL", "AVAILABLE", en)
             } else {
-                "não encontrado no PATH"
+                crate::i18n::bi("não encontrado no PATH", "not found in PATH", en)
             },
             probe.binary_name
         ),
@@ -1243,9 +1543,11 @@ fn draw_lab_quests(
     theme: &crate::theme::Theme,
     state: &mut CreateState,
     area: Rect,
+    en: bool,
 ) {
     let cols = Layout::horizontal([Constraint::Length(34), Constraint::Min(20)]).split(area);
-    let items: Vec<ListItem> = crate::lab_tools::TROUBLESHOOTING_QUESTS
+    let quests = crate::lab_tools::troubleshooting_quests(en);
+    let items: Vec<ListItem> = quests
         .iter()
         .enumerate()
         .map(|(i, q)| {
@@ -1262,24 +1564,35 @@ fn draw_lab_quests(
         })
         .collect();
     frame.render_widget(
-        List::new(items).block(Block::bordered().title(" Desafios (8) ")),
+        List::new(items).block(Block::bordered().title(crate::i18n::bi(
+            " Desafios (8) ",
+            " Challenges (8) ",
+            en,
+        ))),
         cols[0],
     );
-    let q = crate::lab_tools::TROUBLESHOOTING_QUESTS[state
-        .lab
-        .quest_sel
-        .min(crate::lab_tools::TROUBLESHOOTING_QUESTS.len() - 1)];
+    let q = quests[state.lab.quest_sel.min(quests.len() - 1)];
     let mut detail = vec![
         Line::from(Span::styled(
-            format!(
-                "{} · Tag: {} · Par: {} linhas · Max Heap: {}",
-                q.id, q.error_tag, q.par_lines, q.max_heap_allocs
-            ),
+            if en {
+                format!(
+                    "{} · Tag: {} · Par: {} lines · Max Heap: {}",
+                    q.id, q.error_tag, q.par_lines, q.max_heap_allocs
+                )
+            } else {
+                format!(
+                    "{} · Tag: {} · Par: {} linhas · Max Heap: {}",
+                    q.id, q.error_tag, q.par_lines, q.max_heap_allocs
+                )
+            },
             theme.title(),
         )),
         Line::from(q.description),
         Line::default(),
-        Line::from(Span::styled(format!("Dica: {}", q.hint), theme.dim())),
+        Line::from(Span::styled(
+            format!("{}{}", crate::i18n::bi("Dica: ", "Hint: ", en), q.hint),
+            theme.dim(),
+        )),
     ];
     if let Some(fb) = &state.lab.last_quest_feedback {
         detail.push(Line::default());
@@ -1288,7 +1601,11 @@ fn draw_lab_quests(
     frame.render_widget(
         Paragraph::new(detail)
             .wrap(Wrap { trim: true })
-            .block(Block::bordered().title(" Detalhes da Missão ")),
+            .block(Block::bordered().title(crate::i18n::bi(
+                " Detalhes da Missão ",
+                " Mission Details ",
+                en,
+            ))),
         cols[1],
     );
 }
@@ -1298,25 +1615,45 @@ fn draw_lab_playground(
     theme: &crate::theme::Theme,
     state: &mut CreateState,
     area: Rect,
+    en: bool,
 ) {
     let code = state.editor.buf.to_string_lossy();
     let url = crate::lab_tools::build_playground_url(&code);
-    let sols = crate::lab_tools::community_solutions_for(&code);
+    let sols = crate::lab_tools::community_solutions_for_lang(&code, en);
     let mut lines = vec![
-        Line::from(Span::styled("Rust Playground Link Gerado:", theme.title())),
+        Line::from(Span::styled(
+            crate::i18n::bi(
+                "Rust Playground Link Gerado:",
+                "Generated Rust Playground Link:",
+                en,
+            ),
+            theme.title(),
+        )),
         Line::from(Span::styled(url, theme.dim())),
         Line::from(format!(
-            "Exportação local: {}",
+            "{}: {}",
+            crate::i18n::bi("Exportação local", "Local export", en),
             state
                 .lab
                 .last_export_path
                 .as_ref()
                 .map(|p| p.display().to_string())
-                .unwrap_or_else(|| "Pressione E para gerar COMPARTILHAR_RUSTLAB.md".to_string())
+                .unwrap_or_else(|| {
+                    crate::i18n::bi(
+                        "Pressione E para gerar COMPARTILHAR_RUSTLAB.md",
+                        "Press E to generate SHARE_RUSTLAB.md",
+                        en,
+                    )
+                    .to_string()
+                })
         )),
         Line::default(),
         Line::from(Span::styled(
-            "Soluções Idiomáticas da Comunidade:",
+            crate::i18n::bi(
+                "Soluções Idiomáticas da Comunidade:",
+                "Idiomatic Community Solutions:",
+                en,
+            ),
             theme.title(),
         )),
     ];
@@ -1336,7 +1673,11 @@ fn draw_lab_playground(
     let picked = sols[state.lab.community_sel.min(2)];
     lines.push(Line::default());
     lines.push(Line::from(Span::styled(
-        "Prévia da abordagem selecionada:",
+        crate::i18n::bi(
+            "Prévia da abordagem selecionada:",
+            "Preview of selected approach:",
+            en,
+        ),
         theme.dim(),
     )));
     for l in picked.code.lines().take(7) {
@@ -1350,9 +1691,11 @@ fn draw_lab_ecosystems(
     theme: &crate::theme::Theme,
     state: &mut CreateState,
     area: Rect,
+    en: bool,
 ) {
     let cols = Layout::horizontal([Constraint::Length(36), Constraint::Min(20)]).split(area);
-    let items: Vec<ListItem> = crate::lab_tools::MODERN_ECOSYSTEMS
+    let ecos = crate::lab_tools::modern_ecosystems(en);
+    let items: Vec<ListItem> = ecos
         .iter()
         .enumerate()
         .map(|(i, eco)| {
@@ -1369,13 +1712,14 @@ fn draw_lab_ecosystems(
         })
         .collect();
     frame.render_widget(
-        List::new(items).block(Block::bordered().title(" Trilhas Modernas ")),
+        List::new(items).block(Block::bordered().title(crate::i18n::bi(
+            " Trilhas Modernas ",
+            " Modern Tracks ",
+            en,
+        ))),
         cols[0],
     );
-    let eco = crate::lab_tools::MODERN_ECOSYSTEMS[state
-        .lab
-        .ecosystem_sel
-        .min(crate::lab_tools::MODERN_ECOSYSTEMS.len() - 1)];
+    let eco = ecos[state.lab.ecosystem_sel.min(ecos.len() - 1)];
     let mut lines = vec![
         Line::from(Span::styled(
             format!("{} · {}", eco.name, eco.ecosystem),
@@ -1396,7 +1740,11 @@ fn draw_lab_ecosystems(
     frame.render_widget(
         Paragraph::new(lines)
             .wrap(Wrap { trim: true })
-            .block(Block::bordered().title(" Arquitetura & Template ")),
+            .block(Block::bordered().title(crate::i18n::bi(
+                " Arquitetura & Template ",
+                " Architecture & Template ",
+                en,
+            ))),
         cols[1],
     );
 }
@@ -1406,30 +1754,44 @@ fn draw_lab_lifetimes(
     theme: &crate::theme::Theme,
     state: &mut CreateState,
     area: Rect,
+    en: bool,
 ) {
     let report = state.lab.last_lifetimes.clone().unwrap_or_else(|| {
-        crate::lab_tools::LifetimeVisualizerReport::analyze(&state.editor.buf.to_string_lossy())
+        crate::lab_tools::LifetimeVisualizerReport::analyze_for(
+            &state.editor.buf.to_string_lossy(),
+            en,
+        )
     });
     let mut lines = vec![Line::from(Span::styled(
         format!(
-            "Marcadores na margem [L]: {}  (┣ nascimento · ┃ vivo · ✘ conflito)",
+            "{}: {}  ({})",
+            crate::i18n::bi("Marcadores na margem [L]", "Gutter markers [L]", en),
             if state.lab.lifetime_gutter_enabled {
-                "ATIVADOS"
+                crate::i18n::bi("ATIVADOS", "ENABLED", en)
             } else {
-                "desligados"
-            }
+                crate::i18n::bi("desligados", "off", en)
+            },
+            crate::i18n::bi(
+                "┣ nascimento · ┃ vivo · ✘ conflito",
+                "┣ birth · ┃ alive · ✘ conflict",
+                en
+            )
         ),
         theme.title(),
     ))];
     lines.push(Line::default());
-    for raw in report.summary_lines() {
-        let style = if raw.contains("✘") || raw.contains("Conflitos") {
+    for raw in report.summary_lines_for(en) {
+        let style = if raw.contains("✘") || raw.contains("Conflitos") || raw.contains("Conflicts")
+        {
             theme.error()
         } else if raw.contains("✓") || raw.contains("&'a") {
             theme.success()
         } else if raw.contains("&'b mut") {
             theme.warning()
-        } else if raw.starts_with("Linha do Tempo") || raw.starts_with("Lifetimes") {
+        } else if raw.starts_with("Linha do Tempo")
+            || raw.starts_with("Timeline")
+            || raw.starts_with("Lifetimes")
+        {
             theme.title()
         } else {
             theme.base()
@@ -1444,47 +1806,79 @@ fn draw_lab_layout(
     theme: &crate::theme::Theme,
     state: &mut CreateState,
     area: Rect,
+    en: bool,
 ) {
     let report = state.lab.last_layout.clone().unwrap_or_else(|| {
-        crate::lab_tools::MemoryLayoutReport::analyze(&state.editor.buf.to_string_lossy())
+        crate::lab_tools::MemoryLayoutReport::analyze_for(&state.editor.buf.to_string_lossy(), en)
     });
     let mut lines = Vec::new();
     if report.user_types.is_empty() {
         lines.push(Line::from(Span::styled(
-            "Nenhuma `struct` com campos encontrada no arquivo aberto.",
+            crate::i18n::bi(
+                "Nenhuma `struct` com campos encontrada no arquivo aberto.",
+                "No `struct` with fields found in the open file.",
+                en,
+            ),
             theme.dim(),
         )));
     } else {
         for st in &report.user_types {
             let mode = if st.is_repr_c {
-                "#[repr(C)] (ordem fixa)"
+                crate::i18n::bi("#[repr(C)] (ordem fixa)", "#[repr(C)] (fixed order)", en)
             } else {
-                "#[repr(Rust)] (compilador pode reordenar)"
+                crate::i18n::bi(
+                    "#[repr(Rust)] (compilador pode reordenar)",
+                    "#[repr(Rust)] (compiler may reorder)",
+                    en,
+                )
             };
             lines.push(Line::from(Span::styled(
-                format!(
-                    "struct {} · {} · size_of = {}B · align_of = {}B · Padding = {}B · Ótimo = {}B (-{}B)",
-                    st.name,
-                    mode,
-                    st.declared_size,
-                    st.declared_align,
-                    st.total_padding,
-                    st.optimal_size,
-                    st.bytes_saved
-                ),
+                if en {
+                    format!(
+                        "struct {} · {} · size_of = {}B · align_of = {}B · Padding = {}B · Opt = {}B (-{}B)",
+                        st.name,
+                        mode,
+                        st.declared_size,
+                        st.declared_align,
+                        st.total_padding,
+                        st.optimal_size,
+                        st.bytes_saved
+                    )
+                } else {
+                    format!(
+                        "struct {} · {} · size_of = {}B · align_of = {}B · Padding = {}B · Ótimo = {}B (-{}B)",
+                        st.name,
+                        mode,
+                        st.declared_size,
+                        st.declared_align,
+                        st.total_padding,
+                        st.optimal_size,
+                        st.bytes_saved
+                    )
+                },
                 theme.title(),
             )));
             for f in &st.fields {
                 lines.push(Line::from(format!(
-                    "  +{:<3}B  {:<12}: {:<16} size={}B align={}B  (padding antes: {}B)",
-                    f.offset, f.name, f.ty, f.size, f.align, f.padding_before
+                    "  +{:<3}B  {:<12}: {:<16} size={}B align={}B  ({}: {}B)",
+                    f.offset,
+                    f.name,
+                    f.ty,
+                    f.size,
+                    f.align,
+                    crate::i18n::bi("padding antes", "padding before", en),
+                    f.padding_before
                 )));
             }
             lines.push(Line::default());
         }
     }
     lines.push(Line::from(Span::styled(
-        "Null Pointer Optimization (NPO) & Tipos da Biblioteca Padrão:",
+        crate::i18n::bi(
+            "Null Pointer Optimization (NPO) & Tipos da Biblioteca Padrão:",
+            "Null Pointer Optimization (NPO) & Standard Library Types:",
+            en,
+        ),
         theme.title(),
     )));
     for fact in &report.npo_facts {
@@ -1507,9 +1901,10 @@ fn draw_lab_desugar(
     theme: &crate::theme::Theme,
     state: &mut CreateState,
     area: Rect,
+    en: bool,
 ) {
     let report = state.lab.last_desugar.clone().unwrap_or_else(|| {
-        crate::lab_tools::DesugarReport::analyze(&state.editor.buf.to_string_lossy())
+        crate::lab_tools::DesugarReport::analyze_for(&state.editor.buf.to_string_lossy(), en)
     });
     let cols = Layout::horizontal([Constraint::Length(34), Constraint::Min(20)]).split(area);
     let sel = state
@@ -1541,16 +1936,20 @@ fn draw_lab_desugar(
         .collect();
     frame.render_widget(
         List::new(list_items).block(Block::bordered().title(if report.detected_from_editor {
-            " Detectados no Editor "
+            crate::i18n::bi(" Detectados no Editor ", " Detected in Editor ", en)
         } else {
-            " Exemplos Clássicos "
+            crate::i18n::bi(" Exemplos Clássicos ", " Classic Examples ", en)
         })),
         cols[0],
     );
     if let Some(item) = report.items.get(sel) {
         let mut detail = vec![
             Line::from(Span::styled(
-                "Você escreve (Syntax Sugar / Macro):",
+                crate::i18n::bi(
+                    "Você escreve (Syntax Sugar / Macro):",
+                    "You write (Syntax Sugar / Macro):",
+                    en,
+                ),
                 theme.title(),
             )),
             Line::from(Span::styled(
@@ -1559,7 +1958,11 @@ fn draw_lab_desugar(
             )),
             Line::default(),
             Line::from(Span::styled(
-                "O compilador expande por baixo dos panos:",
+                crate::i18n::bi(
+                    "O compilador expande por baixo dos panos:",
+                    "Compiler expands under the hood:",
+                    en,
+                ),
                 theme.title(),
             )),
         ];
@@ -1569,9 +1972,13 @@ fn draw_lab_desugar(
         detail.push(Line::default());
         detail.push(Line::from(item.explanation));
         frame.render_widget(
-            Paragraph::new(detail)
-                .wrap(Wrap { trim: true })
-                .block(Block::bordered().title(" Código Expandido ")),
+            Paragraph::new(detail).wrap(Wrap { trim: true }).block(
+                Block::bordered().title(crate::i18n::bi(
+                    " Código Expandido ",
+                    " Expanded Code ",
+                    en,
+                )),
+            ),
             cols[1],
         );
     }
@@ -1582,9 +1989,14 @@ fn draw_lab_polyglot_intuition(
     theme: &crate::theme::Theme,
     state: &mut CreateState,
     area: Rect,
+    en: bool,
 ) {
     if state.lab.polyglot_mode_flashcards {
-        let cards = crate::lab_tools::INTUITION_FLASHCARDS;
+        let cards = if en {
+            &crate::lab_tools::INTUITION_FLASHCARDS_EN[..]
+        } else {
+            &crate::lab_tools::INTUITION_FLASHCARDS[..]
+        };
         let sel = state.lab.flashcard_sel.min(cards.len() - 1);
         let card = cards[sel];
         let cols = Layout::horizontal([Constraint::Length(32), Constraint::Min(20)]).split(area);
@@ -1622,10 +2034,17 @@ fn draw_lab_polyglot_intuition(
         );
         let mut right = vec![
             Line::from(Span::styled(
-                format!(
-                    "{} · Tema: {} — Esse código compila ou dá Borrow Error?",
-                    card.id, card.topic
-                ),
+                if en {
+                    format!(
+                        "{} · Topic: {} — Does this code compile or give a Borrow Error?",
+                        card.id, card.topic
+                    )
+                } else {
+                    format!(
+                        "{} · Tema: {} — Esse código compila ou dá Borrow Error?",
+                        card.id, card.topic
+                    )
+                },
                 theme.title(),
             )),
             Line::default(),
@@ -1635,7 +2054,11 @@ fn draw_lab_polyglot_intuition(
         }
         right.push(Line::default());
         right.push(Line::from(Span::styled(
-            "Responda: [C] Compila ✔   ou   [E] Dá Erro de Compilação/Borrow ✘",
+            crate::i18n::bi(
+                "Responda: [C] Compila ✔   ou   [E] Dá Erro de Compilação/Borrow ✘",
+                "Answer: [C] Compiles ✔   or   [E] Compiler/Borrow Error ✘",
+                en,
+            ),
             theme.base(),
         )));
         if let Some((ok, msg)) = &state.lab.flashcard_feedback {
@@ -1648,13 +2071,17 @@ fn draw_lab_polyglot_intuition(
         frame.render_widget(
             Paragraph::new(right)
                 .wrap(Wrap { trim: true })
-                .block(Block::bordered().title(" Desafio Rápido (+25 XP + SRS) ")),
+                .block(Block::bordered().title(crate::i18n::bi(
+                    " Desafio Rápido (+25 XP + SRS) ",
+                    " Quick Challenge (+25 XP + SRS) ",
+                    en,
+                ))),
             cols[1],
         );
         return;
     }
 
-    let entries = crate::lab_tools::POLYGLOT_DICTIONARY;
+    let entries = crate::lab_tools::polyglot_dictionary(en);
     let sel = state.lab.polyglot_sel.min(entries.len() - 1);
     let cols = Layout::horizontal([Constraint::Length(34), Constraint::Min(20)]).split(area);
     let list_items: Vec<ListItem> = entries
@@ -1677,7 +2104,11 @@ fn draw_lab_polyglot_intuition(
         })
         .collect();
     frame.render_widget(
-        List::new(list_items).block(Block::bordered().title(" Dicionário Poliglota ")),
+        List::new(list_items).block(Block::bordered().title(crate::i18n::bi(
+            " Dicionário Poliglota ",
+            " Polyglot Dictionary ",
+            en,
+        ))),
         cols[0],
     );
     let entry = entries[sel];
@@ -1688,7 +2119,14 @@ fn draw_lab_polyglot_intuition(
         _ => "Python + JS + C++",
     };
     let mut right = vec![Line::from(Span::styled(
-        format!("{} · Comparação ({filter_name}) [F filtra]:", entry.concept),
+        if en {
+            format!(
+                "{} · Comparison ({filter_name}) [F filters]:",
+                entry.concept
+            )
+        } else {
+            format!("{} · Comparação ({filter_name}) [F filtra]:", entry.concept)
+        },
         theme.title(),
     ))];
     if matches!(state.lab.polyglot_lang_filter, 0 | 1) {
@@ -1722,7 +2160,11 @@ fn draw_lab_polyglot_intuition(
     frame.render_widget(
         Paragraph::new(right)
             .wrap(Wrap { trim: true })
-            .block(Block::bordered().title(" Enter carrega exemplo Rust ")),
+            .block(Block::bordered().title(crate::i18n::bi(
+                " Enter carrega exemplo Rust ",
+                " Enter loads Rust example ",
+                en,
+            ))),
         cols[1],
     );
 }
@@ -1743,5 +2185,35 @@ fn centered(area: Rect, width: u16, height: u16) -> Rect {
         y: area.y + (area.height - h) / 2,
         width: w,
         height: h,
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use ratatui::{Terminal, backend::TestBackend};
+
+    #[test]
+    fn renderiza_create_e_lab_em_ingles_sem_panico() {
+        let mut app = crate::app::App::for_snapshot();
+        app.config.language = "en-US".to_string();
+        app.create = Some(crate::create::CreateState::new_for(true));
+
+        let backend = TestBackend::new(120, 36);
+        let mut terminal = Terminal::new(backend).unwrap();
+        terminal
+            .draw(|frame| {
+                let area = frame.area();
+                super::draw(frame, &mut app, area);
+            })
+            .unwrap();
+
+        let buf = terminal.backend().buffer();
+        let text: String = buf
+            .content()
+            .iter()
+            .map(|c| c.symbol())
+            .collect::<Vec<_>>()
+            .join("");
+        assert!(text.contains("Create Mode") || text.contains("Projects"));
     }
 }

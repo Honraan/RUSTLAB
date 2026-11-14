@@ -13,7 +13,6 @@ use crate::config::ExecConsent;
 use crate::curriculum::{Block, ChapterStatus, Lesson};
 use crate::editor::Editor;
 use crate::execution::{ExecEvent, StreamKind, ToolCommand};
-use crate::i18n::t;
 
 const MAX_PRACTICE_OUTPUT: usize = 300;
 static PRACTICE_TEMP_COUNTER: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
@@ -40,20 +39,46 @@ impl FerrisMood {
     }
 
     pub fn label(self) -> &'static str {
-        match self {
-            Self::Neutral => "Ferris observando",
-            Self::Happy => "Boa!",
-            Self::Encouraging => "Quase lá!",
-            Self::Confused => "Hmm?",
+        self.label_for(false)
+    }
+
+    pub fn label_for(self, english: bool) -> &'static str {
+        if english {
+            match self {
+                Self::Neutral => "Ferris watching",
+                Self::Happy => "Nice!",
+                Self::Encouraging => "Almost there!",
+                Self::Confused => "Hmm?",
+            }
+        } else {
+            match self {
+                Self::Neutral => "Ferris observando",
+                Self::Happy => "Boa!",
+                Self::Encouraging => "Quase lá!",
+                Self::Confused => "Hmm?",
+            }
         }
     }
 
     pub fn caption(self) -> &'static str {
-        match self {
-            Self::Neutral => "Leia a lição e pratique abaixo.",
-            Self::Happy => "Excelente! Você resolveu de verdade.",
-            Self::Encouraging => "Todo erro ajuda a entender. Tente ajustar e rodar.",
-            Self::Confused => "Isso parece incompleto ou inesperado. Confira o código.",
+        self.caption_for(false)
+    }
+
+    pub fn caption_for(self, english: bool) -> &'static str {
+        if english {
+            match self {
+                Self::Neutral => "Read the lesson and practice below.",
+                Self::Happy => "Awesome! You solved it for real.",
+                Self::Encouraging => "Every error teaches something. Tweak and re-run.",
+                Self::Confused => "That looks incomplete or unexpected. Check your code.",
+            }
+        } else {
+            match self {
+                Self::Neutral => "Leia a lição e pratique abaixo.",
+                Self::Happy => "Excelente! Você resolveu de verdade.",
+                Self::Encouraging => "Todo erro ajuda a entender. Tente ajustar e rodar.",
+                Self::Confused => "Isso parece incompleto ou inesperado. Confira o código.",
+            }
         }
     }
 }
@@ -82,18 +107,36 @@ pub enum PracticeOutcome {
 }
 
 impl PracticeOutcome {
-    /// Rótulo compacto em português para cabeçalhos e leitura acessível (V3).
+    /// Rótulo compacto para cabeçalhos e leitura acessível (V3).
     pub const fn status_badge(self) -> &'static str {
-        match self {
-            Self::NotRun => "[Não verificado]",
-            Self::Running => "[Executando]",
-            Self::Passed => "[Aprovado]",
-            Self::CompileFailed => "[Erro de compilação]",
-            Self::RunFailed => "[Falha na execução]",
-            Self::ValidationFailed => "[Validação pendente]",
-            Self::TimedOut => "[Tempo esgotado]",
-            Self::Cancelled => "[Cancelado]",
-            Self::StartFailed => "[Falha ao iniciar]",
+        self.status_badge_for(false)
+    }
+
+    pub const fn status_badge_for(self, english: bool) -> &'static str {
+        if english {
+            match self {
+                Self::NotRun => "[Not checked]",
+                Self::Running => "[Running]",
+                Self::Passed => "[Passed]",
+                Self::CompileFailed => "[Compile error]",
+                Self::RunFailed => "[Run failed]",
+                Self::ValidationFailed => "[Check pending]",
+                Self::TimedOut => "[Timed out]",
+                Self::Cancelled => "[Cancelled]",
+                Self::StartFailed => "[Start failed]",
+            }
+        } else {
+            match self {
+                Self::NotRun => "[Não verificado]",
+                Self::Running => "[Executando]",
+                Self::Passed => "[Aprovado]",
+                Self::CompileFailed => "[Erro de compilação]",
+                Self::RunFailed => "[Falha na execução]",
+                Self::ValidationFailed => "[Validação pendente]",
+                Self::TimedOut => "[Tempo esgotado]",
+                Self::Cancelled => "[Cancelado]",
+                Self::StartFailed => "[Falha ao iniciar]",
+            }
         }
     }
 }
@@ -139,7 +182,11 @@ pub struct LessonPractice {
 
 impl LessonPractice {
     pub fn for_lesson(lesson_id: &str) -> Option<Self> {
-        let spec = practice_spec_for_lesson(lesson_id)?;
+        Self::for_lesson_lang(lesson_id, false)
+    }
+
+    pub fn for_lesson_lang(lesson_id: &str, english: bool) -> Option<Self> {
+        let spec = practice_spec_for_lesson_for(lesson_id, english)?;
         let editor = Editor::new(spec.starter, None);
         Some(Self {
             spec,
@@ -166,9 +213,13 @@ impl LessonPractice {
     }
 }
 
-/// Explica erros comuns do `rustc` em português claro sem consumir dicas nem XP independente.
+/// Explica erros comuns do `rustc` sem consumir dicas nem XP independente.
 pub fn explain_compiler_error_pt_br(output: &str) -> Option<String> {
-    const PATTERNS: &[(&[&str], &str)] = &[
+    explain_compiler_error_for(output, false)
+}
+
+pub fn explain_compiler_error_for(output: &str, english: bool) -> Option<String> {
+    const PATTERNS_PT: &[(&[&str], &str)] = &[
         (
             &["E0384"],
             "Variável imutável alterada (`E0384`): em Rust bindings `let` são fixos por padrão; use `let mut` quando precisar reatribuir.",
@@ -218,8 +269,59 @@ pub fn explain_compiler_error_pt_br(output: &str) -> Option<String> {
             "Ponto e vírgula ou sintaxe incompleta: verifique `;`, aspas equilibradas ou parênteses faltando.",
         ),
     ];
+    const PATTERNS_EN: &[(&[&str], &str)] = &[
+        (
+            &["E0384"],
+            "Immutable binding reassigned (`E0384`): in Rust `let` bindings are immutable by default; add `let mut` when reassignment is needed.",
+        ),
+        (
+            &["E0308"],
+            "Mismatched types (`E0308`): check the expected type and verify whether a trailing `;` is turning a return expression into `()`.",
+        ),
+        (
+            &["E0382"],
+            "Use after move (`E0382`): ownership was already moved earlier; borrow with `&` or reorder uses.",
+        ),
+        (
+            &["E0502", "E0499"],
+            "Borrow conflict (`E0499`/`E0502`): an active `&mut` borrow cannot coexist with other references to the same value.",
+        ),
+        (
+            &["E0597"],
+            "Borrowed value does not live long enough (`E0597`): the owner is dropped before the reference stops being used.",
+        ),
+        (
+            &["E0425"],
+            "Identifier not found (`E0425`): check spelling, letter case, or variable/function scope.",
+        ),
+        (
+            &["E0106"],
+            "Missing lifetime specifier (`E0106`): when references are passed in and returned, link them with `'a`.",
+        ),
+        (
+            &["E0277"],
+            "Trait not implemented (`E0277`): the type does not implement the required trait (such as `Debug`, `Display`, or `Copy`).",
+        ),
+        (
+            &["E0061"],
+            "Wrong number of arguments (`E0061`): check how many parameters the function signature expects.",
+        ),
+        (
+            &["unclosed delimiter"],
+            "Unclosed delimiter: a curly brace `{` or parenthesis `(` is missing its closing match.",
+        ),
+        (
+            &["cannot find macro"],
+            "Macro not found: make sure you wrote `println!` with an exclamation mark (`!`).",
+        ),
+        (
+            &["expected `;`", "expected one of"],
+            "Missing semicolon or incomplete syntax: check `;`, balanced quotes, or missing parentheses.",
+        ),
+    ];
 
-    PATTERNS
+    let patterns = if english { PATTERNS_EN } else { PATTERNS_PT };
+    patterns
         .iter()
         .find(|(keys, _)| keys.iter().any(|k| output.contains(k)))
         .map(|(_, msg)| (*msg).to_string())
@@ -227,19 +329,43 @@ pub fn explain_compiler_error_pt_br(output: &str) -> Option<String> {
 
 /// Lente socrática e modo "Explicar como se eu tivesse 10 anos" (ELI10) para erros `rustc`.
 pub fn explain_compiler_error_socratic_pt_br(output: &str, eli10: bool) -> Option<String> {
-    if explain_compiler_error_pt_br(output).is_none() && !output.contains("error[E") {
+    explain_compiler_error_socratic_for(output, eli10, false)
+}
+
+pub fn explain_compiler_error_socratic_for(
+    output: &str,
+    eli10: bool,
+    english: bool,
+) -> Option<String> {
+    if explain_compiler_error_for(output, english).is_none() && !output.contains("error[E") {
         return None;
     }
-    let lens = crate::lab_tools::SocraticErrorLens::analyze(output, "");
+    let lens = crate::lab_tools::SocraticErrorLens::analyze_for(output, "", english);
     let fix = lens.fixes[0];
     let body = if eli10 {
+        if english {
+            format!(
+                "[{}] ELI10 Mode: {}\nIdiomatic example ({}): Before `{}` -> After `{}`",
+                lens.code,
+                lens.eli10_metaphor,
+                fix.label,
+                fix.before.replace('\n', " "),
+                fix.after.replace('\n', " "),
+            )
+        } else {
+            format!(
+                "[{}] Modo 10 Anos: {}\nExemplo idiomático ({}): Antes `{}` -> Depois `{}`",
+                lens.code,
+                lens.eli10_metaphor,
+                fix.label,
+                fix.before.replace('\n', " "),
+                fix.after.replace('\n', " "),
+            )
+        }
+    } else if english {
         format!(
-            "[{}] Modo 10 Anos: {}\nExemplo idiomático ({}): Antes `{}` -> Depois `{}`",
-            lens.code,
-            lens.eli10_metaphor,
-            fix.label,
-            fix.before.replace('\n', " "),
-            fix.after.replace('\n', " "),
+            "[{}] {} — Question: {} (Alt+E toggles ELI10 Mode)",
+            lens.code, lens.title, lens.socratic_question
         )
     } else {
         format!(
@@ -251,33 +377,48 @@ pub fn explain_compiler_error_socratic_pt_br(output: &str, eli10: bool) -> Optio
 }
 
 pub fn practice_spec_by_id(spec_id: &str) -> Option<PracticeSpec> {
+    practice_spec_by_id_for(spec_id, false)
+}
+
+pub fn practice_spec_by_id_for(spec_id: &str, english: bool) -> Option<PracticeSpec> {
     if spec_id == "D09-P01" {
-        return Some(interactive_practice_spec_d09());
+        return Some(interactive_practice_spec_d09_for(english));
     }
-    ALL_PRACTICE_SPECS
-        .iter()
-        .find(|s| s.id == spec_id)
-        .cloned()
-        .or_else(|| {
-            crate::curriculum::v3_blueprint::find_v3_entry(spec_id)
-                .and_then(crate::curriculum::v3_blueprint::build_v3_practice_spec)
-        })
+    let mut found = ALL_PRACTICE_SPECS.iter().find(|s| s.id == spec_id).cloned();
+    if english && let Some(ref mut spec) = found {
+        crate::curriculum::en_tr::translate_practice_spec_to_en(spec);
+    }
+    found.or_else(|| {
+        crate::curriculum::v3_blueprint::find_v3_entry(spec_id)
+            .and_then(|e| crate::curriculum::v3_blueprint::build_v3_practice_spec_for(e, english))
+    })
 }
 
 pub fn practice_spec_for_lesson(lesson_id: &str) -> Option<PracticeSpec> {
-    ALL_PRACTICE_SPECS
+    practice_spec_for_lesson_for(lesson_id, false)
+}
+
+pub fn practice_spec_for_lesson_for(lesson_id: &str, english: bool) -> Option<PracticeSpec> {
+    let mut found = ALL_PRACTICE_SPECS
         .iter()
         .find(|s| s.lesson_id == lesson_id)
-        .cloned()
-        .or_else(|| {
-            crate::curriculum::v3_blueprint::find_v3_entry(lesson_id)
-                .and_then(crate::curriculum::v3_blueprint::build_v3_practice_spec)
-        })
+        .cloned();
+    if english && let Some(ref mut spec) = found {
+        crate::curriculum::en_tr::translate_practice_spec_to_en(spec);
+    }
+    found.or_else(|| {
+        crate::curriculum::v3_blueprint::find_v3_entry(lesson_id)
+            .and_then(|e| crate::curriculum::v3_blueprint::build_v3_practice_spec_for(e, english))
+    })
 }
 
 /// Especificação prática interativa V3 (`D09-P01 · Menu terminal navegável` via `stdin`).
 pub fn interactive_practice_spec_d09() -> PracticeSpec {
-    PracticeSpec {
+    interactive_practice_spec_d09_for(false)
+}
+
+pub fn interactive_practice_spec_d09_for(english: bool) -> PracticeSpec {
+    let mut spec = PracticeSpec {
         id: "D09-P01",
         lesson_id: "cli-configuracao-e-serde",
         title: "Prática D09-P01 · Menu terminal interativo (stdin)",
@@ -292,7 +433,11 @@ pub fn interactive_practice_spec_d09() -> PracticeSpec {
         mode: PracticeMode::CargoRunWithInput {
             stdin_lines: &["2", "0"],
         },
+    };
+    if english {
+        crate::curriculum::en_tr::translate_practice_spec_to_en(&mut spec);
     }
+    spec
 }
 
 const ALL_PRACTICE_SPECS: &[PracticeSpec] = &[
@@ -767,21 +912,40 @@ const ALL_PRACTICE_SPECS: &[PracticeSpec] = &[
 ];
 
 pub fn validate_practice_run(spec_id: &str, code: &str, stdout: &str) -> Result<(), &'static str> {
+    validate_practice_run_for(spec_id, code, stdout, false)
+}
+
+pub fn validate_practice_run_for(
+    spec_id: &str,
+    code: &str,
+    stdout: &str,
+    english: bool,
+) -> Result<(), &'static str> {
     let stdout_trimmed = stdout.trim();
-    if let Some(spec) = practice_spec_by_id(spec_id)
-        && code.trim() == spec.starter.trim()
-    {
-        return Err("Você ainda não alterou o código inicial da prática.");
+    if [false, true].into_iter().any(|en| {
+        practice_spec_by_id_for(spec_id, en).is_some_and(|spec| code.trim() == spec.starter.trim())
+    }) {
+        return Err(if english {
+            "You haven't edited the practice starter code yet."
+        } else {
+            "Você ainda não alterou o código inicial da prática."
+        });
     }
     match spec_id {
         "B-T01-P" => {
             if !code.contains("println!") {
-                return Err("Use `println!(...)` dentro de `fn main()` para imprimir seu fluxo.");
+                return Err(if english {
+                    "Use `println!(...)` inside `fn main()` to print your flow."
+                } else {
+                    "Use `println!(...)` dentro de `fn main()` para imprimir seu fluxo."
+                });
             }
             if stdout_trimmed.len() < 8 || stdout_trimmed == "..." {
-                return Err(
-                    "Escreva uma descrição real com pelo menos 8 caracteres no `println!`.",
-                );
+                return Err(if english {
+                    "Write a real description of at least 8 characters inside `println!`."
+                } else {
+                    "Escreva uma descrição real com pelo menos 8 caracteres no `println!`."
+                });
             }
             Ok(())
         }
@@ -791,7 +955,11 @@ pub fn validate_practice_run(spec_id: &str, code: &str, stdout: &str) -> Result<
                 || stdout_trimmed == "..."
                 || !(low.contains("compil") || low.contains("execut"))
             {
-                return Err("Imprima uma frase explicando `compilador` ou `executável`.");
+                return Err(if english {
+                    "Print a sentence explaining `compiler` or `executable`."
+                } else {
+                    "Imprima uma frase explicando `compilador` ou `executável`."
+                });
             }
             Ok(())
         }
@@ -801,20 +969,28 @@ pub fn validate_practice_run(spec_id: &str, code: &str, stdout: &str) -> Result<
                 || stdout_trimmed == "..."
                 || !(low.contains("cargo") || low.contains("rustc"))
             {
-                return Err("Imprima uma frase citando `cargo` ou `rustc`.");
+                return Err(if english {
+                    "Print a sentence mentioning `cargo` or `rustc`."
+                } else {
+                    "Imprima uma frase citando `cargo` ou `rustc`."
+                });
             }
             Ok(())
         }
         "B-P01" => {
             if !code.contains("println!") {
-                return Err(
-                    "Use a macro `println!(...)` dentro de `fn main()` para imprimir sua saída.",
-                );
+                return Err(if english {
+                    "Use `println!(...)` inside `fn main()` to print your output."
+                } else {
+                    "Use a macro `println!(...)` dentro de `fn main()` para imprimir sua saída."
+                });
             }
             if stdout_trimmed.is_empty() || stdout_trimmed == "..." {
-                return Err(
-                    "A saída ainda está vazia ou com o placeholder `...`. Escreva uma frase sua!",
-                );
+                return Err(if english {
+                    "Output is still empty or using `...`. Write your own sentence!"
+                } else {
+                    "A saída ainda está vazia ou com o placeholder `...`. Escreva uma frase sua!"
+                });
             }
             Ok(())
         }
@@ -824,26 +1000,40 @@ pub fn validate_practice_run(spec_id: &str, code: &str, stdout: &str) -> Result<
                 .filter(|l| !l.trim().is_empty())
                 .count();
             if lines < 2 {
-                return Err("Imprima pelo menos duas linhas com `println!` em `fn main()`.");
+                return Err(if english {
+                    "Print at least two lines using `println!` in `fn main()`."
+                } else {
+                    "Imprima pelo menos duas linhas com `println!` em `fn main()`."
+                });
             }
             Ok(())
         }
         "B-P02" => {
             if !code.contains("let mut") || !code.contains("println!") {
-                return Err("Mantenha uma variável `let mut` e exiba o resultado com `println!`.");
+                return Err(if english {
+                    "Keep a `let mut` variable and print the result with `println!`."
+                } else {
+                    "Mantenha uma variável `let mut` e exiba o resultado com `println!`."
+                });
             }
             if stdout_trimmed.is_empty() || stdout_trimmed == "RustLab: 0" {
-                return Err(
-                    "`pontos` continuou em 0 na saída; atualize a variável antes do `println!`.",
-                );
+                return Err(if english {
+                    "`pontos` stayed at 0 in stdout; update the variable before `println!`."
+                } else {
+                    "`pontos` continuou em 0 na saída; atualize a variável antes do `println!`."
+                });
             }
             Ok(())
         }
         "D09-P01" => {
-            if !stdout_trimmed.contains("Pontos: 10") || !stdout_trimmed.contains("Saindo") {
-                return Err(
-                    "O menu interativo deve responder `Pontos: 10` para a opção `2` e `Saindo` para `0`.",
-                );
+            let pt_ok = stdout_trimmed.contains("Pontos: 10") && stdout_trimmed.contains("Saindo");
+            let en_ok = stdout_trimmed.contains("Points: 10") && stdout_trimmed.contains("Exiting");
+            if !pt_ok && !en_ok {
+                return Err(if english {
+                    "Interactive menu should print `Points: 10` for option `2` and `Exiting` for `0`."
+                } else {
+                    "O menu interativo deve responder `Pontos: 10` para a opção `2` e `Saindo` para `0`."
+                });
             }
             Ok(())
         }
@@ -990,6 +1180,10 @@ pub struct LessonView {
 
 impl LessonView {
     pub fn new(chapter: usize, lesson: usize, lesson_data: &Lesson) -> Self {
+        Self::new_for(chapter, lesson, lesson_data, false)
+    }
+
+    pub fn new_for(chapter: usize, lesson: usize, lesson_data: &Lesson, english: bool) -> Self {
         Self {
             chapter,
             lesson,
@@ -1007,7 +1201,7 @@ impl LessonView {
             last_height: 0,
             at_bottom: false,
             ferris: FerrisMood::Neutral,
-            practice: LessonPractice::for_lesson(&lesson_data.id),
+            practice: LessonPractice::for_lesson_lang(&lesson_data.id, english),
             practice_focused: false,
             v3_entry_id: None,
             custom_lesson: None,
@@ -1170,12 +1364,19 @@ pub fn on_lesson_key(app: &mut App, key: KeyEvent) {
         });
         if let Some(next_focus) = toggle {
             save_active_practice_draft(app);
+            let en = app.is_english();
             if let Some(v) = app.lesson_view.as_mut() {
                 v.practice_focused = next_focus;
             }
             app.set_status(
                 if next_focus {
-                    "Mini-IDE embutida focada · digite seu código e rode com F5 (Tab volta)."
+                    if en {
+                        "Embedded Mini-IDE focused · write code and run with F5 (Tab returns)."
+                    } else {
+                        "Mini-IDE embutida focada · digite seu código e rode com F5 (Tab volta)."
+                    }
+                } else if en {
+                    "Focus returned to explanation and quiz (Tab focuses practice)."
                 } else {
                     "Foco voltou para a explicação e quiz (Tab foca a prática)."
                 },
@@ -1211,12 +1412,19 @@ pub fn on_lesson_key(app: &mut App, key: KeyEvent) {
             state.return_screen = Screen::LessonView;
             app.screen = Screen::Exercises;
         } else {
+            let en = app.is_english();
             let msg = if app
                 .lesson_view
                 .as_ref()
                 .is_some_and(|v| v.practice.is_some())
             {
-                "esta lição ainda não tem exercícios no catálogo (use Tab para a prática embutida)"
+                if en {
+                    "this lesson has no separate catalog exercise (press Tab for embedded practice)"
+                } else {
+                    "esta lição ainda não tem exercícios no catálogo (use Tab para a prática embutida)"
+                }
+            } else if en {
+                "this lesson has no related catalog exercises yet"
             } else {
                 "esta lição ainda não tem exercícios relacionados"
             };
@@ -1293,7 +1501,11 @@ pub fn on_lesson_key(app: &mut App, key: KeyEvent) {
                 .is_some_and(|p| p.outcome == PracticeOutcome::Running)
             {
                 app.set_status(
-                    "Cargo ainda está executando; aguarde ou cancele com Ctrl+K.",
+                    if app.is_english() {
+                        "Cargo is still running; wait or cancel with Ctrl+K."
+                    } else {
+                        "Cargo ainda está executando; aguarde ou cancele com Ctrl+K."
+                    },
                     StatusKind::Warning,
                 );
                 return;
@@ -1321,7 +1533,11 @@ pub fn on_lesson_key(app: &mut App, key: KeyEvent) {
         && let Err(err) = app.persist_progress()
     {
         app.set_status(
-            format!("progresso não foi salvo: {err}"),
+            if app.is_english() {
+                format!("could not save progress: {err}")
+            } else {
+                format!("progresso não foi salvo: {err}")
+            },
             StatusKind::Warning,
         );
     }
@@ -1334,6 +1550,7 @@ fn practice_key(app: &mut App, key: KeyEvent) {
         .and_then(|v| v.practice.as_ref())
         .is_some_and(|p| p.consent_pending);
     if consent_pending {
+        let en = app.is_english();
         match key.code {
             KeyCode::Enter | KeyCode::Char('y') | KeyCode::Char('s') => {
                 if let Some(p) = app.lesson_view.as_mut().and_then(|v| v.practice.as_mut()) {
@@ -1342,7 +1559,11 @@ fn practice_key(app: &mut App, key: KeyEvent) {
                 app.config.execution.consent = ExecConsent::Granted;
                 if let Err(e) = app.save_config() {
                     app.set_status(
-                        format!("não salvei consentimento: {e}"),
+                        if en {
+                            format!("could not save consent: {e}")
+                        } else {
+                            format!("não salvei consentimento: {e}")
+                        },
                         StatusKind::Warning,
                     );
                 }
@@ -1352,7 +1573,14 @@ fn practice_key(app: &mut App, key: KeyEvent) {
                 if let Some(p) = app.lesson_view.as_mut().and_then(|v| v.practice.as_mut()) {
                     p.consent_pending = false;
                 }
-                app.set_status("Nenhum código Cargo foi executado.", StatusKind::Info);
+                app.set_status(
+                    if en {
+                        "No Cargo code was executed."
+                    } else {
+                        "Nenhum código Cargo foi executado."
+                    },
+                    StatusKind::Info,
+                );
             }
             _ => {}
         }
@@ -1369,9 +1597,14 @@ fn practice_key(app: &mut App, key: KeyEvent) {
         .is_some_and(|p| p.outcome == PracticeOutcome::Running);
 
     if key.code == KeyCode::Esc {
+        let en = app.is_english();
         if running {
             app.set_status(
-                "Cargo ainda está executando; aguarde ou use Ctrl+K.",
+                if en {
+                    "Cargo is still running; wait or use Ctrl+K."
+                } else {
+                    "Cargo ainda está executando; aguarde ou use Ctrl+K."
+                },
                 StatusKind::Warning,
             );
             return;
@@ -1381,7 +1614,11 @@ fn practice_key(app: &mut App, key: KeyEvent) {
             v.practice_focused = false;
         }
         app.set_status(
-            "Foco voltou para a explicação (código preservado).",
+            if en {
+                "Focus returned to explanation (code preserved)."
+            } else {
+                "Foco voltou para a explicação (código preservado)."
+            },
             StatusKind::Info,
         );
         return;
@@ -1402,32 +1639,57 @@ fn practice_key(app: &mut App, key: KeyEvent) {
         }
         KeyCode::Char('s') if ctrl => save_lesson_practice_disk(app),
         KeyCode::Char('e') if alt => {
+            let en = app.is_english();
             if let Some(p) = app.lesson_view.as_mut().and_then(|v| v.practice.as_mut()) {
                 let diag = p.output.join("\n");
                 let code = p.editor.buf.to_string_lossy();
-                let lens = crate::lab_tools::SocraticErrorLens::analyze(&diag, &code);
+                let lens = crate::lab_tools::SocraticErrorLens::analyze_for(&diag, &code, en);
                 let fix = lens.fixes[0];
-                p.push_output(format!("[Lente {}] {}", lens.code, lens.title));
-                p.push_output(format!("Modo 10 Anos (ELI10): {}", lens.eli10_metaphor));
-                p.push_output(format!("Pergunta Socrática: {}", lens.socratic_question));
-                p.push_output(format!(
-                    "Solução {}: {} -> {}",
-                    fix.label,
-                    fix.before.replace('\n', " | "),
-                    fix.after.replace('\n', " | ")
-                ));
+                if en {
+                    p.push_output(format!("[Lens {}] {}", lens.code, lens.title));
+                    p.push_output(format!("ELI10 Mode: {}", lens.eli10_metaphor));
+                    p.push_output(format!("Socratic Question: {}", lens.socratic_question));
+                    p.push_output(format!(
+                        "Fix {}: {} -> {}",
+                        fix.label,
+                        fix.before.replace('\n', " | "),
+                        fix.after.replace('\n', " | ")
+                    ));
+                } else {
+                    p.push_output(format!("[Lente {}] {}", lens.code, lens.title));
+                    p.push_output(format!("Modo 10 Anos (ELI10): {}", lens.eli10_metaphor));
+                    p.push_output(format!("Pergunta Socrática: {}", lens.socratic_question));
+                    p.push_output(format!(
+                        "Solução {}: {} -> {}",
+                        fix.label,
+                        fix.before.replace('\n', " | "),
+                        fix.after.replace('\n', " | ")
+                    ));
+                }
                 p.output_scroll = 0;
             }
             app.set_status(
-                "Lente Socrática + Modo 10 Anos adicionados na saída.",
+                if en {
+                    "Socratic Lens + ELI10 Mode appended to output."
+                } else {
+                    "Lente Socrática + Modo 10 Anos adicionados na saída."
+                },
                 StatusKind::Info,
             );
         }
         KeyCode::Char('c') if alt => {
+            let en = app.is_english();
             if let Some(p) = app.lesson_view.as_mut().and_then(|v| v.practice.as_mut()) {
                 let code = p.editor.buf.to_string_lossy();
-                let sols = crate::lab_tools::community_solutions_for(p.spec.prompt);
-                p.push_output("Soluções idiomáticas da comunidade:".to_string());
+                let sols = crate::lab_tools::community_solutions_for_lang(p.spec.prompt, en);
+                p.push_output(
+                    if en {
+                        "Idiomatic community solutions:"
+                    } else {
+                        "Soluções idiomáticas da comunidade:"
+                    }
+                    .to_string(),
+                );
                 for sol in sols {
                     p.push_output(format!(
                         "• {} [{}] — {}",
@@ -1441,41 +1703,69 @@ fn practice_key(app: &mut App, key: KeyEvent) {
                 p.output_scroll = 0;
             }
             app.set_status(
-                "Soluções da comunidade + link Playground exibidos.",
+                if en {
+                    "Community solutions + Playground link displayed."
+                } else {
+                    "Soluções da comunidade + link Playground exibidos."
+                },
                 StatusKind::Info,
             );
         }
         KeyCode::Char('l') if alt => {
+            let en = app.is_english();
             if let Some(p) = app.lesson_view.as_mut().and_then(|v| v.practice.as_mut()) {
                 let code = p.editor.buf.to_string_lossy();
                 let lt = crate::lab_tools::LifetimeVisualizerReport::analyze(&code);
                 let layout = crate::lab_tools::MemoryLayoutReport::analyze(&code);
-                p.push_output("Mapa de Lifetimes & Layout em Memória:".to_string());
-                for line in lt.summary_lines().into_iter().take(8) {
+                p.push_output(
+                    if en {
+                        "Lifetime Map & Memory Layout:"
+                    } else {
+                        "Mapa de Lifetimes & Layout em Memória:"
+                    }
+                    .to_string(),
+                );
+                for line in lt.summary_lines_for(en).into_iter().take(8) {
                     p.push_output(line);
                 }
                 if let Some(st) = layout.user_types.first() {
-                    p.push_output(format!(
-                        "Layout `struct {}`: {}B (align {}B, padding {}B, ótimo {}B)",
-                        st.name,
-                        st.declared_size,
-                        st.declared_align,
-                        st.total_padding,
-                        st.optimal_size
-                    ));
+                    p.push_output(if en {
+                        format!(
+                            "Layout `struct {}`: {}B (align {}B, padding {}B, optimal {}B)",
+                            st.name,
+                            st.declared_size,
+                            st.declared_align,
+                            st.total_padding,
+                            st.optimal_size
+                        )
+                    } else {
+                        format!(
+                            "Layout `struct {}`: {}B (align {}B, padding {}B, ótimo {}B)",
+                            st.name,
+                            st.declared_size,
+                            st.declared_align,
+                            st.total_padding,
+                            st.optimal_size
+                        )
+                    });
                 }
                 p.output_scroll = 0;
             }
             app.set_status(
-                "Mapa de Lifetimes e Layout exibidos na saída.",
+                if en {
+                    "Lifetime Map & Layout displayed in output."
+                } else {
+                    "Mapa de Lifetimes e Layout exibidos na saída."
+                },
                 StatusKind::Info,
             );
         }
         KeyCode::Char('i') if alt => {
+            let en = app.is_english();
             if let Some(p) = app.lesson_view.as_mut().and_then(|v| v.practice.as_mut()) {
                 let card_idx =
                     app.progress.completed.len() % crate::lab_tools::INTUITION_FLASHCARDS.len();
-                let card = crate::lab_tools::INTUITION_FLASHCARDS[card_idx];
+                let card = crate::lab_tools::intuition_flashcard(card_idx, en);
                 p.push_output(format!(
                     "[Flashcard {}] {} ({})",
                     card.id, card.title, card.topic
@@ -1484,14 +1774,25 @@ fn practice_key(app: &mut App, key: KeyEvent) {
                     p.push_output(format!("  {l}"));
                 }
                 let ans = if card.compiles {
-                    "COMPILA ✔"
+                    if en { "COMPILES ✔" } else { "COMPILA ✔" }
                 } else {
                     card.error_code
                 };
-                p.push_output(format!("Gabarito rápido: {ans} — {}", card.explanation));
+                p.push_output(if en {
+                    format!("Answer: {ans} — {}", card.explanation)
+                } else {
+                    format!("Gabarito rápido: {ans} — {}", card.explanation)
+                });
                 p.output_scroll = 0;
             }
-            app.set_status("Flashcard de intuição exibido na saída.", StatusKind::Info);
+            app.set_status(
+                if en {
+                    "Intuition flashcard shown in output."
+                } else {
+                    "Flashcard de intuição exibido na saída."
+                },
+                StatusKind::Info,
+            );
         }
         KeyCode::F(1) => reveal_practice_hint(app),
         KeyCode::F(2) => {
@@ -1594,20 +1895,36 @@ fn save_lesson_practice_disk(app: &mut App) {
     app.progress
         .exercise_answers
         .insert(format!("practice:{lesson_id}"), code);
+    let en = app.is_english();
     match app.persist_progress() {
         Ok(()) => {
             if let Some(p) = app.lesson_view.as_mut().and_then(|v| v.practice.as_mut()) {
                 p.editor.mark_saved();
             }
-            app.set_status("Rascunho da lição salvo em disco.", StatusKind::Success);
+            app.set_status(
+                if en {
+                    "Lesson draft saved to disk."
+                } else {
+                    "Rascunho da lição salvo em disco."
+                },
+                StatusKind::Success,
+            );
         }
         Err(e) => {
-            app.set_status(format!("Não consegui salvar: {e}"), StatusKind::Warning);
+            app.set_status(
+                if en {
+                    format!("Could not save: {e}")
+                } else {
+                    format!("Não consegui salvar: {e}")
+                },
+                StatusKind::Warning,
+            );
         }
     }
 }
 
 fn reveal_practice_hint(app: &mut App) {
+    let en = app.is_english();
     let Some((spec_id, max_hints)) = app
         .lesson_view
         .as_ref()
@@ -1620,7 +1937,14 @@ fn reveal_practice_hint(app: &mut App) {
         return;
     };
     if p.shown_hints >= max_hints {
-        app.set_status("Todas as 4 dicas já foram reveladas.", StatusKind::Info);
+        app.set_status(
+            if en {
+                "All 4 hints have already been revealed."
+            } else {
+                "Todas as 4 dicas já foram reveladas."
+            },
+            StatusKind::Info,
+        );
         return;
     }
     p.shown_hints += 1;
@@ -1633,7 +1957,11 @@ fn reveal_practice_hint(app: &mut App) {
     );
     let _ = app.persist_progress();
     app.set_status(
-        format!("Dica {shown}/{max_hints} revelada (XP independente ajustado)."),
+        if en {
+            format!("Hint {shown}/{max_hints} revealed (independent bonus adjusted).")
+        } else {
+            format!("Dica {shown}/{max_hints} revelada (XP independente ajustado).")
+        },
         StatusKind::Info,
     );
 }
@@ -1690,9 +2018,14 @@ fn prepare_practice_project(
 }
 
 pub fn run_lesson_practice(app: &mut App) {
+    let en = app.is_english();
     if app.exec.running {
         app.set_status(
-            "Já há um comando Cargo rodando; aguarde ou use Ctrl+K.",
+            if en {
+                "A Cargo command is already running; wait or use Ctrl+K."
+            } else {
+                "Já há um comando Cargo rodando; aguarde ou use Ctrl+K."
+            },
             StatusKind::Warning,
         );
         return;
@@ -1713,11 +2046,19 @@ pub fn run_lesson_practice(app: &mut App) {
                 view.ferris = FerrisMood::Confused;
                 if let Some(p) = view.practice.as_mut() {
                     p.outcome = PracticeOutcome::StartFailed;
-                    p.output = vec![format!("Falha ao preparar projeto Cargo: {e}")];
+                    p.output = vec![if en {
+                        format!("Failed to prepare Cargo project: {e}")
+                    } else {
+                        format!("Falha ao preparar projeto Cargo: {e}")
+                    }];
                 }
             }
             app.set_status(
-                format!("Falha ao criar pasta temporária: {e}"),
+                if en {
+                    format!("Failed to create temporary directory: {e}")
+                } else {
+                    format!("Falha ao criar pasta temporária: {e}")
+                },
                 StatusKind::Warning,
             );
             return;
@@ -1729,7 +2070,11 @@ pub fn run_lesson_practice(app: &mut App) {
             view.ferris = FerrisMood::Confused;
             if let Some(p) = view.practice.as_mut() {
                 p.outcome = PracticeOutcome::StartFailed;
-                p.output = vec![format!("Falha ao gravar Cargo.toml/src: {e}")];
+                p.output = vec![if en {
+                    format!("Failed to write Cargo.toml/src: {e}")
+                } else {
+                    format!("Falha ao gravar Cargo.toml/src: {e}")
+                }];
             }
         }
         return;
@@ -1748,17 +2093,29 @@ pub fn run_lesson_practice(app: &mut App) {
     let (cmd, status_msg, scripted_stdin) = match spec.mode {
         PracticeMode::CargoRun => (
             ToolCommand::Run,
-            "Compilando e executando sua prática com Cargo…",
+            if en {
+                "Compiling and running your practice with Cargo…"
+            } else {
+                "Compilando e executando sua prática com Cargo…"
+            },
             &[][..],
         ),
         PracticeMode::CargoRunWithInput { stdin_lines } => (
             ToolCommand::RunInteractive,
-            "Compilando e executando sua prática interativa (stdin) com Cargo…",
+            if en {
+                "Compiling and running interactive practice (stdin) with Cargo…"
+            } else {
+                "Compilando e executando sua prática interativa (stdin) com Cargo…"
+            },
             stdin_lines,
         ),
         PracticeMode::CargoTest { .. } => (
             ToolCommand::Test,
-            "Compilando e rodando os testes da prática com Cargo…",
+            if en {
+                "Compiling and running practice tests with Cargo…"
+            } else {
+                "Compilando e rodando os testes da prática com Cargo…"
+            },
             &[][..],
         ),
     };
@@ -1801,6 +2158,7 @@ pub fn on_lesson_exec_event(app: &mut App, ev: ExecEvent) {
         StatusInfo(String),
     }
 
+    let en = app.is_english();
     let mut post = PostAction::None;
     if let Some(view) = app.lesson_view.as_mut()
         && let Some(p) = view.practice.as_mut()
@@ -1821,25 +2179,37 @@ pub fn on_lesson_exec_event(app: &mut App, ev: ExecEvent) {
                 if !success {
                     if p.compile_error_seen {
                         p.outcome = PracticeOutcome::CompileFailed;
-                        if let Some(help) = explain_compiler_error_pt_br(&p.output.join("\n")) {
-                            p.push_output(format!("Explicação do Ferris: {help}"));
+                        if let Some(help) = explain_compiler_error_for(&p.output.join("\n"), en) {
+                            p.push_output(if en {
+                                format!("Ferris explains: {help}")
+                            } else {
+                                format!("Explicação do Ferris: {help}")
+                            });
                         }
                         post = PostAction::StatusWarning(
-                            "Não compilou ainda — leia a explicação do Ferris ou o erro e tente de novo."
-                                .to_string(),
+                            if en {
+                                "Did not compile yet — read Ferris's hint or the compiler error and try again."
+                            } else {
+                                "Não compilou ainda — leia a explicação do Ferris ou o erro e tente de novo."
+                            }
+                            .to_string(),
                         );
                     } else {
                         p.outcome = PracticeOutcome::RunFailed;
                         post = PostAction::StatusWarning(
-                            "A execução/testes falharam — revise a saída e tente de novo."
-                                .to_string(),
+                            if en {
+                                "Run/tests failed — inspect the output and try again."
+                            } else {
+                                "A execução/testes falharam — revise a saída e tente de novo."
+                            }
+                            .to_string(),
                         );
                     }
                     view.ferris = FerrisMood::Encouraging;
                 } else {
                     let code = p.editor.buf.to_string_lossy();
                     let stdout_joined = p.stdout_lines.join("\n");
-                    match validate_practice_run(p.spec.id, &code, &stdout_joined) {
+                    match validate_practice_run_for(p.spec.id, &code, &stdout_joined, en) {
                         Ok(()) => {
                             p.outcome = PracticeOutcome::Passed;
                             view.ferris = FerrisMood::Happy;
@@ -1854,7 +2224,11 @@ pub fn on_lesson_exec_event(app: &mut App, ev: ExecEvent) {
                         }
                         Err(msg) => {
                             p.outcome = PracticeOutcome::ValidationFailed;
-                            p.push_output(format!("Validação RustLab: {msg}"));
+                            p.push_output(if en {
+                                format!("RustLab check: {msg}")
+                            } else {
+                                format!("Validação RustLab: {msg}")
+                            });
                             view.ferris = if code.trim() == p.spec.starter.trim()
                                 || stdout_joined.trim().is_empty()
                                 || stdout_joined.trim() == "..."
@@ -1873,18 +2247,46 @@ pub fn on_lesson_exec_event(app: &mut App, ev: ExecEvent) {
                     let _ = std::fs::remove_dir_all(dir);
                 }
                 p.outcome = PracticeOutcome::TimedOut;
-                p.push_output("Tempo limite atingido durante `cargo run`.".to_string());
+                p.push_output(
+                    if en {
+                        "Time limit reached during `cargo run`."
+                    } else {
+                        "Tempo limite atingido durante `cargo run`."
+                    }
+                    .to_string(),
+                );
                 view.ferris = FerrisMood::Encouraging;
-                post = PostAction::StatusWarning("Execução excedeu o limite de tempo.".to_string());
+                post = PostAction::StatusWarning(
+                    if en {
+                        "Execution timed out."
+                    } else {
+                        "Execução excedeu o limite de tempo."
+                    }
+                    .to_string(),
+                );
             }
             ExecEvent::Cancelled { .. } => {
                 if let Some(dir) = p.pending_dir.take() {
                     let _ = std::fs::remove_dir_all(dir);
                 }
                 p.outcome = PracticeOutcome::Cancelled;
-                p.push_output("Execução cancelada pelo aluno.".to_string());
+                p.push_output(
+                    if en {
+                        "Execution cancelled by user."
+                    } else {
+                        "Execução cancelada pelo aluno."
+                    }
+                    .to_string(),
+                );
                 view.ferris = FerrisMood::Neutral;
-                post = PostAction::StatusInfo("Execução Cargo cancelada.".to_string());
+                post = PostAction::StatusInfo(
+                    if en {
+                        "Cargo execution cancelled."
+                    } else {
+                        "Execução Cargo cancelada."
+                    }
+                    .to_string(),
+                );
             }
             ExecEvent::SpawnFailed { reason, .. } => {
                 if let Some(dir) = p.pending_dir.take() {
@@ -1909,20 +2311,39 @@ pub fn on_lesson_exec_event(app: &mut App, ev: ExecEvent) {
             app.progress.read.insert(lesson_id.to_string());
             app.progress.exercises_completed.insert(spec_id.to_string());
             app.progress.record_srs_mastery(spec_id, bonus_xp > 0);
-            app.award_xp(format!("practice:{spec_id}"), base_xp, "prática concluída");
+            app.award_xp(
+                format!("practice:{spec_id}"),
+                base_xp,
+                if en {
+                    "practice passed"
+                } else {
+                    "prática concluída"
+                },
+            );
             if bonus_xp > 0 {
                 app.award_xp(
                     format!("practice:{spec_id}:independent"),
                     bonus_xp,
-                    "bônus sem dicas",
+                    if en {
+                        "no-hints bonus"
+                    } else {
+                        "bônus sem dicas"
+                    },
                 );
             }
             let _ = app.persist_progress();
             app.set_status(
-                format!(
-                    "✓ Prática {spec_id} aprovada pelo Cargo! (+{} XP)",
-                    base_xp + bonus_xp
-                ),
+                if en {
+                    format!(
+                        "✓ Practice {spec_id} passed via Cargo! (+{} XP)",
+                        base_xp + bonus_xp
+                    )
+                } else {
+                    format!(
+                        "✓ Prática {spec_id} aprovada pelo Cargo! (+{} XP)",
+                        base_xp + bonus_xp
+                    )
+                },
                 StatusKind::Success,
             );
         }
@@ -2052,17 +2473,32 @@ fn go_next(app: &mut App) {
         };
         (id, lesson.requires_quiz())
     };
+    let en = app.is_english();
     if !view.is_finished() {
         if requires_quiz {
-            app.set_status(t("lesson.blocked_next"), StatusKind::Info);
+            app.set_status(
+                crate::i18n::t_for("lesson.blocked_next", en),
+                StatusKind::Info,
+            );
         } else {
-            app.set_status(t("lesson.scroll_to_end"), StatusKind::Info);
+            app.set_status(
+                crate::i18n::t_for("lesson.scroll_to_end", en),
+                StatusKind::Info,
+            );
         }
         return;
     }
     let newly_completed = app.progress.completed.insert(id.clone());
     if newly_completed {
-        app.award_xp(format!("lesson:{id}"), 20, "lição concluída");
+        app.award_xp(
+            format!("lesson:{id}"),
+            20,
+            if en {
+                "lesson completed"
+            } else {
+                "lição concluída"
+            },
+        );
     }
     app.progress.record_srs_mastery(&id, true);
     let _ = app.persist_progress();
@@ -2077,7 +2513,10 @@ fn go_next(app: &mut App) {
             save_active_practice_draft(app);
             app.lesson_view = None;
             app.screen = Screen::Browser;
-            app.set_status(t("lesson.end-of-curriculum"), StatusKind::Success);
+            app.set_status(
+                crate::i18n::t_for("lesson.end-of-curriculum", en),
+                StatusKind::Success,
+            );
             app.anim
                 .play(crate::animation::ScreenFx::Enter, app.theme.accent);
         }
@@ -2094,7 +2533,10 @@ fn go_next(app: &mut App) {
             save_active_practice_draft(app);
             app.lesson_view = None;
             app.screen = Screen::Browser;
-            app.set_status(t("lesson.end-of-curriculum"), StatusKind::Success);
+            app.set_status(
+                crate::i18n::t_for("lesson.end-of-curriculum", en),
+                StatusKind::Success,
+            );
             app.anim
                 .play(crate::animation::ScreenFx::Enter, app.theme.accent);
         }
@@ -2193,6 +2635,83 @@ fn restore_practice_view(app: &App, draft_key: &str, view: &mut LessonView) {
     }
 }
 
+/// Recarrega a lição aberta após troca de idioma mantendo scroll, quiz, demos e rascunho.
+pub fn reload_active_lesson_view(app: &mut App) {
+    let Some(old) = app.lesson_view.take() else {
+        return;
+    };
+    let en = app.is_english();
+    let Some(cur) = app.curriculum.as_ref() else {
+        app.lesson_view = Some(old);
+        return;
+    };
+
+    let (draft_key, mut next_view) = if let Some(v3_id) = old.v3_entry_id {
+        let Some(entry) = crate::curriculum::v3_blueprint::find_v3_entry(v3_id) else {
+            app.lesson_view = Some(old);
+            return;
+        };
+        let lesson_data = crate::curriculum::v3_blueprint::build_v3_lesson_for(entry, cur, en);
+        let mut view = LessonView::new_for(old.chapter, old.lesson, &lesson_data, en);
+        view.v3_entry_id = Some(entry.id);
+        view.custom_lesson = Some(lesson_data);
+        (entry.id.to_string(), view)
+    } else {
+        let Some(ch) = cur.chapters.get(old.chapter) else {
+            app.lesson_view = Some(old);
+            return;
+        };
+        let Some(id) = ch.lessons.get(old.lesson) else {
+            app.lesson_view = Some(old);
+            return;
+        };
+        let Some(lesson_data) = cur.lesson(id) else {
+            app.lesson_view = Some(old);
+            return;
+        };
+        (
+            id.clone(),
+            LessonView::new_for(old.chapter, old.lesson, lesson_data, en),
+        )
+    };
+
+    next_view.scroll = old.scroll;
+    next_view.last_height = old.last_height;
+    next_view.at_bottom = old.at_bottom;
+    next_view.ferris = old.ferris;
+    next_view.practice_focused = old.practice_focused;
+    for (dst, src) in next_view.quizzes.iter_mut().zip(old.quizzes.iter()) {
+        *dst = src.clone();
+    }
+    for (dst, src) in next_view.demos.iter_mut().zip(old.demos.iter()) {
+        *dst = *src;
+    }
+
+    restore_practice_view(app, &draft_key, &mut next_view);
+    if let (Some(new_p), Some(old_p)) = (next_view.practice.as_mut(), old.practice) {
+        let old_code = old_p.editor.buf.to_string_lossy();
+        let unchanged = old_code.trim() == old_p.spec.starter.trim();
+        new_p.shown_hints = old_p.shown_hints.min(new_p.spec.hints.len());
+        new_p.hint_index = old_p.hint_index.min(new_p.shown_hints.saturating_sub(1));
+        new_p.hint_scroll = old_p.hint_scroll;
+        new_p.ai_used = old_p.ai_used;
+        new_p.outcome = old_p.outcome;
+        new_p.output = old_p.output;
+        new_p.stdout_lines = old_p.stdout_lines;
+        new_p.output_scroll = old_p.output_scroll;
+        new_p.compile_error_seen = old_p.compile_error_seen;
+        new_p.consent_pending = old_p.consent_pending;
+        new_p.pending_dir = old_p.pending_dir;
+        if unchanged {
+            new_p.editor = Editor::new(new_p.spec.starter, None);
+            app.lesson_drafts.remove(&draft_key);
+        } else {
+            new_p.editor = old_p.editor;
+        }
+    }
+    app.lesson_view = Some(next_view);
+}
+
 pub fn open_lesson(app: &mut App, chapter: usize, lesson: usize) {
     save_active_practice_draft(app);
     let (id, lesson_data) = {
@@ -2208,7 +2727,7 @@ pub fn open_lesson(app: &mut App, chapter: usize, lesson: usize) {
         let Some(l) = c.lesson(id) else { return };
         (id.clone(), l.clone())
     };
-    let mut view = LessonView::new(chapter, lesson, &lesson_data);
+    let mut view = LessonView::new_for(chapter, lesson, &lesson_data, app.is_english());
     restore_practice_view(app, &id, &mut view);
     app.lesson_view = Some(view);
     app.screen = Screen::LessonView;
@@ -2219,18 +2738,19 @@ pub fn open_lesson(app: &mut App, chapter: usize, lesson: usize) {
 /// Abre qualquer uma das 213 entradas da trilha completa V3 no visualizador de lição.
 pub fn open_v3_entry(app: &mut App, v3_id: &'static str) {
     use crate::curriculum::v3_blueprint::{
-        V3Stage, build_v3_lesson, entries_for_stage, find_v3_entry,
+        V3Stage, build_v3_lesson_for, entries_for_stage, find_v3_entry,
     };
 
     save_active_practice_draft(app);
     let Some(entry) = find_v3_entry(v3_id) else {
         return;
     };
+    let en = app.is_english();
     let lesson_data = {
         let Some(cur) = app.curriculum.as_ref() else {
             return;
         };
-        build_v3_lesson(entry, cur)
+        build_v3_lesson_for(entry, cur, en)
     };
     let stage_idx = V3Stage::ALL
         .iter()
@@ -2241,7 +2761,7 @@ pub fn open_v3_entry(app: &mut App, v3_id: &'static str) {
         .position(|e| e.id == entry.id)
         .unwrap_or(0);
 
-    let mut view = LessonView::new(stage_idx, entry_idx, &lesson_data);
+    let mut view = LessonView::new_for(stage_idx, entry_idx, &lesson_data, en);
     view.v3_entry_id = Some(entry.id);
     view.custom_lesson = Some(lesson_data);
     restore_practice_view(app, entry.id, &mut view);
@@ -2260,7 +2780,10 @@ pub fn open_browser(app: &mut App) {
         app.anim
             .play(crate::animation::ScreenFx::Enter, app.theme.accent);
     } else {
-        app.set_status(t("learn.empty"), StatusKind::Warning);
+        app.set_status(
+            crate::i18n::t_for("learn.empty", app.is_english()),
+            StatusKind::Warning,
+        );
     }
 }
 
@@ -2286,9 +2809,16 @@ pub fn on_browser_key(app: &mut App, key: &KeyEvent) {
             app.browser.focus = Chapters;
         }
         app.browser.v3_preview_unlocked = !app.browser.v3_preview_unlocked;
+        let en = app.is_english();
         app.set_status(
             if app.browser.v3_preview_unlocked {
-                "Pré-visualização V3 ativada: todos os 6 estágios e 213 lições liberados (Alt+V)."
+                if en {
+                    "V3 preview enabled: all 6 stages and 213 lessons unlocked (Alt+V)."
+                } else {
+                    "Pré-visualização V3 ativada: todos os 6 estágios e 213 lições liberados (Alt+V)."
+                }
+            } else if en {
+                "V3 gating restored: prerequisite unlock rules active (Alt+V)."
             } else {
                 "Gating V3 restaurado: desbloqueio por pré-requisitos ativo (Alt+V)."
             },
@@ -2305,9 +2835,16 @@ pub fn on_browser_key(app: &mut App, key: &KeyEvent) {
         app.browser.chapter_idx = 0;
         app.browser.lesson_idx = 0;
         app.browser.focus = Chapters;
+        let en = app.is_english();
         app.set_status(
             if app.browser.v3_mode {
-                "Trilha V3 completa (213 lições · 6 estágios) · Tab navega · Alt+V libera prévia."
+                if en {
+                    "Full V3 Track (213 lessons · 6 stages) · Tab navigates · Alt+V unlocks preview."
+                } else {
+                    "Trilha V3 completa (213 lições · 6 estágios) · Tab navega · Alt+V libera prévia."
+                }
+            } else if en {
+                "Classic chapter view (30 lessons) active (V returns to the V3 Track)."
             } else {
                 "Visão clássica por capítulos (30 lições) ativada (V volta para a Trilha V3)."
             },
@@ -2371,7 +2908,10 @@ pub fn on_browser_key(app: &mut App, key: &KeyEvent) {
                     app.browser.focus = Lessons;
                     app.browser.lesson_idx = first_unfinished(app, &lessons);
                 } else {
-                    app.set_status(t("browser.planned-note"), StatusKind::Info);
+                    app.set_status(
+                        crate::i18n::t_for("browser.planned-note", app.is_english()),
+                        StatusKind::Info,
+                    );
                 }
             }
             Lessons => {
@@ -2429,7 +2969,11 @@ fn on_browser_key_v3(app: &mut App, key: &KeyEvent) {
             Chapters => {
                 if !is_v3_stage_unlocked(&app.progress, stage, preview) {
                     app.set_status(
-                        "Estágio bloqueado pelos pré-requisitos V3 (Alt+V libera prévia livre).",
+                        if app.is_english() {
+                            "Stage locked by V3 prerequisites (Alt+V unlocks free preview)."
+                        } else {
+                            "Estágio bloqueado pelos pré-requisitos V3 (Alt+V libera prévia livre)."
+                        },
                         StatusKind::Info,
                     );
                 }
@@ -2448,11 +2992,19 @@ fn on_browser_key_v3(app: &mut App, key: &KeyEvent) {
                         open_v3_entry(app, entry.id);
                     } else {
                         app.set_status(
-                            format!(
-                                "Lição {} bloqueada — conclua antes: {} (ou Alt+V para pré-visualizar).",
-                                entry.id,
-                                entry.prerequisites.join(", ")
-                            ),
+                            if app.is_english() {
+                                format!(
+                                    "Lesson {} locked — complete first: {} (or Alt+V to preview).",
+                                    entry.id,
+                                    entry.prerequisites.join(", ")
+                                )
+                            } else {
+                                format!(
+                                    "Lição {} bloqueada — conclua antes: {} (ou Alt+V para pré-visualizar).",
+                                    entry.id,
+                                    entry.prerequisites.join(", ")
+                                )
+                            },
                             StatusKind::Warning,
                         );
                     }
@@ -2516,26 +3068,39 @@ fn open_next_due_srs(app: &mut App) {
         })
     };
 
+    let en = app.is_english();
     match target {
         Some(SrsTarget::Classic(due_id, ci, li)) => {
             app.browser.chapter_idx = ci;
             app.browser.lesson_idx = li;
             open_lesson(app, ci, li);
             app.set_status(
-                format!("Revisão espaçada aberta ({due_id}) — pratique de novo sem dicas!"),
+                if en {
+                    format!("Spaced review opened ({due_id}) — practice again without hints!")
+                } else {
+                    format!("Revisão espaçada aberta ({due_id}) — pratique de novo sem dicas!")
+                },
                 StatusKind::Info,
             );
         }
         Some(SrsTarget::V3(due_id, v3_id)) => {
             open_v3_entry(app, v3_id);
             app.set_status(
-                format!("Revisão espaçada V3 aberta ({due_id}) — pratique de novo sem dicas!"),
+                if en {
+                    format!("V3 spaced review opened ({due_id}) — practice again without hints!")
+                } else {
+                    format!("Revisão espaçada V3 aberta ({due_id}) — pratique de novo sem dicas!")
+                },
                 StatusKind::Info,
             );
         }
         None => {
             app.set_status(
-                "Nenhuma revisão espaçada pendente no momento — avance nas lições!",
+                if en {
+                    "No spaced review due right now — keep advancing through lessons!"
+                } else {
+                    "Nenhuma revisão espaçada pendente no momento — avance nas lições!"
+                },
                 StatusKind::Info,
             );
         }
@@ -2549,8 +3114,12 @@ mod tests {
     use crate::config::Config;
 
     fn app_with_curriculum() -> App {
+        let cfg = Config {
+            language: "pt-BR".to_string(),
+            ..Default::default()
+        };
         let mut app = App::from_config(
-            Config::default(),
+            cfg,
             None,
             true,
             AudioReport {

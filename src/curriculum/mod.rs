@@ -41,6 +41,7 @@
 //! why = "..."
 //! ```
 
+pub mod en_tr;
 pub mod v3_blueprint;
 
 use std::collections::HashMap;
@@ -271,6 +272,15 @@ impl Curriculum {
         }
 
         Self::validate(chapters, lessons, exercises, src_of())
+    }
+
+    /// Carrega o currículo embutido no idioma configurado (`en-US` quando `english == true`).
+    pub fn embedded_for(english: bool) -> Result<Curriculum, CurriculumError> {
+        let mut cur = Self::embedded()?;
+        if english {
+            en_tr::translate_curriculum_to_en(&mut cur);
+        }
+        Ok(cur)
     }
 
     fn validate(
@@ -765,5 +775,38 @@ mod tests {
             |_| "teste",
         );
         assert!(result.err().unwrap().message.contains("lição inexistente"));
+    }
+
+    #[test]
+    fn curriculo_classico_em_ingles_tem_capitulos_licoes_e_exercicios_traduzidos() {
+        let cur_pt = Curriculum::embedded_for(false).unwrap();
+        let cur_en = Curriculum::embedded_for(true).unwrap();
+
+        assert_eq!(cur_en.chapters.len(), 10);
+        assert_eq!(cur_en.lesson_order().len(), 30);
+        assert_eq!(cur_en.exercises().count(), 12);
+
+        for (ch_pt, ch_en) in cur_pt.chapters.iter().zip(cur_en.chapters.iter()) {
+            assert!(!ch_en.title.trim().is_empty());
+            assert_ne!(ch_pt.title, ch_en.title, "chapter {}", ch_en.id);
+        }
+
+        for (_, _, id) in cur_en.lesson_order() {
+            let l_pt = cur_pt.lesson(id).unwrap();
+            let l_en = cur_en.lesson(id).unwrap();
+            assert!(!l_en.title.trim().is_empty());
+            assert_ne!(l_pt.title, l_en.title, "lesson {id}");
+            assert!(!l_en.blocks.is_empty());
+        }
+
+        for ex_en in cur_en.exercises() {
+            let ex_pt = cur_pt.exercise(&ex_en.id).unwrap();
+            assert!(!ex_en.title.trim().is_empty());
+            assert!(!ex_en.statement.trim().is_empty());
+            assert_ne!(ex_pt.title, ex_en.title, "exercise {}", ex_en.id);
+            assert_ne!(ex_pt.statement, ex_en.statement, "exercise {}", ex_en.id);
+            assert!(!ex_en.hints.is_empty());
+            assert!(!ex_en.tests.trim().is_empty());
+        }
     }
 }

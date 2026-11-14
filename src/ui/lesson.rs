@@ -11,41 +11,74 @@ use ratatui::widgets::{Block, Clear, Gauge, Paragraph, Wrap};
 use crate::app::App;
 use crate::curriculum::{Block as CBlock, CalloutKind, DemoKind, Lesson};
 use crate::highlight;
-use crate::i18n::{t, tf};
+use crate::i18n::{t_for, tf_for};
 use crate::learn::{FerrisMood, LessonPractice, LessonView, PracticeOutcome};
 use crate::theme::Theme;
 
 /// Constrói as linhas do corpo da lição. Separado do desenho porque o
 /// `LessonView` precisa saber a altura (scroll/progresso) e os testes
 /// querem verificar conteúdo sem terminal.
+#[allow(dead_code)]
 pub fn build_lines(
     lesson: &Lesson,
     view: &LessonView,
     theme: &Theme,
     unicode: bool,
 ) -> Vec<Line<'static>> {
-    build_section_lines(lesson, view, theme, unicode, true, true)
+    build_section_lines(lesson, view, theme, unicode, true, true, false)
+}
+
+pub fn build_lines_for(
+    lesson: &Lesson,
+    view: &LessonView,
+    theme: &Theme,
+    unicode: bool,
+    english: bool,
+) -> Vec<Line<'static>> {
+    build_section_lines(lesson, view, theme, unicode, true, true, english)
 }
 
 /// Constrói apenas os blocos conceituais (texto, código, callouts e demos)
 /// para o painel superior de explicação.
+#[allow(dead_code)]
 pub fn build_explanation_lines(
     lesson: &Lesson,
     view: &LessonView,
     theme: &Theme,
     unicode: bool,
 ) -> Vec<Line<'static>> {
-    build_section_lines(lesson, view, theme, unicode, true, false)
+    build_section_lines(lesson, view, theme, unicode, true, false, false)
+}
+
+pub fn build_explanation_lines_for(
+    lesson: &Lesson,
+    view: &LessonView,
+    theme: &Theme,
+    unicode: bool,
+    english: bool,
+) -> Vec<Line<'static>> {
+    build_section_lines(lesson, view, theme, unicode, true, false, english)
 }
 
 /// Constrói apenas os blocos de quiz para o painel inferior de tarefa.
+#[allow(dead_code)]
 pub fn build_quiz_lines(
     lesson: &Lesson,
     view: &LessonView,
     theme: &Theme,
     unicode: bool,
 ) -> Vec<Line<'static>> {
-    build_section_lines(lesson, view, theme, unicode, false, true)
+    build_section_lines(lesson, view, theme, unicode, false, true, false)
+}
+
+pub fn build_quiz_lines_for(
+    lesson: &Lesson,
+    view: &LessonView,
+    theme: &Theme,
+    unicode: bool,
+    english: bool,
+) -> Vec<Line<'static>> {
+    build_section_lines(lesson, view, theme, unicode, false, true, english)
 }
 
 fn build_section_lines(
@@ -55,6 +88,7 @@ fn build_section_lines(
     unicode: bool,
     include_explanation: bool,
     include_quiz: bool,
+    english: bool,
 ) -> Vec<Line<'static>> {
     let mut lines: Vec<Line> = Vec::new();
     let mut quiz_serial = 0;
@@ -123,7 +157,7 @@ fn build_section_lines(
                 caption,
             } => {
                 if include_explanation {
-                    lines.extend(demo_lines(
+                    lines.extend(demo_lines_for(
                         *demo,
                         name,
                         steps,
@@ -131,6 +165,7 @@ fn build_section_lines(
                         view.demos.get(demo_serial).copied().unwrap_or(0),
                         theme,
                         unicode,
+                        english,
                     ));
                     lines.push(Line::default());
                 }
@@ -178,7 +213,7 @@ fn build_section_lines(
                     if st.solved.is_some() {
                         if let Some(w) = why {
                             lines.push(Line::from(Span::styled(
-                                format!("   {}", t("lesson.why-head")),
+                                format!("   {}", t_for("lesson.why-head", english)),
                                 theme.dim(),
                             )));
                             for l in w.lines() {
@@ -190,12 +225,15 @@ fn build_section_lines(
                         }
                     } else if st.attempts > 0 {
                         lines.push(Line::from(Span::styled(
-                            format!("   {}", t("lesson.try-again")),
+                            format!("   {}", t_for("lesson.try-again", english)),
                             theme.warning(),
                         )));
                     } else {
                         lines.push(Line::from(Span::styled(
-                            format!("   {}", tf("lesson.answer-hint", &[&options.len()])),
+                            format!(
+                                "   {}",
+                                tf_for("lesson.answer-hint", english, &[&options.len()])
+                            ),
                             theme.dim(),
                         )));
                     }
@@ -211,6 +249,7 @@ fn build_section_lines(
 /// Widget educativo conceitual (requisito 9): cada variante ilustra um
 /// conceito passo a passo (`d`) e termina com o aviso explícito de que é
 /// uma simplificação visual, não um depurador de runtime.
+#[allow(dead_code)]
 fn demo_lines(
     kind: DemoKind,
     name: &str,
@@ -219,6 +258,20 @@ fn demo_lines(
     step: usize,
     theme: &Theme,
     unicode: bool,
+) -> Vec<Line<'static>> {
+    demo_lines_for(kind, name, steps, caption, step, theme, unicode, false)
+}
+
+#[allow(clippy::too_many_arguments)]
+fn demo_lines_for(
+    kind: DemoKind,
+    name: &str,
+    steps: &[String],
+    caption: &Option<String>,
+    step: usize,
+    theme: &Theme,
+    unicode: bool,
+    english: bool,
 ) -> Vec<Line<'static>> {
     let shown = steps
         .get(step.min(steps.len().saturating_sub(1)))
@@ -229,10 +282,15 @@ fn demo_lines(
     } else {
         ("+", "+", "+", "+", "|", "-", "-->", "<->")
     };
+    let step_lbl = if english { "step" } else { "passo" };
     let mut lines = Vec::new();
     match kind {
         DemoKind::Variables => {
-            let head = format!(" nome: {name} ");
+            let head = if english {
+                format!(" name: {name} ")
+            } else {
+                format!(" nome: {name} ")
+            };
             let width = head.chars().count() + 2;
             lines.push(Line::from(Span::styled(
                 format!("  {tl}{head}{tr}"),
@@ -240,12 +298,19 @@ fn demo_lines(
             )));
             lines.push(Line::from(vec![
                 Span::styled(format!("  {vb} "), theme.accent_dim),
-                Span::styled(format!("valor = {shown:<18}"), theme.base()),
+                Span::styled(
+                    if english {
+                        format!("value = {shown:<18}")
+                    } else {
+                        format!("valor = {shown:<18}")
+                    },
+                    theme.base(),
+                ),
                 Span::styled(vb.to_string(), theme.accent_dim),
             ]));
             lines.push(Line::from(Span::styled(
                 format!(
-                    "  {bl}{}{br}  passo {}/{}",
+                    "  {bl}{}{br}  {step_lbl} {}/{}",
                     "-".repeat(width),
                     step + 1,
                     steps.len()
@@ -255,35 +320,66 @@ fn demo_lines(
         }
         DemoKind::Loop => {
             lines.push(Line::from(Span::styled(
-                format!(
-                    "  {tl} laço: {name} {loop_sym} {tr}  passo {}/{}",
-                    step + 1,
-                    steps.len()
-                ),
-                theme.accent_dim,
-            )));
-            lines.push(Line::from(vec![
-                Span::styled(format!("  {vb} "), theme.accent_dim),
-                Span::styled(format!("iteração: {shown}"), theme.base()),
-            ]));
-            lines.push(Line::from(Span::styled(
-                format!("  {bl}{0}{0}{0} volta à condição {loop_sym} {br}", hr),
-                theme.accent_dim,
-            )));
-        }
-        DemoKind::Function => {
-            lines.push(Line::from(Span::styled(
-                format!(
-                    "  {tl} função `{name}` {tr}  passo {}/{}",
-                    step + 1,
-                    steps.len()
-                ),
+                if english {
+                    format!(
+                        "  {tl} loop: {name} {loop_sym} {tr}  {step_lbl} {}/{}",
+                        step + 1,
+                        steps.len()
+                    )
+                } else {
+                    format!(
+                        "  {tl} laço: {name} {loop_sym} {tr}  {step_lbl} {}/{}",
+                        step + 1,
+                        steps.len()
+                    )
+                },
                 theme.accent_dim,
             )));
             lines.push(Line::from(vec![
                 Span::styled(format!("  {vb} "), theme.accent_dim),
                 Span::styled(
-                    format!("fluxo: {arrow} [ {name} ] {arrow} {shown}"),
+                    if english {
+                        format!("iteration: {shown}")
+                    } else {
+                        format!("iteração: {shown}")
+                    },
+                    theme.base(),
+                ),
+            ]));
+            lines.push(Line::from(Span::styled(
+                if english {
+                    format!("  {bl}{0}{0}{0} back to condition {loop_sym} {br}", hr)
+                } else {
+                    format!("  {bl}{0}{0}{0} volta à condição {loop_sym} {br}", hr)
+                },
+                theme.accent_dim,
+            )));
+        }
+        DemoKind::Function => {
+            lines.push(Line::from(Span::styled(
+                if english {
+                    format!(
+                        "  {tl} function `{name}` {tr}  {step_lbl} {}/{}",
+                        step + 1,
+                        steps.len()
+                    )
+                } else {
+                    format!(
+                        "  {tl} função `{name}` {tr}  {step_lbl} {}/{}",
+                        step + 1,
+                        steps.len()
+                    )
+                },
+                theme.accent_dim,
+            )));
+            lines.push(Line::from(vec![
+                Span::styled(format!("  {vb} "), theme.accent_dim),
+                Span::styled(
+                    if english {
+                        format!("flow: {arrow} [ {name} ] {arrow} {shown}")
+                    } else {
+                        format!("fluxo: {arrow} [ {name} ] {arrow} {shown}")
+                    },
                     theme.base(),
                 ),
             ]));
@@ -295,7 +391,7 @@ fn demo_lines(
         DemoKind::StackHeap => {
             lines.push(Line::from(Span::styled(
                 format!(
-                    "  {tl} STACK {tr}  {arrow}  {tl} HEAP: {name} {tr}  passo {}/{}",
+                    "  {tl} STACK {tr}  {arrow}  {tl} HEAP: {name} {tr}  {step_lbl} {}/{}",
                     step + 1,
                     steps.len()
                 ),
@@ -312,16 +408,31 @@ fn demo_lines(
         }
         DemoKind::Ownership => {
             lines.push(Line::from(Span::styled(
-                format!(
-                    "  {tl} ownership (posse): {name} {tr}  passo {}/{}",
-                    step + 1,
-                    steps.len()
-                ),
+                if english {
+                    format!(
+                        "  {tl} ownership: {name} {tr}  {step_lbl} {}/{}",
+                        step + 1,
+                        steps.len()
+                    )
+                } else {
+                    format!(
+                        "  {tl} ownership (posse): {name} {tr}  {step_lbl} {}/{}",
+                        step + 1,
+                        steps.len()
+                    )
+                },
                 theme.accent_dim,
             )));
             lines.push(Line::from(vec![
                 Span::styled(format!("  {vb} "), theme.accent_dim),
-                Span::styled(format!("dono ativo {arrow} {shown}"), theme.base()),
+                Span::styled(
+                    if english {
+                        format!("active owner {arrow} {shown}")
+                    } else {
+                        format!("dono ativo {arrow} {shown}")
+                    },
+                    theme.base(),
+                ),
             ]));
             lines.push(Line::from(Span::styled(
                 format!("  {bl}{}{br}", hr.repeat(24)),
@@ -330,16 +441,31 @@ fn demo_lines(
         }
         DemoKind::Borrowing => {
             lines.push(Line::from(Span::styled(
-                format!(
-                    "  {tl} borrowing (empréstimo): {name} {tr}  passo {}/{}",
-                    step + 1,
-                    steps.len()
-                ),
+                if english {
+                    format!(
+                        "  {tl} borrowing: {name} {tr}  {step_lbl} {}/{}",
+                        step + 1,
+                        steps.len()
+                    )
+                } else {
+                    format!(
+                        "  {tl} borrowing (empréstimo): {name} {tr}  {step_lbl} {}/{}",
+                        step + 1,
+                        steps.len()
+                    )
+                },
                 theme.accent_dim,
             )));
             lines.push(Line::from(vec![
                 Span::styled(format!("  {vb} "), theme.accent_dim),
-                Span::styled(format!("acesso: {shown}"), theme.base()),
+                Span::styled(
+                    if english {
+                        format!("access: {shown}")
+                    } else {
+                        format!("acesso: {shown}")
+                    },
+                    theme.base(),
+                ),
             ]));
             lines.push(Line::from(Span::styled(
                 format!("  {bl}{}{br}", hr.repeat(28)),
@@ -349,7 +475,7 @@ fn demo_lines(
         DemoKind::Vector => {
             lines.push(Line::from(Span::styled(
                 format!(
-                    "  {tl} Vec<{name}> {tr}  passo {}/{}",
+                    "  {tl} Vec<{name}> {tr}  {step_lbl} {}/{}",
                     step + 1,
                     steps.len()
                 ),
@@ -357,7 +483,14 @@ fn demo_lines(
             )));
             lines.push(Line::from(vec![
                 Span::styled(format!("  {vb} "), theme.accent_dim),
-                Span::styled(format!("elementos: {shown}"), theme.base()),
+                Span::styled(
+                    if english {
+                        format!("elements: {shown}")
+                    } else {
+                        format!("elementos: {shown}")
+                    },
+                    theme.base(),
+                ),
             ]));
             lines.push(Line::from(Span::styled(
                 format!("  {bl}{}{br}", hr.repeat(18)),
@@ -371,7 +504,10 @@ fn demo_lines(
             theme.dim(),
         )));
     }
-    lines.push(Line::from(Span::styled(t("demo.simplified"), theme.dim())));
+    lines.push(Line::from(Span::styled(
+        t_for("demo.simplified", english),
+        theme.dim(),
+    )));
     lines
 }
 
@@ -395,6 +531,7 @@ fn plain(s: &str, unicode: bool) -> String {
 }
 
 pub fn draw(frame: &mut Frame, app: &mut App, area: Rect) {
+    let en = app.is_english();
     let theme = app.theme;
     let unicode = app.unicode;
     let Some(view) = app.lesson_view.clone() else {
@@ -406,8 +543,14 @@ pub fn draw(frame: &mut Frame, app: &mut App, area: Rect) {
                 .v3_entry_id
                 .and_then(crate::curriculum::v3_blueprint::find_v3_entry);
             let ch_title = entry
-                .map(|e| e.stage.label().to_string())
-                .unwrap_or_else(|| "Trilha V3".to_string());
+                .map(|e| e.stage.label_for(en).to_string())
+                .unwrap_or_else(|| {
+                    if en {
+                        "V3 Track".to_string()
+                    } else {
+                        "Trilha V3".to_string()
+                    }
+                });
             let pos = view
                 .v3_entry_id
                 .and_then(crate::curriculum::v3_blueprint::v3_entry_index)
@@ -458,7 +601,7 @@ pub fn draw(frame: &mut Frame, app: &mut App, area: Rect) {
         ),
     ]);
     frame.render_widget(Paragraph::new(title), rows[0]);
-    let nav_hint = Line::from(Span::styled(t("lesson.nav-hint"), theme.dim()));
+    let nav_hint = Line::from(Span::styled(t_for("lesson.nav-hint", en), theme.dim()));
     frame.render_widget(
         nav_hint,
         Rect {
@@ -468,11 +611,19 @@ pub fn draw(frame: &mut Frame, app: &mut App, area: Rect) {
     );
     if !related_titles.is_empty() {
         frame.render_widget(
-            Paragraph::new(format!(
-                " e praticar · {} exercício(s): {}",
-                related_titles.len(),
-                related_titles.join(", ")
-            ))
+            Paragraph::new(if en {
+                format!(
+                    " e practice · {} exercise(s): {}",
+                    related_titles.len(),
+                    related_titles.join(", ")
+                )
+            } else {
+                format!(
+                    " e praticar · {} exercício(s): {}",
+                    related_titles.len(),
+                    related_titles.join(", ")
+                )
+            })
             .style(theme.title()),
             Rect {
                 y: rows[0].y + 2,
@@ -485,8 +636,8 @@ pub fn draw(frame: &mut Frame, app: &mut App, area: Rect) {
     // ---- corpo: TOPO explicação + BAIXO tarefa/mini-IDE + Ferris --------
     let body = rows[1];
     let has_split = body.height >= 12;
-    let exp_lines = build_explanation_lines(&lesson, &view, &theme, unicode);
-    let quiz_lines = build_quiz_lines(&lesson, &view, &theme, unicode);
+    let exp_lines = build_explanation_lines_for(&lesson, &view, &theme, unicode, en);
+    let quiz_lines = build_quiz_lines_for(&lesson, &view, &theme, unicode, en);
 
     let (top_area, bottom_area_opt) = if has_split {
         let bottom_h = if view.practice_focused {
@@ -506,7 +657,11 @@ pub fn draw(frame: &mut Frame, app: &mut App, area: Rect) {
     // Painel superior de explicação (alinhado à esquerda, com scroll real)
     let (scroll, max_scroll) = if let Some(bottom_area) = bottom_area_opt {
         let exp_block = Block::bordered()
-            .title(" Explicação · ↑↓ rolar ")
+            .title(if en {
+                " Explanation · ↑↓ scroll "
+            } else {
+                " Explicação · ↑↓ rolar "
+            })
             .border_style(theme.border_style(!view.practice_focused));
         let inner = exp_block.inner(top_area);
         let para = Paragraph::new(exp_lines).wrap(Wrap { trim: false });
@@ -523,11 +678,12 @@ pub fn draw(frame: &mut Frame, app: &mut App, area: Rect) {
             quiz_lines,
             &related_titles,
             &theme,
+            en,
         );
         (scroll, max)
     } else {
         // Terminais muito baixos (< 12 linhas no corpo): degrada sem cortes
-        let full_lines = build_lines(&lesson, &view, &theme, unicode);
+        let full_lines = build_lines_for(&lesson, &view, &theme, unicode, en);
         let para = Paragraph::new(full_lines).wrap(Wrap { trim: false });
         let total = para.line_count(top_area.width.max(1));
         let max = total.saturating_sub(top_area.height as usize);
@@ -543,11 +699,19 @@ pub fn draw(frame: &mut Frame, app: &mut App, area: Rect) {
         let r = centered_rect(area, 72, 9);
         frame.render_widget(Clear, r);
         frame.render_widget(
-            Paragraph::new("Executar esta prática compila e executa seu código local com Cargo; isso NÃO é sandbox. O processo usa as permissões da sua conta.\n\nNada foi executado ainda. Enter aceita; Esc recusa.")
+            Paragraph::new(if en {
+                "Running this practice compiles and runs your local code with Cargo; this is NOT sandboxed. The process uses your user permissions.\n\nNothing has run yet. Enter accepts; Esc declines."
+            } else {
+                "Executar esta prática compila e executa seu código local com Cargo; isso NÃO é sandbox. O processo usa as permissões da sua conta.\n\nNada foi executado ainda. Enter aceita; Esc recusa."
+            })
                 .wrap(Wrap { trim: true })
                 .block(
                     Block::bordered()
-                        .title(" Consentimento necessário (F5) ")
+                        .title(if en {
+                            " Consent required (F5) "
+                        } else {
+                            " Consentimento necessário (F5) "
+                        })
                         .border_style(theme.border_style(true)),
                 ),
             r,
@@ -566,9 +730,9 @@ pub fn draw(frame: &mut Frame, app: &mut App, area: Rect) {
         .map(|v| v.is_finished())
         .unwrap_or_else(|| view.is_finished());
     let label = if done {
-        tf("lesson.progress-done", &[&pos])
+        tf_for("lesson.progress-done", en, &[&pos])
     } else {
-        tf("lesson.progress", &[&pos, &pct])
+        tf_for("lesson.progress", en, &[&pos, &pct])
     };
     let gauge = Gauge::default()
         .ratio(if done { 1.0 } else { pct as f64 / 100.0 })
@@ -591,6 +755,7 @@ fn sync_scroll(app: &mut App, max_scroll: usize) -> usize {
     }
 }
 
+#[allow(clippy::too_many_arguments)]
 fn draw_bottom_panel(
     frame: &mut Frame,
     app: &mut App,
@@ -599,6 +764,7 @@ fn draw_bottom_panel(
     quiz_lines: Vec<Line<'static>>,
     related_titles: &[String],
     theme: &Theme,
+    english: bool,
 ) {
     let show_ferris = area.width >= 68;
     let (task_area, ferris_area) = if show_ferris {
@@ -611,13 +777,28 @@ fn draw_bottom_panel(
     if view.practice_focused
         && let Some(practice) = app.lesson_view.as_mut().and_then(|v| v.practice.as_mut())
     {
-        draw_embedded_practice(frame, task_area, practice, theme);
+        draw_embedded_practice(frame, task_area, practice, theme, english);
     } else {
-        draw_quiz_or_task_summary(frame, task_area, view, quiz_lines, related_titles, theme);
+        draw_quiz_or_task_summary(
+            frame,
+            task_area,
+            view,
+            quiz_lines,
+            related_titles,
+            theme,
+            english,
+        );
     }
 
     if let Some(f_area) = ferris_area {
-        draw_ferris_box(frame, f_area, view.ferris, view.practice.as_ref(), theme);
+        draw_ferris_box(
+            frame,
+            f_area,
+            view.ferris,
+            view.practice.as_ref(),
+            theme,
+            english,
+        );
     }
 }
 
@@ -628,13 +809,28 @@ fn draw_quiz_or_task_summary(
     mut quiz_lines: Vec<Line<'static>>,
     related_titles: &[String],
     theme: &Theme,
+    english: bool,
 ) {
     let title = if let Some(p) = &view.practice {
-        format!(" Tarefa & Quiz · Tab abrir Mini-IDE ({}) ", p.spec.id)
+        if english {
+            format!(" Task & Quiz · Tab open Mini-IDE ({}) ", p.spec.id)
+        } else {
+            format!(" Tarefa & Quiz · Tab abrir Mini-IDE ({}) ", p.spec.id)
+        }
     } else if !quiz_lines.is_empty() {
-        " Quiz de fixação · 1-9 responder · → avançar ".to_string()
+        if english {
+            " Review Quiz · 1-9 answer · → next ".to_string()
+        } else {
+            " Quiz de fixação · 1-9 responder · → avançar ".to_string()
+        }
     } else if !related_titles.is_empty() {
-        " Prática relacionada · e abrir exercícios ".to_string()
+        if english {
+            " Related practice · e open exercises ".to_string()
+        } else {
+            " Prática relacionada · e abrir exercícios ".to_string()
+        }
+    } else if english {
+        " Summary & Next step ".to_string()
     } else {
         " Resumo & Próximo passo ".to_string()
     };
@@ -646,29 +842,51 @@ fn draw_quiz_or_task_summary(
                 theme.base(),
             )));
             quiz_lines.push(Line::from(Span::styled(
-                "Pressione Tab para digitar no editor embutido e F5 para rodar Cargo (100+100 XP sem dica).",
+                if english {
+                    "Press Tab to type in the embedded editor and F5 to run Cargo (100+100 XP with no hints)."
+                } else {
+                    "Pressione Tab para digitar no editor embutido e F5 para rodar Cargo (100+100 XP sem dica)."
+                },
                 theme.title(),
             )));
         } else if !related_titles.is_empty() {
             quiz_lines.push(Line::from(Span::styled(
-                format!(
-                    "Exercício(s) desta lição: {}. Pressione `e` para praticar com testes Cargo.",
-                    related_titles.join(", ")
-                ),
+                if english {
+                    format!(
+                        "Exercise(s) for this lesson: {}. Press `e` to practice with Cargo tests.",
+                        related_titles.join(", ")
+                    )
+                } else {
+                    format!(
+                        "Exercício(s) desta lição: {}. Pressione `e` para praticar com testes Cargo.",
+                        related_titles.join(", ")
+                    )
+                },
                 theme.base(),
             )));
         } else {
             quiz_lines.push(Line::from(Span::styled(
-                "Role até o fim da explicação acima (`End`) e pressione `→` ou `Enter` para avançar.",
+                if english {
+                    "Scroll to the end of the explanation above (`End`) and press `→` or `Enter` to continue."
+                } else {
+                    "Role até o fim da explicação acima (`End`) e pressione `→` ou `Enter` para avançar."
+                },
                 theme.base(),
             )));
         }
     } else if let Some(p) = &view.practice {
         quiz_lines.push(Line::from(Span::styled(
-            format!(
-                "→ Mini-IDE {}: pressione Tab para escrever e rodar com Cargo (`F5`).",
-                p.spec.id
-            ),
+            if english {
+                format!(
+                    "→ Mini-IDE {}: press Tab to write and run with Cargo (`F5`).",
+                    p.spec.id
+                )
+            } else {
+                format!(
+                    "→ Mini-IDE {}: pressione Tab para escrever e rodar com Cargo (`F5`).",
+                    p.spec.id
+                )
+            },
             theme.title(),
         )));
     }
@@ -688,6 +906,7 @@ fn draw_embedded_practice(
     area: Rect,
     practice: &mut LessonPractice,
     theme: &Theme,
+    english: bool,
 ) {
     let out_h = 5u16.min(area.height.saturating_sub(5));
     let panes = Layout::vertical([Constraint::Min(5), Constraint::Length(out_h)]).split(area);
@@ -731,10 +950,11 @@ fn draw_embedded_practice(
     let ed_title = format!(
         " {} · {} ",
         practice.spec.id,
-        if editor.dirty {
-            "não salvo · Ctrl+S · F5 rodar"
-        } else {
-            "F5 Cargo run · Ctrl+S salvar · Tab leitura"
+        match (editor.dirty, english) {
+            (true, true) => "unsaved · Ctrl+S · F5 run",
+            (true, false) => "não salvo · Ctrl+S · F5 rodar",
+            (false, true) => "F5 Cargo run · Ctrl+S save · Tab read",
+            (false, false) => "F5 Cargo run · Ctrl+S salvar · Tab leitura",
         }
     );
     frame.render_widget(
@@ -750,15 +970,23 @@ fn draw_embedded_practice(
 
     let status_line = match practice.outcome {
         PracticeOutcome::NotRun => Line::from(vec![
-            Span::styled("Objetivo: ", theme.title()),
+            Span::styled(if english { "Goal: " } else { "Objetivo: " }, theme.title()),
             Span::styled(practice.spec.prompt, theme.base()),
         ]),
         PracticeOutcome::Running => Line::from(Span::styled(
-            "Executando `cargo run`… aguarde.",
+            if english {
+                "Running `cargo run`… please wait."
+            } else {
+                "Executando `cargo run`… aguarde."
+            },
             theme.title(),
         )),
         PracticeOutcome::Passed => Line::from(Span::styled(
-            "✓ Aprovado pelo Cargo! Pode avançar ou experimentar mais.",
+            if english {
+                "✓ Passed Cargo checks! You can advance or keep experimenting."
+            } else {
+                "✓ Aprovado pelo Cargo! Pode avançar ou experimentar mais."
+            },
             theme.success(),
         )),
         PracticeOutcome::CompileFailed
@@ -766,10 +994,21 @@ fn draw_embedded_practice(
         | PracticeOutcome::ValidationFailed
         | PracticeOutcome::TimedOut
         | PracticeOutcome::StartFailed => Line::from(Span::styled(
-            "! Confira a saída/erro abaixo ou pressione F1 para dica.",
+            if english {
+                "! Check the output/error below or press F1 for a hint."
+            } else {
+                "! Confira a saída/erro abaixo ou pressione F1 para dica."
+            },
             theme.warning(),
         )),
-        PracticeOutcome::Cancelled => Line::from(Span::styled("Execução cancelada.", theme.dim())),
+        PracticeOutcome::Cancelled => Line::from(Span::styled(
+            if english {
+                "Execution cancelled."
+            } else {
+                "Execução cancelada."
+            },
+            theme.dim(),
+        )),
     };
 
     let mut body_lines = vec![status_line];
@@ -781,13 +1020,18 @@ fn draw_embedded_practice(
         }
     } else if practice.shown_hints > 0 {
         let study_tag = if practice.hint_index == 3 {
-            " [Modo Estudo/Revisão]"
+            if english {
+                " [Study/Review Mode]"
+            } else {
+                " [Modo Estudo/Revisão]"
+            }
         } else {
             ""
         };
         body_lines.push(Line::from(Span::styled(
             format!(
-                "Dica {}/4{study_tag}: {}",
+                "{} {}/4{study_tag}: {}",
+                if english { "Hint" } else { "Dica" },
                 practice.hint_index + 1,
                 practice.spec.hints[practice.hint_index]
             ),
@@ -795,17 +1039,25 @@ fn draw_embedded_practice(
         )));
     }
 
-    let hint_badge = if practice.outcome == PracticeOutcome::NotRun {
-        format!(
+    let hint_badge = match (practice.outcome == PracticeOutcome::NotRun, english) {
+        (true, true) => format!(
+            " Output & Hints · F1 ({}/4) · PgUp/PgDn ",
+            practice.shown_hints
+        ),
+        (true, false) => format!(
             " Saída & Dicas · F1 ({}/4) · PgUp/PgDn ",
             practice.shown_hints
-        )
-    } else {
-        format!(
-            " Saída & Dicas {} · F1 ({}/4) · PgUp/PgDn ",
-            practice.outcome.status_badge(),
+        ),
+        (false, true) => format!(
+            " Output & Hints {} · F1 ({}/4) · PgUp/PgDn ",
+            practice.outcome.status_badge_for(true),
             practice.shown_hints
-        )
+        ),
+        (false, false) => format!(
+            " Saída & Dicas {} · F1 ({}/4) · PgUp/PgDn ",
+            practice.outcome.status_badge_for(false),
+            practice.shown_hints
+        ),
     };
     frame.render_widget(
         Paragraph::new(body_lines).wrap(Wrap { trim: true }).block(
@@ -823,6 +1075,7 @@ fn draw_ferris_box(
     mood: FerrisMood,
     practice: Option<&LessonPractice>,
     theme: &Theme,
+    english: bool,
 ) {
     let mood_style = match mood {
         FerrisMood::Neutral => theme.title().add_modifier(Modifier::BOLD),
@@ -834,16 +1087,17 @@ fn draw_ferris_box(
     let mut lines = vec![
         Line::from(vec![
             Span::styled(format!("  {}  ", mood.ascii()), mood_style),
-            Span::styled(mood.label(), theme.base()),
+            Span::styled(mood.label_for(english), theme.base()),
         ]),
-        Line::from(Span::styled(mood.caption(), theme.dim())),
+        Line::from(Span::styled(mood.caption_for(english), theme.dim())),
     ];
     if let Some(p) = practice {
         let (base, bonus) = crate::learn::calculate_v3_practice_xp(p.shown_hints, p.ai_used);
-        let xp_text = if bonus > 0 {
-            format!("XP possível: {base}+{bonus} (sem dicas)")
-        } else {
-            format!("XP possível: {base} (dicas: {})", p.shown_hints)
+        let xp_text = match (bonus > 0, english) {
+            (true, true) => format!("Possible XP: {base}+{bonus} (no hints)"),
+            (true, false) => format!("XP possível: {base}+{bonus} (sem dicas)"),
+            (false, true) => format!("Possible XP: {base} (hints: {})", p.shown_hints),
+            (false, false) => format!("XP possível: {base} (dicas: {})", p.shown_hints),
         };
         lines.push(Line::from(Span::styled(xp_text, theme.dim())));
     }

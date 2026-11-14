@@ -1,5 +1,7 @@
-//! Glossário offline em português para símbolos Rust, bibliotecas extras
+//! Glossário offline bilíngue (pt-BR / en-US) para símbolos Rust, bibliotecas extras
 //! visuais/de jogos e variáveis/funções definidas no código do aluno.
+
+use crate::i18n::bi;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct DocHint {
@@ -19,6 +21,14 @@ impl ResolvedDoc {
     pub fn best_url(&self) -> &str {
         self.url_pt.as_deref().unwrap_or(&self.url_en)
     }
+
+    pub fn best_url_for(&self, english: bool) -> &str {
+        if english {
+            &self.url_en
+        } else {
+            self.best_url()
+        }
+    }
 }
 
 /// Biblioteca visual, de áudio, efeitos ou mini engine pronta para adicionar
@@ -34,6 +44,14 @@ pub struct ExtraLibrary {
     pub use_line: &'static str,
     pub example: &'static str,
     pub doc_url: &'static str,
+}
+
+pub fn extra_libraries(english: bool) -> &'static [ExtraLibrary] {
+    if english {
+        &EXTRA_LIBRARIES_EN
+    } else {
+        &EXTRA_LIBRARIES
+    }
 }
 
 pub const EXTRA_LIBRARIES: [ExtraLibrary; 7] = [
@@ -116,6 +134,86 @@ pub const EXTRA_LIBRARIES: [ExtraLibrary; 7] = [
     },
 ];
 
+pub const EXTRA_LIBRARIES_EN: [ExtraLibrary; 7] = [
+    ExtraLibrary {
+        name: "macroquad",
+        version: "0.4",
+        category: "2D Mini Game Engine",
+        summary: "Lightweight game-loop engine (Pong, platformers, arcade) with windowing, 2D shapes, text, and keyboard/mouse input without heavy setup.",
+        docs_pt: "Opens a dedicated graphical window (Linux and Windows). Use #[macroquad::main(\"Game\")] async fn main(), draw with draw_rectangle/draw_circle/draw_text, read keys with is_key_down, and finish frames with next_frame().await.",
+        key_items: "clear_background, draw_circle, draw_rectangle, draw_line, draw_text, is_key_down, mouse_position, next_frame",
+        use_line: "use macroquad::prelude::*;",
+        example: "#[macroquad::main(\"My Game\")]\nasync fn main() {\n    loop {\n        clear_background(BLACK);\n        draw_circle(screen_width() / 2.0, screen_height() / 2.0, 20.0, GOLD);\n        next_frame().await;\n    }\n}",
+        doc_url: "https://docs.rs/macroquad/latest/macroquad/",
+    },
+    ExtraLibrary {
+        name: "bevy",
+        version: "0.20",
+        category: "2D/3D Game Engine (ECS)",
+        summary: "Data-driven game engine (Entities, Components, Systems) for 2D and 3D games in Rust.",
+        docs_pt: "Uses ECS architecture: components are structs with #[derive(Component)], systems are regular functions (fn move_player(mut query: Query<&mut Transform>, time: Res<Time>)) registered in App::new().add_plugins(DefaultPlugins). Runs in its own window or another terminal (F4).",
+        key_items: "App, DefaultPlugins, Startup, Update, Commands, Query, Res, ResMut, Component, Resource, Transform, Camera2d, Sprite, ButtonInput, KeyCode, Time",
+        use_line: "use bevy::prelude::*;",
+        example: "#[derive(Component)]\nstruct Player;\n\nfn main() {\n    App::new()\n        .add_plugins(DefaultPlugins)\n        .add_systems(Startup, setup)\n        .add_systems(Update, move_player)\n        .run();\n}",
+        doc_url: "https://docs.rs/bevy/latest/bevy/",
+    },
+    ExtraLibrary {
+        name: "minifb",
+        version: "0.27",
+        category: "2D Pixel Window",
+        summary: "Simple pixel-framebuffer window (Vec<u32>), ideal for learning software rendering and visual simulations.",
+        docs_pt: "Creates a 2D window with Window::new and updates an RGB pixel vector (0xRRGGBB) every frame via update_with_buffer.",
+        key_items: "Window, WindowOptions, Key, update_with_buffer, is_open",
+        use_line: "use minifb::{Key, Window, WindowOptions};",
+        example: "let mut window = Window::new(\"Demo\", 320, 200, WindowOptions::default()).unwrap();\nlet buffer = vec![0x0022_4466u32; 320 * 200];\nwhile window.is_open() && !window.is_key_down(Key::Escape) {\n    window.update_with_buffer(&buffer, 320, 200).unwrap();\n}",
+        doc_url: "https://docs.rs/minifb/latest/minifb/",
+    },
+    ExtraLibrary {
+        name: "eframe",
+        version: "0.31",
+        category: "Desktop GUI (egui)",
+        summary: "Immediate-mode GUI framework for building native desktop windows with buttons, text inputs, sliders, and charts.",
+        docs_pt: "Lets you build visual apps with buttons, text fields, and panels using egui::CentralPanel::default().show(...).",
+        key_items: "egui, run_native, CentralPanel, SidePanel, Ui, heading, button, label, Slider",
+        use_line: "use eframe::egui;",
+        example: "egui::CentralPanel::default().show(ctx, |ui| {\n    ui.heading(\"My Rust Visual App!\");\n    if ui.button(\"Click me\").clicked() { /* ... */ }\n});",
+        doc_url: "https://docs.rs/eframe/latest/eframe/",
+    },
+    ExtraLibrary {
+        name: "tachyonfx",
+        version: "0.11",
+        category: "Visual Effects & Animations",
+        summary: "Composable shader-like terminal effects and animations (dissolve, fade, sweep) for TUI interfaces.",
+        docs_pt: "Creates smooth interpolated animations with fx::dissolve, fx::fade_from_fg, fx::sweep_in, EffectTimer, and Interpolation.",
+        key_items: "fx, Effect, EffectTimer, Interpolation, dissolve, fade_from_fg, sweep_in",
+        use_line: "use tachyonfx::{Effect, EffectTimer, Interpolation, fx};",
+        example: "let effect = fx::fade_from_fg(ratatui::style::Color::Yellow, (600, Interpolation::SineOut));",
+        doc_url: "https://docs.rs/tachyonfx/latest/tachyonfx/",
+    },
+    ExtraLibrary {
+        name: "rand",
+        version: "0.9",
+        category: "Randomness & Dice Rolls",
+        summary: "Generates random numbers, enemy spawns, powerups, and dice rolls in games and simulations.",
+        docs_pt: "Use rand::rng().random_range(min..max) to sample numbers or random_bool(prob) for weighted events.",
+        key_items: "Rng, rng, random_range, random_bool",
+        use_line: "use rand::Rng;",
+        example: "let mut rng = rand::rng();\nlet roll = rng.random_range(1..=10);",
+        doc_url: "https://docs.rs/rand/latest/rand/",
+    },
+    ExtraLibrary {
+        name: "rodio",
+        version: "0.20",
+        category: "Audio & Sound Effects",
+        summary: "Plays synthesized tones, music, and sound effects in Rust games and applications.",
+        docs_pt: "Opens the default audio output via OutputStream::try_default() and controls playback with Sink (e.g. SineWave for collision beeps).",
+        key_items: "OutputStream, Sink, SineWave, Source",
+        use_line: "use rodio::{OutputStream, Sink, source::SineWave};",
+        example: "if let Ok((_stream, handle)) = OutputStream::try_default() {\n    if let Ok(sink) = Sink::try_new(&handle) { /* play sound */ }\n}",
+        doc_url: "https://docs.rs/rodio/latest/rodio/",
+    },
+];
+
 /// Metadados pedagógicos e de ambiente estendidos do catálogo F9 (Especificação V3 I4).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct V3LibraryMetadata {
@@ -129,552 +227,776 @@ pub struct V3LibraryMetadata {
 impl ExtraLibrary {
     /// Retorna metadados pedagógicos, dependências de sistema Linux e status auditado.
     pub fn v3_metadata(&self) -> V3LibraryMetadata {
+        self.v3_metadata_for(false)
+    }
+
+    /// Bilingual variant of `v3_metadata`.
+    pub fn v3_metadata_for(&self, english: bool) -> V3LibraryMetadata {
         match self.name {
             "macroquad" => V3LibraryMetadata {
                 system_deps_linux: "libx11-dev, libxi-dev, libgl1-mesa-dev, libasound2-dev",
                 associated_v3_lessons: &["D07-P02", "D10-P02", "PAINT-01"],
-                common_pitfalls: "Esquecer `next_frame().await` no loop congela a janela; usar `#[macroquad::main]` em vez de main síncrona.",
-                tested_environments: "Linux X11/Wayland · Windows MinGW (compilação guiada)",
-                review_status: "Auditada V3 · GUI depende de display gráfico ativo",
+                common_pitfalls: bi(
+                    "Esquecer `next_frame().await` no loop congela a janela; usar `#[macroquad::main]` em vez de main síncrona.",
+                    "Forgetting `next_frame().await` in the loop freezes the window; use `#[macroquad::main]` instead of a synchronous `main`.",
+                    english,
+                ),
+                tested_environments: bi(
+                    "Linux X11/Wayland · Windows MinGW (compilação guiada)",
+                    "Linux X11/Wayland · Windows MinGW (guided build)",
+                    english,
+                ),
+                review_status: bi(
+                    "Auditada V3 · GUI depende de display gráfico ativo",
+                    "V3 Audited · GUI requires an active graphical display",
+                    english,
+                ),
             },
             "bevy" => V3LibraryMetadata {
                 system_deps_linux: "libasound2-dev, libudev-dev, libwayland-dev, libxkbcommon-dev, vulkan/mesa",
                 associated_v3_lessons: &["CAVE-01", "CAVE-08", "CAVE-18"],
-                common_pitfalls: "Compilação dev sem `[profile.dev.package.\"*\"] opt-level = 1` fica lenta; queries mutáveis concorrentes sem `Without<T>` geram erro de borrow ECS.",
-                tested_environments: "Linux Vulkan/Wayland/X11 · Modo CaveGame núcleo voxel testado headless",
-                review_status: "Auditada V3 (0.20) · Janela 3D depende de display/GPU",
+                common_pitfalls: bi(
+                    "Compilação dev sem `[profile.dev.package.\"*\"] opt-level = 1` fica lenta; queries mutáveis concorrentes sem `Without<T>` geram erro de borrow ECS.",
+                    "Dev builds without `[profile.dev.package.\"*\"] opt-level = 1` compile slowly; overlapping mutable queries without `Without<T>` cause ECS borrow errors.",
+                    english,
+                ),
+                tested_environments: bi(
+                    "Linux Vulkan/Wayland/X11 · Modo CaveGame núcleo voxel testado headless",
+                    "Linux Vulkan/Wayland/X11 · CaveGame voxel core tested headless",
+                    english,
+                ),
+                review_status: bi(
+                    "Auditada V3 (0.20) · Janela 3D depende de display/GPU",
+                    "V3 Audited (0.20) · 3D window requires display/GPU",
+                    english,
+                ),
             },
             "minifb" => V3LibraryMetadata {
                 system_deps_linux: "libx11-dev, libxkbcommon-dev (X11/Wayland)",
                 associated_v3_lessons: &["PAINT-04", "PAINT-07"],
-                common_pitfalls: "Passar buffer com tamanho diferente de `largura * altura` falha em runtime; atualizar janela sempre com `is_open()`.",
-                tested_environments: "Linux desktop · Windows",
-                review_status: "Auditada V3 · GUI depende de display",
+                common_pitfalls: bi(
+                    "Passar buffer com tamanho diferente de `largura * altura` falha em runtime; atualizar janela sempre com `is_open()`.",
+                    "Passing a buffer whose length differs from `width * height` fails at runtime; keep updating the window while `is_open()`.",
+                    english,
+                ),
+                tested_environments: bi(
+                    "Linux desktop · Windows",
+                    "Linux desktop · Windows",
+                    english,
+                ),
+                review_status: bi(
+                    "Auditada V3 · GUI depende de display",
+                    "V3 Audited · GUI requires display",
+                    english,
+                ),
             },
             "eframe" => V3LibraryMetadata {
                 system_deps_linux: "libxcb, libgtk-3-dev, OpenGL/glow",
                 associated_v3_lessons: &["PAINT-01", "PAINT-12", "D12-P02"],
-                common_pitfalls: "Guardar estado transitório em variáveis locais do `update()` zera tudo a cada frame; mutar apenas campos da struct do App.",
-                tested_environments: "Linux X11/Wayland · Windows",
-                review_status: "Auditada V3 · Interface imediata depende de display",
+                common_pitfalls: bi(
+                    "Guardar estado transitório em variáveis locais do `update()` zera tudo a cada frame; mutar apenas campos da struct do App.",
+                    "Storing persistent state in local variables inside `update()` resets every frame; store state in your App struct fields instead.",
+                    english,
+                ),
+                tested_environments: bi(
+                    "Linux X11/Wayland · Windows",
+                    "Linux X11/Wayland · Windows",
+                    english,
+                ),
+                review_status: bi(
+                    "Auditada V3 · Interface imediata depende de display",
+                    "V3 Audited · Immediate-mode GUI requires display",
+                    english,
+                ),
             },
             "tachyonfx" => V3LibraryMetadata {
-                system_deps_linux: "Nenhuma dependência nativa extra (pure Rust terminal / ratatui)",
+                system_deps_linux: bi(
+                    "Nenhuma dependência nativa extra (pure Rust terminal / ratatui)",
+                    "No extra native dependencies (pure Rust terminal / ratatui)",
+                    english,
+                ),
                 associated_v3_lessons: &["F05-P01", "D10-P02"],
-                common_pitfalls: "Chamar efeito terminado sem reiniciar `EffectTimer`; aplicar coordenadas fora da `area` do buffer.",
+                common_pitfalls: bi(
+                    "Chamar efeito terminado sem reiniciar `EffectTimer`; aplicar coordenadas fora da `area` do buffer.",
+                    "Calling a finished effect without resetting `EffectTimer`; passing coordinates outside the buffer `area`.",
+                    english,
+                ),
                 tested_environments: "Linux TTY/PTY · Windows Terminal · Headless CI",
-                review_status: "Auditada e testada em headless (fx_finish.rs)",
+                review_status: bi(
+                    "Auditada e testada em headless (fx_finish.rs)",
+                    "Audited and tested headless (fx_finish.rs)",
+                    english,
+                ),
             },
             "rand" => V3LibraryMetadata {
-                system_deps_linux: "Nenhuma dependência de sistema (pure Rust)",
+                system_deps_linux: bi(
+                    "Nenhuma dependência de sistema (pure Rust)",
+                    "No system dependencies (pure Rust)",
+                    english,
+                ),
                 associated_v3_lessons: &["M08-P01", "D08-P02", "CAVE-02"],
-                common_pitfalls: "Intervalo invertido `gen_range(10..5)` entra em panic; para testes determinísticos prefira sementes fixas (`SeedableRng`).",
-                tested_environments: "Multiplataforma completa + Headless CI",
-                review_status: "Auditada e testada (Pure Rust)",
+                common_pitfalls: bi(
+                    "Intervalo invertido `gen_range(10..5)` entra em panic; para testes determinísticos prefira sementes fixas (`SeedableRng`).",
+                    "Reversed ranges like `random_range(10..5)` panic; use fixed seeds (`SeedableRng`) for deterministic tests.",
+                    english,
+                ),
+                tested_environments: bi(
+                    "Multiplataforma completa + Headless CI",
+                    "Full cross-platform + Headless CI",
+                    english,
+                ),
+                review_status: bi(
+                    "Auditada e testada (Pure Rust)",
+                    "Audited and tested (Pure Rust)",
+                    english,
+                ),
             },
             _ => V3LibraryMetadata {
-                system_deps_linux: "libasound2-dev (ALSA) ou pipewire-alsa em Linux",
+                system_deps_linux: bi(
+                    "libasound2-dev (ALSA) ou pipewire-alsa em Linux",
+                    "libasound2-dev (ALSA) or pipewire-alsa on Linux",
+                    english,
+                ),
                 associated_v3_lessons: &["D07-P02", "D11-P02"],
-                common_pitfalls: "Dropar `_stream` retornada por `OutputStream::try_default()` encerra o áudio imediatamente mesmo com `Sink` vivo.",
-                tested_environments: "Linux ALSA/PipeWire + fallback silencioso verificado",
-                review_status: "Auditada · Fallback mudo testado automaticamente",
+                common_pitfalls: bi(
+                    "Dropar `_stream` retornada por `OutputStream::try_default()` encerra o áudio imediatamente mesmo com `Sink` vivo.",
+                    "Dropping `_stream` returned by `OutputStream::try_default()` immediately stops audio even while `Sink` stays alive.",
+                    english,
+                ),
+                tested_environments: bi(
+                    "Linux ALSA/PipeWire + fallback silencioso verificado",
+                    "Linux ALSA/PipeWire + verified silent fallback",
+                    english,
+                ),
+                review_status: bi(
+                    "Auditada · Fallback mudo testado automaticamente",
+                    "Audited · Silent fallback automatically tested",
+                    english,
+                ),
             },
         }
     }
 }
 
 pub fn lookup(symbol: &str) -> Option<DocHint> {
-    let entry = match symbol {
-        "println" => DocHint {
-            summary: "Imprime texto formatado e adiciona uma quebra de linha.",
-            url: "https://doc.rust-lang.org/std/macro.println.html",
-        },
-        "print" => DocHint {
-            summary: "Imprime texto formatado sem adicionar quebra de linha.",
-            url: "https://doc.rust-lang.org/std/macro.print.html",
-        },
-        "format" => DocHint {
-            summary: "Monta uma String usando a sintaxe de formatação do Rust.",
-            url: "https://doc.rust-lang.org/std/macro.format.html",
-        },
-        "String" => DocHint {
-            summary: "Texto UTF-8 que pode crescer e ser alterado.",
-            url: "https://doc.rust-lang.org/std/string/struct.String.html",
-        },
-        "Vec" => DocHint {
-            summary: "Lista redimensionável de valores do mesmo tipo.",
-            url: "https://doc.rust-lang.org/std/vec/struct.Vec.html",
-        },
-        "Option" => DocHint {
-            summary: "Representa um valor que pode existir (Some) ou faltar (None).",
-            url: "https://doc.rust-lang.org/std/option/enum.Option.html",
-        },
-        "Result" => DocHint {
-            summary: "Representa sucesso (Ok) ou erro (Err) numa operação.",
-            url: "https://doc.rust-lang.org/std/result/enum.Result.html",
-        },
-        "Some" => DocHint {
-            summary: "Variante de Option que contém um valor.",
-            url: "https://doc.rust-lang.org/std/option/enum.Option.html#variant.Some",
-        },
-        "None" => DocHint {
-            summary: "Variante de Option que representa ausência de valor.",
-            url: "https://doc.rust-lang.org/std/option/enum.Option.html#variant.None",
-        },
-        "Ok" => DocHint {
-            summary: "Variante de Result que contém um resultado bem-sucedido.",
-            url: "https://doc.rust-lang.org/std/result/enum.Result.html#variant.Ok",
-        },
-        "Err" => DocHint {
-            summary: "Variante de Result que contém um erro.",
-            url: "https://doc.rust-lang.org/std/result/enum.Result.html#variant.Err",
-        },
-        "mut" => DocHint {
-            summary: "Permite alterar uma variável ou referência após criá-la.",
-            url: "https://doc.rust-lang.org/book/ch03-01-variables-and-mutability.html",
-        },
-        "fn" => DocHint {
-            summary: "Declara uma função; parâmetros e retorno têm tipos explícitos.",
-            url: "https://doc.rust-lang.org/book/ch03-03-how-functions-work.html",
-        },
-        "let" => DocHint {
-            summary: "Declara uma variável; por padrão, ela é imutável.",
-            url: "https://doc.rust-lang.org/book/ch03-01-variables-and-mutability.html",
-        },
-        "main" => DocHint {
-            summary: "Função principal onde a execução do programa Rust começa.",
-            url: "https://doc.rust-lang.org/book/ch01-02-hello-world.html",
-        },
-        "eprintln" => DocHint {
-            summary: "Imprime mensagem formatada na saída de erro (stderr) com quebra de linha.",
-            url: "https://doc.rust-lang.org/std/macro.eprintln.html",
-        },
-        "vec" => DocHint {
-            summary: "Macro para criar um Vec preenchido rapidamente (ex.: vec![1, 2, 3]).",
-            url: "https://doc.rust-lang.org/std/macro.vec.html",
-        },
-        "assert_eq" => DocHint {
-            summary: "Verifica em testes se dois valores são iguais; falha com pânico se diferirem.",
-            url: "https://doc.rust-lang.org/std/macro.assert_eq.html",
-        },
-        "assert" => DocHint {
-            summary: "Verifica em testes se uma condição booleana é verdadeira.",
-            url: "https://doc.rust-lang.org/std/macro.assert.html",
-        },
-        "todo" => DocHint {
-            summary: "Marca um trecho ainda não implementado (entra em pânico se executado).",
-            url: "https://doc.rust-lang.org/std/macro.todo.html",
-        },
-        "panic" => DocHint {
-            summary: "Interrompe a thread atual exibindo uma mensagem de erro irrecuperável.",
-            url: "https://doc.rust-lang.org/std/macro.panic.html",
-        },
-        "match" => DocHint {
-            summary: "Compara um valor contra padrões exaustivos e escolhe o ramo correspondente.",
-            url: "https://doc.rust-lang.org/book/ch06-02-match.html",
-        },
-        "if" => DocHint {
-            summary: "Executa um ramo condicionalmente quando uma expressão bool é verdadeira.",
-            url: "https://doc.rust-lang.org/book/ch03-05-control-flow.html",
-        },
-        "else" => DocHint {
-            summary: "Ramo alternativo executado quando a condição de um if é falsa.",
-            url: "https://doc.rust-lang.org/book/ch03-05-control-flow.html",
-        },
-        "loop" => DocHint {
-            summary: "Laço infinito controlado explicitamente com break ou return.",
-            url: "https://doc.rust-lang.org/book/ch03-05-control-flow.html#repeating-code-with-loop",
-        },
-        "while" => DocHint {
-            summary: "Repete um bloco enquanto uma condição booleana continuar verdadeira.",
-            url: "https://doc.rust-lang.org/book/ch03-05-control-flow.html#conditional-loops-with-while",
-        },
-        "for" | "in" => DocHint {
-            summary: "Percorre cada elemento produzido por um iterador ou intervalo.",
-            url: "https://doc.rust-lang.org/book/ch03-05-control-flow.html#looping-through-a-collection-with-for",
-        },
-        "break" => DocHint {
-            summary: "Interrompe imediatamente um laço (loop, while ou for).",
-            url: "https://doc.rust-lang.org/book/ch03-05-control-flow.html#repeating-code-with-loop",
-        },
-        "continue" => DocHint {
-            summary: "Pula para a próxima iteração do laço atual.",
-            url: "https://doc.rust-lang.org/book/ch03-05-control-flow.html#conditional-loops-with-while",
-        },
-        "struct" => DocHint {
-            summary: "Define um tipo composto agrupando campos nomeados ou em tupla.",
-            url: "https://doc.rust-lang.org/book/ch05-01-defining-structs.html",
-        },
-        "enum" => DocHint {
-            summary: "Define um tipo que pode assumir uma entre várias variantes explícitas.",
-            url: "https://doc.rust-lang.org/book/ch06-01-defining-an-enum.html",
-        },
-        "impl" => DocHint {
-            summary: "Implementa métodos, funções associadas ou traits para um tipo.",
-            url: "https://doc.rust-lang.org/book/ch05-03-method-syntax.html",
-        },
-        "trait" => DocHint {
-            summary: "Define um contrato de métodos compartilhados entre diferentes tipos.",
-            url: "https://doc.rust-lang.org/book/ch10-02-traits.html",
-        },
-        "use" => DocHint {
-            summary: "Traz módulos, tipos ou funções para o escopo atual.",
-            url: "https://doc.rust-lang.org/book/ch07-04-bringing-paths-into-scope-with-the-use-keyword.html",
-        },
-        "mod" => DocHint {
-            summary: "Declara ou carrega um módulo para organizar código e visibilidade.",
-            url: "https://doc.rust-lang.org/book/ch07-02-defining-modules-to-control-scope-and-privacy.html",
-        },
-        "pub" => DocHint {
-            summary: "Torna um item (função, campo, módulo) acessível fora do módulo atual.",
-            url: "https://doc.rust-lang.org/book/ch07-03-paths-for-referring-to-an-item-in-the-module-tree.html",
-        },
-        "return" => DocHint {
-            summary: "Encerra a função imediatamente devolvendo o valor informado.",
-            url: "https://doc.rust-lang.org/book/ch03-03-how-functions-work.html#functions-with-return-values",
-        },
-        "const" | "static" => DocHint {
-            summary: "Define uma constante com tipo explícito e valor fixo durante o programa.",
-            url: "https://doc.rust-lang.org/book/ch03-01-variables-and-mutability.html#constants",
-        },
-        "async" | "await" => DocHint {
-            summary: "Permite operações assíncronas (como esperar próximo frame no macroquad ou I/O).",
-            url: "https://doc.rust-lang.org/book/ch17-01-futures-and-syntax.html",
-        },
-        "move" => DocHint {
-            summary: "Transfere a posse das variáveis capturadas para dentro de uma closure ou thread.",
-            url: "https://doc.rust-lang.org/book/ch13-01-closures.html",
-        },
-        "self" | "Self" => DocHint {
-            summary: "Refere-se à instância atual (`self`) ou ao próprio tipo dentro de `impl`/`trait` (`Self`).",
-            url: "https://doc.rust-lang.org/book/ch05-03-method-syntax.html",
-        },
-        "str" => DocHint {
-            summary: "Fatia imutável de texto UTF-8 (&str), muito usada para emprestar texto.",
-            url: "https://doc.rust-lang.org/std/primitive.str.html",
-        },
-        "usize" => DocHint {
-            summary: "Inteiro sem sinal do tamanho de ponteiro, padrão para índices e comprimentos.",
-            url: "https://doc.rust-lang.org/std/primitive.usize.html",
-        },
-        "i32" | "i64" => DocHint {
-            summary: "Inteiro com sinal (aceita valores negativos, zero e positivos).",
-            url: "https://doc.rust-lang.org/std/primitive.i32.html",
-        },
-        "u32" | "u64" | "u8" => DocHint {
-            summary: "Inteiro sem sinal (apenas valores não negativos, útil para pixels e contagens).",
-            url: "https://doc.rust-lang.org/std/primitive.u32.html",
-        },
-        "f32" | "f64" => DocHint {
-            summary: "Número decimal de ponto flutuante (muito usado em coordenadas, física e jogos).",
-            url: "https://doc.rust-lang.org/std/primitive.f64.html",
-        },
-        "bool" => DocHint {
-            summary: "Tipo booleano com exatamente dois valores possíveis: true ou false.",
-            url: "https://doc.rust-lang.org/std/primitive.bool.html",
-        },
-        "char" => DocHint {
-            summary: "Caractere escalar Unicode de 4 bytes escrito entre aspas simples ('a').",
-            url: "https://doc.rust-lang.org/std/primitive.char.html",
-        },
-        "HashMap" => DocHint {
-            summary: "Mapa associativo chave → valor em std::collections::HashMap.",
-            url: "https://doc.rust-lang.org/std/collections/struct.HashMap.html",
-        },
-        "Clone" | "clone" => DocHint {
-            summary: "Trait e método para duplicar explicitamente um valor em memória.",
-            url: "https://doc.rust-lang.org/std/clone/trait.Clone.html",
-        },
-        "Debug" | "derive" => DocHint {
-            summary: "Implementa automaticamente traits como Debug/Clone via #[derive(...)].",
-            url: "https://doc.rust-lang.org/std/fmt/trait.Debug.html",
-        },
-        "cfg" | "test" => DocHint {
-            summary: "Atributo condicional de compilação (ex.: #[cfg(test)] e #[test] para testes).",
-            url: "https://doc.rust-lang.org/book/ch11-01-writing-tests.html",
-        },
-        "Iterator" | "iter" => DocHint {
-            summary: "Percorre uma sequência preguiçosamente; combina com map, filter e collect.",
-            url: "https://doc.rust-lang.org/std/iter/trait.Iterator.html",
-        },
-        "collect" => DocHint {
-            summary: "Consome um iterador transformando seus itens em Vec, String ou outra coleção.",
-            url: "https://doc.rust-lang.org/std/iter/trait.Iterator.html#method.collect",
-        },
-        "map" => DocHint {
-            summary: "Transforma cada elemento de um iterador (ou Option/Result) com uma closure.",
-            url: "https://doc.rust-lang.org/std/iter/trait.Iterator.html#method.map",
-        },
-        "filter" => DocHint {
-            summary: "Mantém apenas os elementos de um iterador que satisfazem um predicado.",
-            url: "https://doc.rust-lang.org/std/iter/trait.Iterator.html#method.filter",
-        },
-        "len" => DocHint {
-            summary: "Retorna a quantidade de elementos (ou bytes no caso de str/String).",
-            url: "https://doc.rust-lang.org/std/vec/struct.Vec.html#method.len",
-        },
-        "is_empty" => DocHint {
-            summary: "Retorna true se a coleção ou texto não possuir nenhum elemento.",
-            url: "https://doc.rust-lang.org/std/vec/struct.Vec.html#method.is_empty",
-        },
-        "push" => DocHint {
-            summary: "Adiciona um novo elemento ao final de um Vec ou caractere em uma String.",
-            url: "https://doc.rust-lang.org/std/vec/struct.Vec.html#method.push",
-        },
-        "lines" => DocHint {
-            summary: "Retorna um iterador sobre cada linha de texto.",
-            url: "https://doc.rust-lang.org/std/primitive.str.html#method.lines",
-        },
-        "trim" => DocHint {
-            summary: "Remove espaços e quebras de linha do início e do fim de um &str.",
-            url: "https://doc.rust-lang.org/std/primitive.str.html#method.trim",
-        },
-        "parse" => DocHint {
-            summary: "Converte texto em outro tipo (ex.: texto.parse::<i32>()) devolvendo Result.",
-            url: "https://doc.rust-lang.org/std/primitive.str.html#method.parse",
-        },
-        "to_string" => DocHint {
-            summary: "Converte o valor ou &str em uma String com posse.",
-            url: "https://doc.rust-lang.org/std/string/trait.ToString.html",
-        },
-        "as_str" => DocHint {
-            summary: "Empresta uma String como fatia &str sem alocar memória nova.",
-            url: "https://doc.rust-lang.org/std/string/struct.String.html#method.as_str",
-        },
-        "unwrap" => DocHint {
-            summary: "Extrai Some/Ok diretamente, mas entra em pânico se for None/Err.",
-            url: "https://doc.rust-lang.org/std/option/enum.Option.html#method.unwrap",
-        },
-        "expect" => DocHint {
-            summary: "Como unwrap(), mas permite informar uma mensagem explicando o motivo em caso de erro.",
-            url: "https://doc.rust-lang.org/std/option/enum.Option.html#method.expect",
-        },
-        "unwrap_or" => DocHint {
-            summary: "Extrai o valor de Option/Result ou retorna um valor padrão seguro.",
-            url: "https://doc.rust-lang.org/std/option/enum.Option.html#method.unwrap_or",
-        },
+    lookup_for(symbol, false)
+}
+
+pub fn lookup_for(symbol: &str, english: bool) -> Option<DocHint> {
+    let (pt, en, url) = match symbol {
+        "println" => (
+            "Imprime texto formatado e adiciona uma quebra de linha.",
+            "Prints formatted text followed by a newline.",
+            "https://doc.rust-lang.org/std/macro.println.html",
+        ),
+        "print" => (
+            "Imprime texto formatado sem adicionar quebra de linha.",
+            "Prints formatted text without adding a newline.",
+            "https://doc.rust-lang.org/std/macro.print.html",
+        ),
+        "format" => (
+            "Monta uma String usando a sintaxe de formatação do Rust.",
+            "Builds a String using Rust's formatting syntax.",
+            "https://doc.rust-lang.org/std/macro.format.html",
+        ),
+        "String" => (
+            "Texto UTF-8 que pode crescer e ser alterado.",
+            "Growable, mutable UTF-8 string owned on the heap.",
+            "https://doc.rust-lang.org/std/string/struct.String.html",
+        ),
+        "Vec" => (
+            "Lista redimensionável de valores do mesmo tipo.",
+            "Contiguous growable array type of homogeneous values.",
+            "https://doc.rust-lang.org/std/vec/struct.Vec.html",
+        ),
+        "Option" => (
+            "Representa um valor que pode existir (Some) ou faltar (None).",
+            "Represents an optional value: either Some(value) or None.",
+            "https://doc.rust-lang.org/std/option/enum.Option.html",
+        ),
+        "Result" => (
+            "Representa sucesso (Ok) ou erro (Err) numa operação.",
+            "Represents either success (Ok) or failure (Err).",
+            "https://doc.rust-lang.org/std/result/enum.Result.html",
+        ),
+        "Some" => (
+            "Variante de Option que contém um valor.",
+            "Option variant containing a present value.",
+            "https://doc.rust-lang.org/std/option/enum.Option.html#variant.Some",
+        ),
+        "None" => (
+            "Variante de Option que representa ausência de valor.",
+            "Option variant representing no value.",
+            "https://doc.rust-lang.org/std/option/enum.Option.html#variant.None",
+        ),
+        "Ok" => (
+            "Variante de Result que contém um resultado bem-sucedido.",
+            "Result variant holding a success value.",
+            "https://doc.rust-lang.org/std/result/enum.Result.html#variant.Ok",
+        ),
+        "Err" => (
+            "Variante de Result que contém um erro.",
+            "Result variant holding an error value.",
+            "https://doc.rust-lang.org/std/result/enum.Result.html#variant.Err",
+        ),
+        "mut" => (
+            "Permite alterar uma variável ou referência após criá-la.",
+            "Allows mutating a binding or reference after creation.",
+            "https://doc.rust-lang.org/book/ch03-01-variables-and-mutability.html",
+        ),
+        "fn" => (
+            "Declara uma função; parâmetros e retorno têm tipos explícitos.",
+            "Declares a function with explicit parameter and return types.",
+            "https://doc.rust-lang.org/book/ch03-03-how-functions-work.html",
+        ),
+        "let" => (
+            "Declara uma variável; por padrão, ela é imutável.",
+            "Declares a variable binding; immutable by default.",
+            "https://doc.rust-lang.org/book/ch03-01-variables-and-mutability.html",
+        ),
+        "main" => (
+            "Função principal onde a execução do programa Rust começa.",
+            "Entry-point function where Rust program execution begins.",
+            "https://doc.rust-lang.org/book/ch01-02-hello-world.html",
+        ),
+        "eprintln" => (
+            "Imprime mensagem formatada na saída de erro (stderr) com quebra de linha.",
+            "Prints formatted output to standard error (stderr) with a newline.",
+            "https://doc.rust-lang.org/std/macro.eprintln.html",
+        ),
+        "vec" => (
+            "Macro para criar um Vec preenchido rapidamente (ex.: vec![1, 2, 3]).",
+            "Macro to construct a populated Vec quickly (e.g. vec![1, 2, 3]).",
+            "https://doc.rust-lang.org/std/macro.vec.html",
+        ),
+        "assert_eq" => (
+            "Verifica em testes se dois valores são iguais; falha com pânico se diferirem.",
+            "Test assertion verifying two values are equal; panics if they differ.",
+            "https://doc.rust-lang.org/std/macro.assert_eq.html",
+        ),
+        "assert" => (
+            "Verifica em testes se uma condição booleana é verdadeira.",
+            "Test assertion ensuring a boolean expression evaluates to true.",
+            "https://doc.rust-lang.org/std/macro.assert.html",
+        ),
+        "todo" => (
+            "Marca um trecho ainda não implementado (entra em pânico se executado).",
+            "Marks unimplemented code (panics when reached at runtime).",
+            "https://doc.rust-lang.org/std/macro.todo.html",
+        ),
+        "panic" => (
+            "Interrompe a thread atual exibindo uma mensagem de erro irrecuperável.",
+            "Terminates the current thread with an unrecoverable error message.",
+            "https://doc.rust-lang.org/std/macro.panic.html",
+        ),
+        "match" => (
+            "Compara um valor contra padrões exaustivos e escolhe o ramo correspondente.",
+            "Exhaustively compares a value against patterns and runs the matching arm.",
+            "https://doc.rust-lang.org/book/ch06-02-match.html",
+        ),
+        "if" => (
+            "Executa um ramo condicionalmente quando uma expressão bool é verdadeira.",
+            "Conditionally executes a block when a boolean condition holds.",
+            "https://doc.rust-lang.org/book/ch03-05-control-flow.html",
+        ),
+        "else" => (
+            "Ramo alternativo executado quando a condição de um if é falsa.",
+            "Fallback branch run when an if condition evaluates to false.",
+            "https://doc.rust-lang.org/book/ch03-05-control-flow.html",
+        ),
+        "loop" => (
+            "Laço infinito controlado explicitamente com break ou return.",
+            "Infinite loop exited explicitly via break or return.",
+            "https://doc.rust-lang.org/book/ch03-05-control-flow.html#repeating-code-with-loop",
+        ),
+        "while" => (
+            "Repete um bloco enquanto uma condição booleana continuar verdadeira.",
+            "Repeats a block while a boolean condition stays true.",
+            "https://doc.rust-lang.org/book/ch03-05-control-flow.html#conditional-loops-with-while",
+        ),
+        "for" | "in" => (
+            "Percorre cada elemento produzido por um iterador ou intervalo.",
+            "Iterates over every item produced by an iterator or range.",
+            "https://doc.rust-lang.org/book/ch03-05-control-flow.html#looping-through-a-collection-with-for",
+        ),
+        "break" => (
+            "Interrompe imediatamente um laço (loop, while ou for).",
+            "Immediately exits the innermost loop (loop, while, or for).",
+            "https://doc.rust-lang.org/book/ch03-05-control-flow.html#repeating-code-with-loop",
+        ),
+        "continue" => (
+            "Pula para a próxima iteração do laço atual.",
+            "Skips straight to the next iteration of the current loop.",
+            "https://doc.rust-lang.org/book/ch03-05-control-flow.html#conditional-loops-with-while",
+        ),
+        "struct" => (
+            "Define um tipo composto agrupando campos nomeados ou em tupla.",
+            "Defines a custom product type grouping named or tuple fields.",
+            "https://doc.rust-lang.org/book/ch05-01-defining-structs.html",
+        ),
+        "enum" => (
+            "Define um tipo que pode assumir uma entre várias variantes explícitas.",
+            "Defines a sum type that can take one of several explicit variants.",
+            "https://doc.rust-lang.org/book/ch06-01-defining-an-enum.html",
+        ),
+        "impl" => (
+            "Implementa métodos, funções associadas ou traits para um tipo.",
+            "Implements methods, associated functions, or traits on a type.",
+            "https://doc.rust-lang.org/book/ch05-03-method-syntax.html",
+        ),
+        "trait" => (
+            "Define um contrato de métodos compartilhados entre diferentes tipos.",
+            "Defines shared behavior as a method contract across types.",
+            "https://doc.rust-lang.org/book/ch10-02-traits.html",
+        ),
+        "use" => (
+            "Traz módulos, tipos ou funções para o escopo atual.",
+            "Brings module paths, types, or functions into the current scope.",
+            "https://doc.rust-lang.org/book/ch07-04-bringing-paths-into-scope-with-the-use-keyword.html",
+        ),
+        "mod" => (
+            "Declara ou carrega um módulo para organizar código e visibilidade.",
+            "Declares or loads a module to structure code and privacy.",
+            "https://doc.rust-lang.org/book/ch07-02-defining-modules-to-control-scope-and-privacy.html",
+        ),
+        "pub" => (
+            "Torna um item (função, campo, módulo) acessível fora do módulo atual.",
+            "Makes an item (function, field, module) public outside its module.",
+            "https://doc.rust-lang.org/book/ch07-03-paths-for-referring-to-an-item-in-the-module-tree.html",
+        ),
+        "return" => (
+            "Encerra a função imediatamente devolvendo o valor informado.",
+            "Exits the function immediately returning the specified value.",
+            "https://doc.rust-lang.org/book/ch03-03-how-functions-work.html#functions-with-return-values",
+        ),
+        "const" | "static" => (
+            "Define uma constante com tipo explícito e valor fixo durante o programa.",
+            "Defines a typed constant value known throughout the program.",
+            "https://doc.rust-lang.org/book/ch03-01-variables-and-mutability.html#constants",
+        ),
+        "async" | "await" => (
+            "Permite operações assíncronas (como esperar próximo frame no macroquad ou I/O).",
+            "Enables asynchronous operations (such as awaiting frames in macroquad or I/O).",
+            "https://doc.rust-lang.org/book/ch17-01-futures-and-syntax.html",
+        ),
+        "move" => (
+            "Transfere a posse das variáveis capturadas para dentro de uma closure ou thread.",
+            "Transfers ownership of captured variables into a closure or thread.",
+            "https://doc.rust-lang.org/book/ch13-01-closures.html",
+        ),
+        "self" | "Self" => (
+            "Refere-se à instância atual (`self`) ou ao próprio tipo dentro de `impl`/`trait` (`Self`).",
+            "Refers to the receiver instance (`self`) or implementing type (`Self`).",
+            "https://doc.rust-lang.org/book/ch05-03-method-syntax.html",
+        ),
+        "str" => (
+            "Fatia imutável de texto UTF-8 (&str), muito usada para emprestar texto.",
+            "Immutable UTF-8 string slice (&str), commonly used for borrowed text.",
+            "https://doc.rust-lang.org/std/primitive.str.html",
+        ),
+        "usize" => (
+            "Inteiro sem sinal do tamanho de ponteiro, padrão para índices e comprimentos.",
+            "Pointer-sized unsigned integer used for indexing and collection lengths.",
+            "https://doc.rust-lang.org/std/primitive.usize.html",
+        ),
+        "i32" | "i64" => (
+            "Inteiro com sinal (aceita valores negativos, zero e positivos).",
+            "Signed integer type supporting negative, zero, and positive values.",
+            "https://doc.rust-lang.org/std/primitive.i32.html",
+        ),
+        "u32" | "u64" | "u8" => (
+            "Inteiro sem sinal (apenas valores não negativos, útil para pixels e contagens).",
+            "Unsigned integer type for non-negative values like pixels and counts.",
+            "https://doc.rust-lang.org/std/primitive.u32.html",
+        ),
+        "f32" | "f64" => (
+            "Número decimal de ponto flutuante (muito usado em coordenadas, física e jogos).",
+            "Floating-point decimal number commonly used for physics and coordinates.",
+            "https://doc.rust-lang.org/std/primitive.f64.html",
+        ),
+        "bool" => (
+            "Tipo booleano com exatamente dois valores possíveis: true ou false.",
+            "Boolean primitive type with only two values: true or false.",
+            "https://doc.rust-lang.org/std/primitive.bool.html",
+        ),
+        "char" => (
+            "Caractere escalar Unicode de 4 bytes escrito entre aspas simples ('a').",
+            "4-byte Unicode scalar character written in single quotes ('a').",
+            "https://doc.rust-lang.org/std/primitive.char.html",
+        ),
+        "HashMap" => (
+            "Mapa associativo chave → valor em std::collections::HashMap.",
+            "Hash-based key-value associative map in std::collections::HashMap.",
+            "https://doc.rust-lang.org/std/collections/struct.HashMap.html",
+        ),
+        "Clone" | "clone" => (
+            "Trait e método para duplicar explicitamente um valor em memória.",
+            "Trait and method for explicitly duplicating a value.",
+            "https://doc.rust-lang.org/std/clone/trait.Clone.html",
+        ),
+        "Debug" | "derive" => (
+            "Implementa automaticamente traits como Debug/Clone via #[derive(...)].",
+            "Automatically generates trait implementations like Debug/Clone via #[derive(...)].",
+            "https://doc.rust-lang.org/std/fmt/trait.Debug.html",
+        ),
+        "cfg" | "test" => (
+            "Atributo condicional de compilação (ex.: #[cfg(test)] e #[test] para testes).",
+            "Conditional compilation attribute (e.g. #[cfg(test)] and #[test]).",
+            "https://doc.rust-lang.org/book/ch11-01-writing-tests.html",
+        ),
+        "Iterator" | "iter" => (
+            "Percorre uma sequência preguiçosamente; combina com map, filter e collect.",
+            "Lazily traverses a sequence; composes cleanly with map, filter, and collect.",
+            "https://doc.rust-lang.org/std/iter/trait.Iterator.html",
+        ),
+        "collect" => (
+            "Consome um iterador transformando seus itens em Vec, String ou outra coleção.",
+            "Consumes an iterator to build a Vec, String, or other collection.",
+            "https://doc.rust-lang.org/std/iter/trait.Iterator.html#method.collect",
+        ),
+        "map" => (
+            "Transforma cada elemento de um iterador (ou Option/Result) com uma closure.",
+            "Transforms each element of an iterator (or Option/Result) with a closure.",
+            "https://doc.rust-lang.org/std/iter/trait.Iterator.html#method.map",
+        ),
+        "filter" => (
+            "Mantém apenas os elementos de um iterador que satisfazem um predicado.",
+            "Keeps only iterator elements that satisfy a predicate.",
+            "https://doc.rust-lang.org/std/iter/trait.Iterator.html#method.filter",
+        ),
+        "len" => (
+            "Retorna a quantidade de elementos (ou bytes no caso de str/String).",
+            "Returns the number of elements (or bytes for str/String).",
+            "https://doc.rust-lang.org/std/vec/struct.Vec.html#method.len",
+        ),
+        "is_empty" => (
+            "Retorna true se a coleção ou texto não possuir nenhum elemento.",
+            "Returns true if the collection or string has length zero.",
+            "https://doc.rust-lang.org/std/vec/struct.Vec.html#method.is_empty",
+        ),
+        "push" => (
+            "Adiciona um novo elemento ao final de um Vec ou caractere em uma String.",
+            "Appends an element to a Vec or a character to a String.",
+            "https://doc.rust-lang.org/std/vec/struct.Vec.html#method.push",
+        ),
+        "lines" => (
+            "Retorna um iterador sobre cada linha de texto.",
+            "Returns an iterator over each line in a string slice.",
+            "https://doc.rust-lang.org/std/primitive.str.html#method.lines",
+        ),
+        "trim" => (
+            "Remove espaços e quebras de linha do início e do fim de um &str.",
+            "Removes leading and trailing whitespace from a string slice.",
+            "https://doc.rust-lang.org/std/primitive.str.html#method.trim",
+        ),
+        "parse" => (
+            "Converte texto em outro tipo (ex.: texto.parse::<i32>()) devolvendo Result.",
+            "Parses a string slice into another type (e.g. text.parse::<i32>()), returning Result.",
+            "https://doc.rust-lang.org/std/primitive.str.html#method.parse",
+        ),
+        "to_string" => (
+            "Converte o valor ou &str em uma String com posse.",
+            "Converts a Display value or &str into an owned String.",
+            "https://doc.rust-lang.org/std/string/trait.ToString.html",
+        ),
+        "as_str" => (
+            "Empresta uma String como fatia &str sem alocar memória nova.",
+            "Borrows a String as a &str slice without allocating.",
+            "https://doc.rust-lang.org/std/string/struct.String.html#method.as_str",
+        ),
+        "unwrap" => (
+            "Extrai Some/Ok diretamente, mas entra em pânico se for None/Err.",
+            "Unwraps Some/Ok directly, panicking if the value is None/Err.",
+            "https://doc.rust-lang.org/std/option/enum.Option.html#method.unwrap",
+        ),
+        "expect" => (
+            "Como unwrap(), mas permite informar uma mensagem explicando o motivo em caso de erro.",
+            "Like unwrap(), but lets you attach a contextual panic message.",
+            "https://doc.rust-lang.org/std/option/enum.Option.html#method.expect",
+        ),
+        "unwrap_or" => (
+            "Extrai o valor de Option/Result ou retorna um valor padrão seguro.",
+            "Extracts the Option/Result inner value or falls back to a safe default.",
+            "https://doc.rust-lang.org/std/option/enum.Option.html#method.unwrap_or",
+        ),
         // --- Bibliotecas extras: macroquad ---
-        "macroquad" => DocHint {
-            summary: "Mini engine de jogos 2D em Rust: janela gráfica, formas, sprite, teclado e loop async.",
-            url: "https://docs.rs/macroquad/latest/macroquad/",
-        },
-        "clear_background" => DocHint {
-            summary: "macroquad: preenche toda a tela com uma cor (chame no início de cada frame).",
-            url: "https://docs.rs/macroquad/latest/macroquad/window/fn.clear_background.html",
-        },
-        "draw_circle" => DocHint {
-            summary: "macroquad: desenha um círculo preenchido na posição (x, y) com raio r e cor.",
-            url: "https://docs.rs/macroquad/latest/macroquad/shapes/fn.draw_circle.html",
-        },
-        "draw_rectangle" => DocHint {
-            summary: "macroquad: desenha um retângulo preenchido em (x, y, largura, altura, cor).",
-            url: "https://docs.rs/macroquad/latest/macroquad/shapes/fn.draw_rectangle.html",
-        },
-        "draw_line" => DocHint {
-            summary: "macroquad: desenha um segmento de reta entre (x1, y1) e (x2, y2) com espessura e cor.",
-            url: "https://docs.rs/macroquad/latest/macroquad/shapes/fn.draw_line.html",
-        },
-        "draw_text" => DocHint {
-            summary: "macroquad: escreve texto na tela em (x, y) com tamanho de fonte e cor.",
-            url: "https://docs.rs/macroquad/latest/macroquad/text/fn.draw_text.html",
-        },
-        "is_key_down" => DocHint {
-            summary: "macroquad: retorna true enquanto a tecla especificada estiver pressionada.",
-            url: "https://docs.rs/macroquad/latest/macroquad/input/fn.is_key_down.html",
-        },
-        "is_key_pressed" => DocHint {
-            summary: "macroquad: retorna true apenas no frame em que a tecla acabou de ser apertada.",
-            url: "https://docs.rs/macroquad/latest/macroquad/input/fn.is_key_pressed.html",
-        },
-        "mouse_position" => DocHint {
-            summary: "macroquad: devolve a tupla (x, y) atual do ponteiro do mouse na janela.",
-            url: "https://docs.rs/macroquad/latest/macroquad/input/fn.mouse_position.html",
-        },
-        "screen_width" => DocHint {
-            summary: "macroquad: largura atual da janela do jogo em pixels (f32).",
-            url: "https://docs.rs/macroquad/latest/macroquad/window/fn.screen_width.html",
-        },
-        "screen_height" => DocHint {
-            summary: "macroquad: altura atual da janela do jogo em pixels (f32).",
-            url: "https://docs.rs/macroquad/latest/macroquad/window/fn.screen_height.html",
-        },
-        "next_frame" => DocHint {
-            summary: "macroquad: apresenta o quadro desenhado na janela e espera o próximo ciclo (.await).",
-            url: "https://docs.rs/macroquad/latest/macroquad/window/fn.next_frame.html",
-        },
-        "get_frame_time" => DocHint {
-            summary: "macroquad: tempo delta (em segundos) desde o último frame — útil para movimentação suave.",
-            url: "https://docs.rs/macroquad/latest/macroquad/time/fn.get_frame_time.html",
-        },
-        "Color" => DocHint {
-            summary: "macroquad: representa cor RGBA para formas, fundo e textos (ex.: RED, GOLD, Color::new).",
-            url: "https://docs.rs/macroquad/latest/macroquad/color/struct.Color.html",
-        },
-        "KeyCode" => DocHint {
-            summary: "macroquad: enumeração das teclas do teclado (KeyCode::Up, KeyCode::Space, etc.).",
-            url: "https://docs.rs/macroquad/latest/macroquad/input/enum.KeyCode.html",
-        },
-        "Conf" => DocHint {
-            summary: "macroquad: configurações iniciais da janela (título, largura, altura).",
-            url: "https://docs.rs/macroquad/latest/macroquad/conf/struct.Conf.html",
-        },
-        "vec2" | "Vec2" => DocHint {
-            summary: "macroquad/glam: vetor 2D (x, y) usado para posições e velocidades em jogos.",
-            url: "https://docs.rs/macroquad/latest/macroquad/math/struct.Vec2.html",
-        },
+        "macroquad" => (
+            "Mini engine de jogos 2D em Rust: janela gráfica, formas, sprite, teclado e loop async.",
+            "2D mini game engine in Rust: windowing, shapes, sprites, keyboard input, and async loop.",
+            "https://docs.rs/macroquad/latest/macroquad/",
+        ),
+        "clear_background" => (
+            "macroquad: preenche toda a tela com uma cor (chame no início de cada frame).",
+            "macroquad: clears the entire screen with a color at the start of each frame.",
+            "https://docs.rs/macroquad/latest/macroquad/window/fn.clear_background.html",
+        ),
+        "draw_circle" => (
+            "macroquad: desenha um círculo preenchido na posição (x, y) com raio r e cor.",
+            "macroquad: draws a filled circle at (x, y) with radius r and color.",
+            "https://docs.rs/macroquad/latest/macroquad/shapes/fn.draw_circle.html",
+        ),
+        "draw_rectangle" => (
+            "macroquad: desenha um retângulo preenchido em (x, y, largura, altura, cor).",
+            "macroquad: draws a filled rectangle at (x, y, width, height, color).",
+            "https://docs.rs/macroquad/latest/macroquad/shapes/fn.draw_rectangle.html",
+        ),
+        "draw_line" => (
+            "macroquad: desenha um segmento de reta entre (x1, y1) e (x2, y2) com espessura e cor.",
+            "macroquad: draws a line segment between (x1, y1) and (x2, y2) with thickness and color.",
+            "https://docs.rs/macroquad/latest/macroquad/shapes/fn.draw_line.html",
+        ),
+        "draw_text" => (
+            "macroquad: escreve texto na tela em (x, y) com tamanho de fonte e cor.",
+            "macroquad: renders text on screen at (x, y) with font size and color.",
+            "https://docs.rs/macroquad/latest/macroquad/text/fn.draw_text.html",
+        ),
+        "is_key_down" => (
+            "macroquad: retorna true enquanto a tecla especificada estiver pressionada.",
+            "macroquad: returns true as long as the given key is held down.",
+            "https://docs.rs/macroquad/latest/macroquad/input/fn.is_key_down.html",
+        ),
+        "is_key_pressed" => (
+            "macroquad: retorna true apenas no frame em que a tecla acabou de ser apertada.",
+            "macroquad: returns true only on the frame the key was freshly pressed.",
+            "https://docs.rs/macroquad/latest/macroquad/input/fn.is_key_pressed.html",
+        ),
+        "mouse_position" => (
+            "macroquad: devolve a tupla (x, y) atual do ponteiro do mouse na janela.",
+            "macroquad: returns the mouse pointer's current (x, y) position in the window.",
+            "https://docs.rs/macroquad/latest/macroquad/input/fn.mouse_position.html",
+        ),
+        "screen_width" => (
+            "macroquad: largura atual da janela do jogo em pixels (f32).",
+            "macroquad: current window width in pixels (f32).",
+            "https://docs.rs/macroquad/latest/macroquad/window/fn.screen_width.html",
+        ),
+        "screen_height" => (
+            "macroquad: altura atual da janela do jogo em pixels (f32).",
+            "macroquad: current window height in pixels (f32).",
+            "https://docs.rs/macroquad/latest/macroquad/window/fn.screen_height.html",
+        ),
+        "next_frame" => (
+            "macroquad: apresenta o quadro desenhado na janela e espera o próximo ciclo (.await).",
+            "macroquad: presents the drawn frame and awaits the next tick (.await).",
+            "https://docs.rs/macroquad/latest/macroquad/window/fn.next_frame.html",
+        ),
+        "get_frame_time" => (
+            "macroquad: tempo delta (em segundos) desde o último frame — útil para movimentação suave.",
+            "macroquad: frame delta time in seconds — great for frame-rate-independent motion.",
+            "https://docs.rs/macroquad/latest/macroquad/time/fn.get_frame_time.html",
+        ),
+        "Color" => (
+            "macroquad: representa cor RGBA para formas, fundo e textos (ex.: RED, GOLD, Color::new).",
+            "macroquad: RGBA color value for shapes, backgrounds, and text (e.g. RED, GOLD, Color::new).",
+            "https://docs.rs/macroquad/latest/macroquad/color/struct.Color.html",
+        ),
+        "KeyCode" => (
+            "macroquad: enumeração das teclas do teclado (KeyCode::Up, KeyCode::Space, etc.).",
+            "macroquad: keyboard key enum (KeyCode::Up, KeyCode::Space, etc.).",
+            "https://docs.rs/macroquad/latest/macroquad/input/enum.KeyCode.html",
+        ),
+        "Conf" => (
+            "macroquad: configurações iniciais da janela (título, largura, altura).",
+            "macroquad: initial window configuration (title, width, height).",
+            "https://docs.rs/macroquad/latest/macroquad/conf/struct.Conf.html",
+        ),
+        "vec2" | "Vec2" => (
+            "macroquad/glam: vetor 2D (x, y) usado para posições e velocidades em jogos.",
+            "macroquad/glam: 2D vector (x, y) used for positions and velocities in games.",
+            "https://docs.rs/macroquad/latest/macroquad/math/struct.Vec2.html",
+        ),
         // --- minifb ---
-        "minifb" => DocHint {
-            summary: "Biblioteca mínima de janela gráfica por buffer de pixels RGB 2D.",
-            url: "https://docs.rs/minifb/latest/minifb/",
-        },
-        "Window" => DocHint {
-            summary: "minifb: representa a janela gráfica aberta para desenho direto de pixels.",
-            url: "https://docs.rs/minifb/latest/minifb/struct.Window.html",
-        },
-        "WindowOptions" => DocHint {
-            summary: "minifb: opções da janela (redimensionamento, título, escala).",
-            url: "https://docs.rs/minifb/latest/minifb/struct.WindowOptions.html",
-        },
-        "Key" => DocHint {
-            summary: "minifb: teclas suportadas em `janela.is_key_down(Key::Escape)`.",
-            url: "https://docs.rs/minifb/latest/minifb/enum.Key.html",
-        },
-        "update_with_buffer" => DocHint {
-            summary: "minifb: envia um slice &[u32] de cores RGB para redesenhar toda a janela.",
-            url: "https://docs.rs/minifb/latest/minifb/struct.Window.html#method.update_with_buffer",
-        },
-        "is_open" => DocHint {
-            summary: "minifb: retorna true enquanto a janela ainda não foi fechada pelo usuário.",
-            url: "https://docs.rs/minifb/latest/minifb/struct.Window.html#method.is_open",
-        },
+        "minifb" => (
+            "Biblioteca mínima de janela gráfica por buffer de pixels RGB 2D.",
+            "Minimal 2D window library backed by a raw RGB pixel buffer.",
+            "https://docs.rs/minifb/latest/minifb/",
+        ),
+        "Window" => (
+            "minifb: representa a janela gráfica aberta para desenho direto de pixels.",
+            "minifb: represents an open graphical window for direct pixel drawing.",
+            "https://docs.rs/minifb/latest/minifb/struct.Window.html",
+        ),
+        "WindowOptions" => (
+            "minifb: opções da janela (redimensionamento, título, escala).",
+            "minifb: window creation options (resize, title, scaling).",
+            "https://docs.rs/minifb/latest/minifb/struct.WindowOptions.html",
+        ),
+        "Key" => (
+            "minifb: teclas suportadas em `janela.is_key_down(Key::Escape)`.",
+            "minifb: key enum used with `window.is_key_down(Key::Escape)`.",
+            "https://docs.rs/minifb/latest/minifb/enum.Key.html",
+        ),
+        "update_with_buffer" => (
+            "minifb: envia um slice &[u32] de cores RGB para redesenhar toda a janela.",
+            "minifb: sends a &[u32] RGB buffer slice to redraw the window.",
+            "https://docs.rs/minifb/latest/minifb/struct.Window.html#method.update_with_buffer",
+        ),
+        "is_open" => (
+            "minifb: retorna true enquanto a janela ainda não foi fechada pelo usuário.",
+            "minifb: returns true while the window has not been closed by the user.",
+            "https://docs.rs/minifb/latest/minifb/struct.Window.html#method.is_open",
+        ),
         // --- eframe / egui ---
-        "eframe" => DocHint {
-            summary: "Runner oficial desktop/web para interfaces gráficas imediatas com egui.",
-            url: "https://docs.rs/eframe/latest/eframe/",
-        },
-        "egui" => DocHint {
-            summary: "Biblioteca GUI imediata com botões, caixas de texto, sliders e layouts.",
-            url: "https://docs.rs/egui/latest/egui/",
-        },
-        "run_native" => DocHint {
-            summary: "eframe: abre a janela nativa executando a aplicação egui.",
-            url: "https://docs.rs/eframe/latest/eframe/fn.run_native.html",
-        },
-        "CentralPanel" => DocHint {
-            summary: "egui: área central responsiva onde ficam os controles principais da janela.",
-            url: "https://docs.rs/egui/latest/egui/struct.CentralPanel.html",
-        },
-        "SidePanel" => DocHint {
-            summary: "egui: painel lateral esquerdo/direito para menus e ferramentas.",
-            url: "https://docs.rs/egui/latest/egui/struct.SidePanel.html",
-        },
-        "Ui" => DocHint {
-            summary: "egui: construtor imediato de widgets (`ui.heading`, `ui.button`, `ui.label`).",
-            url: "https://docs.rs/egui/latest/egui/struct.Ui.html",
-        },
-        "heading" | "button" | "label" | "Slider" => DocHint {
-            summary: "egui: componentes visuais básicos (título, botão clicável, rótulo e controle deslizante).",
-            url: "https://docs.rs/egui/latest/egui/struct.Ui.html#method.button",
-        },
+        "eframe" => (
+            "Runner oficial desktop/web para interfaces gráficas imediatas com egui.",
+            "Official desktop/web app runner for egui immediate-mode GUIs.",
+            "https://docs.rs/eframe/latest/eframe/",
+        ),
+        "egui" => (
+            "Biblioteca GUI imediata com botões, caixas de texto, sliders e layouts.",
+            "Immediate-mode GUI library with buttons, text boxes, sliders, and layouts.",
+            "https://docs.rs/egui/latest/egui/",
+        ),
+        "run_native" => (
+            "eframe: abre a janela nativa executando a aplicação egui.",
+            "eframe: launches the native OS window hosting the egui application.",
+            "https://docs.rs/eframe/latest/eframe/fn.run_native.html",
+        ),
+        "CentralPanel" => (
+            "egui: área central responsiva onde ficam os controles principais da janela.",
+            "egui: responsive central area containing the window's main UI.",
+            "https://docs.rs/egui/latest/egui/struct.CentralPanel.html",
+        ),
+        "SidePanel" => (
+            "egui: painel lateral esquerdo/direito para menus e ferramentas.",
+            "egui: left/right side panel for navigation menus and tools.",
+            "https://docs.rs/egui/latest/egui/struct.SidePanel.html",
+        ),
+        "Ui" => (
+            "egui: construtor imediato de widgets (`ui.heading`, `ui.button`, `ui.label`).",
+            "egui: immediate-mode widget builder (`ui.heading`, `ui.button`, `ui.label`).",
+            "https://docs.rs/egui/latest/egui/struct.Ui.html",
+        ),
+        "heading" | "button" | "label" | "Slider" => (
+            "egui: componentes visuais básicos (título, botão clicável, rótulo e controle deslizante).",
+            "egui: core visual widgets (heading, clickable button, label, and slider).",
+            "https://docs.rs/egui/latest/egui/struct.Ui.html#method.button",
+        ),
         // --- tachyonfx ---
-        "tachyonfx" => DocHint {
-            summary: "Biblioteca de efeitos visuais e animações por célula no terminal (fade, dissolve, sweep).",
-            url: "https://docs.rs/tachyonfx/latest/tachyonfx/",
-        },
-        "fx" | "dissolve" | "fade_from_fg" | "sweep_in" => DocHint {
-            summary: "tachyonfx: funções de fábrica para criar efeitos visuais animados composáveis.",
-            url: "https://docs.rs/tachyonfx/latest/tachyonfx/fx/index.html",
-        },
-        "Effect" | "EffectTimer" | "Interpolation" => DocHint {
-            summary: "tachyonfx: representa a duração, curva de suavização e execução de uma animação.",
-            url: "https://docs.rs/tachyonfx/latest/tachyonfx/struct.Effect.html",
-        },
+        "tachyonfx" => (
+            "Biblioteca de efeitos visuais e animações por célula no terminal (fade, dissolve, sweep).",
+            "Per-cell terminal visual effects and animation library (fade, dissolve, sweep).",
+            "https://docs.rs/tachyonfx/latest/tachyonfx/",
+        ),
+        "fx" | "dissolve" | "fade_from_fg" | "sweep_in" => (
+            "tachyonfx: funções de fábrica para criar efeitos visuais animados composáveis.",
+            "tachyonfx: factory helpers for composable animated terminal effects.",
+            "https://docs.rs/tachyonfx/latest/tachyonfx/fx/index.html",
+        ),
+        "Effect" | "EffectTimer" | "Interpolation" => (
+            "tachyonfx: representa a duração, curva de suavização e execução de uma animação.",
+            "tachyonfx: represents duration, easing curve, and playback of an animation.",
+            "https://docs.rs/tachyonfx/latest/tachyonfx/struct.Effect.html",
+        ),
         // --- rand ---
-        "rand" => DocHint {
-            summary: "Gerador de números aleatórios padrão da comunidade Rust.",
-            url: "https://docs.rs/rand/latest/rand/",
-        },
-        "Rng" | "rng" | "random_range" | "random_bool" => DocHint {
-            summary: "rand: trait e métodos para sortear intervalos (`rng.random_range(1..=10)`) e booleanos.",
-            url: "https://docs.rs/rand/latest/rand/trait.Rng.html",
-        },
+        "rand" => (
+            "Gerador de números aleatórios padrão da comunidade Rust.",
+            "De-facto standard random number generator library in Rust.",
+            "https://docs.rs/rand/latest/rand/",
+        ),
+        "Rng" | "rng" | "random_range" | "random_bool" => (
+            "rand: trait e métodos para sortear intervalos (`rng.random_range(1..=10)`) e booleanos.",
+            "rand: trait and helpers for sampling ranges (`rng.random_range(1..=10)`) and booleans.",
+            "https://docs.rs/rand/latest/rand/trait.Rng.html",
+        ),
         // --- rodio ---
-        "rodio" => DocHint {
-            summary: "Biblioteca de reprodução e síntese simples de áudio em Rust.",
-            url: "https://docs.rs/rodio/latest/rodio/",
-        },
-        "OutputStream" | "Sink" | "SineWave" | "Source" => DocHint {
-            summary: "rodio: tipos principais para abrir áudio, controlar fila de reprodução e gerar ondas sonoras.",
-            url: "https://docs.rs/rodio/latest/rodio/struct.Sink.html",
-        },
+        "rodio" => (
+            "Biblioteca de reprodução e síntese simples de áudio em Rust.",
+            "Audio playback and simple tone synthesis library in Rust.",
+            "https://docs.rs/rodio/latest/rodio/",
+        ),
+        "OutputStream" | "Sink" | "SineWave" | "Source" => (
+            "rodio: tipos principais para abrir áudio, controlar fila de reprodução e gerar ondas sonoras.",
+            "rodio: core types for opening audio output, managing playback sinks, and generating waveforms.",
+            "https://docs.rs/rodio/latest/rodio/struct.Sink.html",
+        ),
         // --- bevy (Engine 2D/3D ECS) ---
-        "bevy" => DocHint {
-            summary: "Engine de jogos 2D/3D em Rust baseada em arquitetura ECS (Entities, Components, Systems).",
-            url: "https://docs.rs/bevy/latest/bevy/",
-        },
-        "App" | "add_plugins" | "add_systems" => DocHint {
-            summary: "bevy: núcleo da aplicação (`App::new().add_plugins(DefaultPlugins).add_systems(Update, fn_sistema).run()`).",
-            url: "https://docs.rs/bevy/latest/bevy/app/struct.App.html",
-        },
-        "DefaultPlugins" | "MinimalPlugins" | "Plugin" => DocHint {
-            summary: "bevy: conjunto padrão de subsistemas (janela, renderizador, entrada, áudio e tempo).",
-            url: "https://docs.rs/bevy/latest/bevy/struct.DefaultPlugins.html",
-        },
-        "Startup" | "Update" | "FixedUpdate" | "PostUpdate" => DocHint {
-            summary: "bevy: agendas (Schedules) — Startup roda uma vez ao iniciar; Update roda todo frame.",
-            url: "https://docs.rs/bevy/latest/bevy/app/struct.Startup.html",
-        },
-        "Commands" | "spawn" | "despawn" => DocHint {
-            summary: "bevy ECS: enfileira comandos estruturais seguros no mundo (criar/remover entidades e componentes).",
-            url: "https://docs.rs/bevy/latest/bevy/ecs/system/struct.Commands.html",
-        },
-        "Query" | "With" | "Without" | "Changed" | "Added" => DocHint {
-            summary: "bevy ECS: consulta e itera rapidamente todas as entidades que possuem certos Componentes.",
-            url: "https://docs.rs/bevy/latest/bevy/ecs/system/struct.Query.html",
-        },
-        "Res" | "ResMut" | "Resource" => DocHint {
-            summary: "bevy ECS: acesso somente leitura (`Res<T>`) ou mutável (`ResMut<T>`) a recursos globais do jogo.",
-            url: "https://docs.rs/bevy/latest/bevy/ecs/system/struct.Res.html",
-        },
-        "Local" => DocHint {
-            summary: "bevy ECS: estado privado persistente exclusivo de um único sistema entre frames.",
-            url: "https://docs.rs/bevy/latest/bevy/ecs/system/struct.Local.html",
-        },
-        "Component" | "Bundle" | "Entity" => DocHint {
-            summary: "bevy ECS: `#[derive(Component)]` transforma structs/enums em dados anexáveis a entidades (`Entity`).",
-            url: "https://docs.rs/bevy/latest/bevy/ecs/component/trait.Component.html",
-        },
-        "Event" | "EventReader" | "EventWriter" => DocHint {
-            summary: "bevy ECS: barramento tipado de eventos entre sistemas sem acoplamento direto.",
-            url: "https://docs.rs/bevy/latest/bevy/ecs/event/trait.Event.html",
-        },
-        "Transform" | "GlobalTransform" | "Vec3" | "Quat" => DocHint {
-            summary: "bevy: posição, rotação e escala 2D/3D de uma entidade (`Transform::from_xyz(x, y, z)`).",
-            url: "https://docs.rs/bevy/latest/bevy/transform/components/struct.Transform.html",
-        },
-        "Camera2d" | "Camera3d" => DocHint {
-            summary: "bevy: cria uma câmera 2D ou 3D no mundo (`commands.spawn(Camera2d);`).",
-            url: "https://docs.rs/bevy/latest/bevy/core_pipeline/core_2d/struct.Camera2d.html",
-        },
-        "Sprite" | "Text2d" | "Gizmos" => DocHint {
-            summary: "bevy: componentes de renderização 2D (sprites retangulares, textos 2D e linhas/formas de debug).",
-            url: "https://docs.rs/bevy/latest/bevy/sprite/struct.Sprite.html",
-        },
-        "Time" | "Timer" | "delta_secs" => DocHint {
-            summary: "bevy: relógio do jogo (`tempo.delta_secs()`) para movimentação suave independente de FPS.",
-            url: "https://docs.rs/bevy/latest/bevy/time/struct.Time.html",
-        },
-        "ButtonInput" | "just_pressed" | "pressed" => DocHint {
-            summary: "bevy: estado de teclado/mouse via recurso (`teclas: Res<ButtonInput<KeyCode>>`).",
-            url: "https://docs.rs/bevy/latest/bevy/input/struct.ButtonInput.html",
-        },
-        "AssetServer" | "Handle" | "Image" => DocHint {
-            summary: "bevy: carregamento assíncrono de imagens, fontes e sons da pasta `assets/`.",
-            url: "https://docs.rs/bevy/latest/bevy/asset/struct.AssetServer.html",
-        },
+        "bevy" => (
+            "Engine de jogos 2D/3D em Rust baseada em arquitetura ECS (Entities, Components, Systems).",
+            "2D/3D game engine in Rust built on an ECS (Entities, Components, Systems) architecture.",
+            "https://docs.rs/bevy/latest/bevy/",
+        ),
+        "App" | "add_plugins" | "add_systems" => (
+            "bevy: núcleo da aplicação (`App::new().add_plugins(DefaultPlugins).add_systems(Update, fn_sistema).run()`).",
+            "bevy: application builder (`App::new().add_plugins(DefaultPlugins).add_systems(Update, my_system).run()`).",
+            "https://docs.rs/bevy/latest/bevy/app/struct.App.html",
+        ),
+        "DefaultPlugins" | "MinimalPlugins" | "Plugin" => (
+            "bevy: conjunto padrão de subsistemas (janela, renderizador, entrada, áudio e tempo).",
+            "bevy: standard engine subsystem bundle (windowing, rendering, input, audio, time).",
+            "https://docs.rs/bevy/latest/bevy/struct.DefaultPlugins.html",
+        ),
+        "Startup" | "Update" | "FixedUpdate" | "PostUpdate" => (
+            "bevy: agendas (Schedules) — Startup roda uma vez ao iniciar; Update roda todo frame.",
+            "bevy: execution Schedules — Startup runs once on boot; Update runs every frame.",
+            "https://docs.rs/bevy/latest/bevy/app/struct.Startup.html",
+        ),
+        "Commands" | "spawn" | "despawn" => (
+            "bevy ECS: enfileira comandos estruturais seguros no mundo (criar/remover entidades e componentes).",
+            "bevy ECS: queues safe structural world mutations (spawning/despawning entities and components).",
+            "https://docs.rs/bevy/latest/bevy/ecs/system/struct.Commands.html",
+        ),
+        "Query" | "With" | "Without" | "Changed" | "Added" => (
+            "bevy ECS: consulta e itera rapidamente todas as entidades que possuem certos Componentes.",
+            "bevy ECS: queries and iterates all entities matching a set of Components.",
+            "https://docs.rs/bevy/latest/bevy/ecs/system/struct.Query.html",
+        ),
+        "Res" | "ResMut" | "Resource" => (
+            "bevy ECS: acesso somente leitura (`Res<T>`) ou mutável (`ResMut<T>`) a recursos globais do jogo.",
+            "bevy ECS: read-only (`Res<T>`) or mutable (`ResMut<T>`) access to global game resources.",
+            "https://docs.rs/bevy/latest/bevy/ecs/system/struct.Res.html",
+        ),
+        "Local" => (
+            "bevy ECS: estado privado persistente exclusivo de um único sistema entre frames.",
+            "bevy ECS: private per-system state persisted across frames.",
+            "https://docs.rs/bevy/latest/bevy/ecs/system/struct.Local.html",
+        ),
+        "Component" | "Bundle" | "Entity" => (
+            "bevy ECS: `#[derive(Component)]` transforma structs/enums em dados anexáveis a entidades (`Entity`).",
+            "bevy ECS: `#[derive(Component)]` turns structs/enums into attachable Entity data.",
+            "https://docs.rs/bevy/latest/bevy/ecs/component/trait.Component.html",
+        ),
+        "Event" | "EventReader" | "EventWriter" => (
+            "bevy ECS: barramento tipado de eventos entre sistemas sem acoplamento direto.",
+            "bevy ECS: typed event bus for decoupled system-to-system messaging.",
+            "https://docs.rs/bevy/latest/bevy/ecs/event/trait.Event.html",
+        ),
+        "Transform" | "GlobalTransform" | "Vec3" | "Quat" => (
+            "bevy: posição, rotação e escala 2D/3D de uma entidade (`Transform::from_xyz(x, y, z)`).",
+            "bevy: 2D/3D translation, rotation, and scale (`Transform::from_xyz(x, y, z)`).",
+            "https://docs.rs/bevy/latest/bevy/transform/components/struct.Transform.html",
+        ),
+        "Camera2d" | "Camera3d" => (
+            "bevy: cria uma câmera 2D ou 3D no mundo (`commands.spawn(Camera2d);`).",
+            "bevy: spawns a 2D or 3D camera in the world (`commands.spawn(Camera2d);`).",
+            "https://docs.rs/bevy/latest/bevy/core_pipeline/core_2d/struct.Camera2d.html",
+        ),
+        "Sprite" | "Text2d" | "Gizmos" => (
+            "bevy: componentes de renderização 2D (sprites retangulares, textos 2D e linhas/formas de debug).",
+            "bevy: 2D rendering components (rectangular sprites, 2D text, debug shapes/lines).",
+            "https://docs.rs/bevy/latest/bevy/sprite/struct.Sprite.html",
+        ),
+        "Time" | "Timer" | "delta_secs" => (
+            "bevy: relógio do jogo (`tempo.delta_secs()`) para movimentação suave independente de FPS.",
+            "bevy: game clock (`time.delta_secs()`) for smooth FPS-independent movement.",
+            "https://docs.rs/bevy/latest/bevy/time/struct.Time.html",
+        ),
+        "ButtonInput" | "just_pressed" | "pressed" => (
+            "bevy: estado de teclado/mouse via recurso (`teclas: Res<ButtonInput<KeyCode>>`).",
+            "bevy: keyboard/mouse input state resource (`keys: Res<ButtonInput<KeyCode>>`).",
+            "https://docs.rs/bevy/latest/bevy/input/struct.ButtonInput.html",
+        ),
+        "AssetServer" | "Handle" | "Image" => (
+            "bevy: carregamento assíncrono de imagens, fontes e sons da pasta `assets/`.",
+            "bevy: asynchronous loader for images, fonts, and audio from `assets/`.",
+            "https://docs.rs/bevy/latest/bevy/asset/struct.AssetServer.html",
+        ),
         _ => return None,
     };
-    Some(entry)
+    Some(DocHint {
+        summary: bi(pt, en, english),
+        url,
+    })
 }
 
 /// URL da tradução em português do Rust Book quando houver tópico equivalente.
@@ -733,18 +1055,34 @@ pub fn lookup_pt_url(symbol: &str) -> Option<&'static str> {
 
 /// Retorna a URL preferida (português quando disponível, senão inglês oficial).
 pub fn preferred_doc_url(symbol: &str) -> Option<&'static str> {
-    lookup_pt_url(symbol).or_else(|| lookup(symbol).map(|h| h.url))
+    preferred_doc_url_for(symbol, false)
+}
+
+pub fn preferred_doc_url_for(symbol: &str, english: bool) -> Option<&'static str> {
+    if english {
+        lookup_for(symbol, true).map(|h| h.url)
+    } else {
+        lookup_pt_url(symbol).or_else(|| lookup_for(symbol, false).map(|h| h.url))
+    }
 }
 
 /// Resolve documentação para um símbolo sob o cursor/ponteiro: primeiro busca no
 /// glossário Rust/bibliotecas extras; caso contrário, inspeciona declarações locais
 /// (`let`, `let mut`, `fn`, `struct`, `enum`, `const`, parâmetros) no código aberto.
 pub fn resolve_symbol_doc(symbol: &str, code: &str) -> Option<ResolvedDoc> {
-    if let Some(hint) = lookup(symbol) {
+    resolve_symbol_doc_for(symbol, code, false)
+}
+
+pub fn resolve_symbol_doc_for(symbol: &str, code: &str, english: bool) -> Option<ResolvedDoc> {
+    if let Some(hint) = lookup_for(symbol, english) {
         return Some(ResolvedDoc {
             title: symbol.to_string(),
             summary: hint.summary.to_string(),
-            url_pt: lookup_pt_url(symbol).map(str::to_string),
+            url_pt: if english {
+                None
+            } else {
+                lookup_pt_url(symbol).map(str::to_string)
+            },
             url_en: hint.url.to_string(),
         });
     }
@@ -756,32 +1094,45 @@ pub fn resolve_symbol_doc(symbol: &str, code: &str) -> Option<ResolvedDoc> {
         }
         if contains_ident_after(trimmed, "let mut ", symbol) {
             return Some(ResolvedDoc {
-                title: format!("{symbol} (variável mutável)"),
-                summary: format!(
-                    "Variável mutável local (`let mut {symbol}`) definida no seu código. Seu valor pode mudar durante a execução."
+                title: format!(
+                    "{symbol} ({})",
+                    bi("variável mutável", "mutable variable", english)
                 ),
-                url_pt: Some(
+                summary: if english {
+                    format!(
+                        "Local mutable variable (`let mut {symbol}`) defined in your code. Its value can change during execution."
+                    )
+                } else {
+                    format!(
+                        "Variável mutável local (`let mut {symbol}`) definida no seu código. Seu valor pode mudar durante a execução."
+                    )
+                },
+                url_pt: (!english).then(|| {
                     "https://rust-br.github.io/rust-book-pt-br/ch03-01-variables-and-mutability.html"
-                        .to_string(),
-                ),
-                url_en:
-                    "https://doc.rust-lang.org/book/ch03-01-variables-and-mutability.html"
-                        .to_string(),
+                        .to_string()
+                }),
+                url_en: "https://doc.rust-lang.org/book/ch03-01-variables-and-mutability.html"
+                    .to_string(),
             });
         }
         if contains_ident_after(trimmed, "let ", symbol) {
             return Some(ResolvedDoc {
-                title: format!("{symbol} (variável)"),
-                summary: format!(
-                    "Variável imutável local (`let {symbol}`) definida no seu código. Em Rust, variáveis são imutáveis por padrão."
-                ),
-                url_pt: Some(
+                title: format!("{symbol} ({})", bi("variável", "variable", english)),
+                summary: if english {
+                    format!(
+                        "Local immutable variable (`let {symbol}`) defined in your code. Variables in Rust are immutable by default."
+                    )
+                } else {
+                    format!(
+                        "Variável imutável local (`let {symbol}`) definida no seu código. Em Rust, variáveis são imutáveis por padrão."
+                    )
+                },
+                url_pt: (!english).then(|| {
                     "https://rust-br.github.io/rust-book-pt-br/ch03-01-variables-and-mutability.html"
-                        .to_string(),
-                ),
-                url_en:
-                    "https://doc.rust-lang.org/book/ch03-01-variables-and-mutability.html"
-                        .to_string(),
+                        .to_string()
+                }),
+                url_en: "https://doc.rust-lang.org/book/ch03-01-variables-and-mutability.html"
+                    .to_string(),
             });
         }
         if contains_ident_after(trimmed, "fn ", symbol)
@@ -791,13 +1142,19 @@ pub fn resolve_symbol_doc(symbol: &str, code: &str) -> Option<ResolvedDoc> {
         {
             return Some(ResolvedDoc {
                 title: format!("fn {symbol}"),
-                summary: format!(
-                    "Função `{symbol}` definida no seu projeto para organizar e reutilizar um bloco de lógica."
-                ),
-                url_pt: Some(
+                summary: if english {
+                    format!(
+                        "Function `{symbol}` defined in your project to organize and reuse a block of logic."
+                    )
+                } else {
+                    format!(
+                        "Função `{symbol}` definida no seu projeto para organizar e reutilizar um bloco de lógica."
+                    )
+                },
+                url_pt: (!english).then(|| {
                     "https://rust-br.github.io/rust-book-pt-br/ch03-03-how-functions-work.html"
-                        .to_string(),
-                ),
+                        .to_string()
+                }),
                 url_en: "https://doc.rust-lang.org/book/ch03-03-how-functions-work.html"
                     .to_string(),
             });
@@ -807,13 +1164,19 @@ pub fn resolve_symbol_doc(symbol: &str, code: &str) -> Option<ResolvedDoc> {
         {
             return Some(ResolvedDoc {
                 title: format!("struct {symbol}"),
-                summary: format!(
-                    "Estrutura `{symbol}` criada no seu projeto para agrupar campos relacionados."
-                ),
-                url_pt: Some(
+                summary: if english {
+                    format!(
+                        "Struct `{symbol}` created in your project to group related fields together."
+                    )
+                } else {
+                    format!(
+                        "Estrutura `{symbol}` criada no seu projeto para agrupar campos relacionados."
+                    )
+                },
+                url_pt: (!english).then(|| {
                     "https://rust-br.github.io/rust-book-pt-br/ch05-01-defining-structs.html"
-                        .to_string(),
-                ),
+                        .to_string()
+                }),
                 url_en: "https://doc.rust-lang.org/book/ch05-01-defining-structs.html".to_string(),
             });
         }
@@ -822,13 +1185,19 @@ pub fn resolve_symbol_doc(symbol: &str, code: &str) -> Option<ResolvedDoc> {
         {
             return Some(ResolvedDoc {
                 title: format!("enum {symbol}"),
-                summary: format!(
-                    "Enumeração `{symbol}` definida no seu projeto representando estados ou variantes possíveis."
-                ),
-                url_pt: Some(
+                summary: if english {
+                    format!(
+                        "Enum `{symbol}` defined in your project representing possible states or variants."
+                    )
+                } else {
+                    format!(
+                        "Enumeração `{symbol}` definida no seu projeto representando estados ou variantes possíveis."
+                    )
+                },
+                url_pt: (!english).then(|| {
                     "https://rust-br.github.io/rust-book-pt-br/ch06-01-defining-an-enum.html"
-                        .to_string(),
-                ),
+                        .to_string()
+                }),
                 url_en: "https://doc.rust-lang.org/book/ch06-01-defining-an-enum.html".to_string(),
             });
         }
@@ -838,24 +1207,31 @@ pub fn resolve_symbol_doc(symbol: &str, code: &str) -> Option<ResolvedDoc> {
         {
             return Some(ResolvedDoc {
                 title: format!("const {symbol}"),
-                summary: format!("Constante `{symbol}` definida no seu código."),
-                url_pt: Some(
+                summary: if english {
+                    format!("Constant `{symbol}` defined in your code.")
+                } else {
+                    format!("Constante `{symbol}` definida no seu código.")
+                },
+                url_pt: (!english).then(|| {
                     "https://rust-br.github.io/rust-book-pt-br/ch03-01-variables-and-mutability.html"
-                        .to_string(),
-                ),
-                url_en:
-                    "https://doc.rust-lang.org/book/ch03-01-variables-and-mutability.html"
-                        .to_string(),
+                        .to_string()
+                }),
+                url_en: "https://doc.rust-lang.org/book/ch03-01-variables-and-mutability.html"
+                    .to_string(),
             });
         }
         if trimmed.contains("fn ") && trimmed.contains(&format!("{symbol}:")) {
             return Some(ResolvedDoc {
-                title: format!("{symbol} (parâmetro)"),
-                summary: format!("Parâmetro `{symbol}` recebido pela função no seu código."),
-                url_pt: Some(
+                title: format!("{symbol} ({})", bi("parâmetro", "parameter", english)),
+                summary: if english {
+                    format!("Parameter `{symbol}` accepted by the function in your code.")
+                } else {
+                    format!("Parâmetro `{symbol}` recebido pela função no seu código.")
+                },
+                url_pt: (!english).then(|| {
                     "https://rust-br.github.io/rust-book-pt-br/ch03-03-how-functions-work.html"
-                        .to_string(),
-                ),
+                        .to_string()
+                }),
                 url_en: "https://doc.rust-lang.org/book/ch03-03-how-functions-work.html"
                     .to_string(),
             });
@@ -976,8 +1352,64 @@ pub fn ensure_bevy_fast_dev_profile_in_cargo_toml(cargo_toml: &str) -> String {
     out
 }
 
-/// Código inicial Bevy 0.20 (ECS 2D) comentado em português para estudantes.
+/// Código inicial Bevy 0.20 (ECS 2D) comentado para estudantes.
 pub fn bevy_starter_template() -> &'static str {
+    bevy_starter_template_for(false)
+}
+
+/// Bilingual Bevy 0.20 2D ECS starter template.
+pub fn bevy_starter_template_for(english: bool) -> &'static str {
+    if english {
+        return concat!(
+            "use bevy::prelude::*;\n\n",
+            "/// Component marking the player entity and storing its speed in pixels/s.\n",
+            "#[derive(Component)]\n",
+            "struct Player {\n",
+            "    speed: f32,\n",
+            "}\n\n",
+            "fn main() {\n",
+            "    App::new()\n",
+            "        .add_plugins(DefaultPlugins)\n",
+            "        .add_systems(Startup, setup_scene)\n",
+            "        .add_systems(Update, move_player)\n",
+            "        .run();\n",
+            "}\n\n",
+            "fn setup_scene(mut commands: Commands) {\n",
+            "    commands.spawn(Camera2d);\n",
+            "    commands.spawn((\n",
+            "        Sprite::from_color(Color::srgb(0.25, 0.75, 0.95), Vec2::new(48.0, 48.0)),\n",
+            "        Transform::from_xyz(0.0, 0.0, 0.0),\n",
+            "        Player { speed: 260.0 },\n",
+            "    ));\n",
+            "}\n\n",
+            "fn move_player(\n",
+            "    keys: Res<ButtonInput<KeyCode>>,\n",
+            "    time: Res<Time>,\n",
+            "    mut query: Query<(&mut Transform, &Player)>,\n",
+            ") {\n",
+            "    let mut direction = Vec2::ZERO;\n",
+            "    if keys.pressed(KeyCode::ArrowLeft) || keys.pressed(KeyCode::KeyA) {\n",
+            "        direction.x -= 1.0;\n",
+            "    }\n",
+            "    if keys.pressed(KeyCode::ArrowRight) || keys.pressed(KeyCode::KeyD) {\n",
+            "        direction.x += 1.0;\n",
+            "    }\n",
+            "    if keys.pressed(KeyCode::ArrowUp) || keys.pressed(KeyCode::KeyW) {\n",
+            "        direction.y += 1.0;\n",
+            "    }\n",
+            "    if keys.pressed(KeyCode::ArrowDown) || keys.pressed(KeyCode::KeyS) {\n",
+            "        direction.y -= 1.0;\n",
+            "    }\n\n",
+            "    if direction != Vec2::ZERO {\n",
+            "        let step = direction.normalize() * time.delta_secs();\n",
+            "        for (mut transform, player) in &mut query {\n",
+            "            transform.translation.x += step.x * player.speed;\n",
+            "            transform.translation.y += step.y * player.speed;\n",
+            "        }\n",
+            "    }\n",
+            "}\n",
+        );
+    }
     concat!(
         "use bevy::prelude::*;\n\n",
         "/// Componente que marca a entidade do jogador e guarda sua velocidade em pixels/s.\n",
@@ -1766,5 +2198,31 @@ mod tests {
             assert!(!meta.tested_environments.trim().is_empty(), "{}", lib.name);
             assert!(!meta.review_status.trim().is_empty(), "{}", lib.name);
         }
+    }
+
+    #[test]
+    fn doc_hint_e_bibliotecas_suportam_ingles() {
+        let libs = extra_libraries(true);
+        assert_eq!(libs.len(), 7);
+        for lib in libs {
+            let meta = lib.v3_metadata_for(true);
+            assert!(!meta.system_deps_linux.trim().is_empty(), "{}", lib.name);
+            assert!(!meta.common_pitfalls.trim().is_empty(), "{}", lib.name);
+            assert!(!meta.review_status.trim().is_empty(), "{}", lib.name);
+        }
+
+        let hint = lookup_for("println", true).expect("println hint in EN");
+        assert!(!hint.summary.trim().is_empty());
+        assert!(hint.url.contains("rust-lang.org"));
+
+        let resolved = resolve_symbol_doc_for("speed", "fn main() { let mut speed = 10; }", true)
+            .expect("resolved local mutable binding");
+        assert!(resolved.title.contains("mutable variable"));
+        assert!(resolved.summary.contains("Local mutable variable"));
+        assert!(!resolved.best_url_for(true).is_empty());
+
+        let bevy = bevy_starter_template_for(true);
+        assert!(bevy.contains("fn main()"));
+        assert!(bevy.contains("App::new()"));
     }
 }

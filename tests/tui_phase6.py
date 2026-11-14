@@ -41,7 +41,10 @@ fn main() {
             tui.send(b"\r")
             paste(tui, str(project))
             tui.send(b"\r")
-            tui.wait(lambda: "projeto aberto" in tui.text(), "abrir projeto")
+            tui.wait(
+                lambda: "projeto aberto" in tui.text() or "project opened" in tui.text(),
+                "abrir projeto",
+            )
             tui.send(b"\x1bOQ")  # F2 criar arquivo
             paste(tui, "src/util.rs")
             tui.send(b"\r")
@@ -54,7 +57,7 @@ fn main() {
             paste(tui, str(project))
             tui.send(b"\r")
             tui.send(b"\x1b[15~")  # F5
-            tui.wait(lambda: "sandbox" in tui.text(), "consentimento")
+            tui.wait(lambda: "sandbox" in tui.text().lower(), "consentimento")
             tui.send(b"\x1b")  # recusa
             mark = len(tui.raw)
             tui.send(b"\x1b[15~")
@@ -64,7 +67,10 @@ fn main() {
             tui.send(b"\r")
             tui.send(b"\x04")  # EOF
             tui.wait(lambda: "EOF_OK" in tui.text(mark), "stdin e EOF")
-            tui.wait(lambda: "sucesso" in tui.text(mark), "Cargo terminou")
+            tui.wait(
+                lambda: "sucesso" in tui.text(mark) or "succeeded" in tui.text(mark),
+                "Cargo terminou",
+            )
             tui.exit_cleanly()
             config = tomllib.loads((root / "config.toml").read_text())
             assert config["workspace"]["recent-projects"] == [str(project)]

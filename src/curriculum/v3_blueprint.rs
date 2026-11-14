@@ -32,26 +32,60 @@ impl V3Stage {
     ];
 
     pub const fn label(self) -> &'static str {
-        match self {
-            V3Stage::Basico => "O BÁSICO",
-            V3Stage::Meio => "O MEIO",
-            V3Stage::Dificil => "O DIFÍCIL",
-            V3Stage::Fim => "O FIM",
-            V3Stage::MiniPaint => "MINI PAINT",
-            V3Stage::CaveGame => "CAVEGAME (BEVY)",
+        self.label_for(false)
+    }
+
+    pub const fn label_for(self, english: bool) -> &'static str {
+        if english {
+            match self {
+                V3Stage::Basico => "THE BASICS",
+                V3Stage::Meio => "THE MIDDLE",
+                V3Stage::Dificil => "THE HARD PART",
+                V3Stage::Fim => "THE END GAME",
+                V3Stage::MiniPaint => "MINI PAINT",
+                V3Stage::CaveGame => "CAVEGAME (BEVY)",
+            }
+        } else {
+            match self {
+                V3Stage::Basico => "O BÁSICO",
+                V3Stage::Meio => "O MEIO",
+                V3Stage::Dificil => "O DIFÍCIL",
+                V3Stage::Fim => "O FIM",
+                V3Stage::MiniPaint => "MINI PAINT",
+                V3Stage::CaveGame => "CAVEGAME (BEVY)",
+            }
         }
     }
 
     pub const fn subtitle(self) -> &'static str {
-        match self {
-            V3Stage::Basico => "14 entradas · Fundamentos absolutos (5T + P01 + 7T + P02)",
-            V3Stage::Meio => "48 entradas · 12 ciclos 3T1P (Tipos, Ownership, Structs, Erros)",
-            V3Stage::Dificil => "61 entradas · Revisão + 12 ciclos 3T2P + Pong/Snake/Editor",
-            V3Stage::Fim => "60 entradas · 10 unidades 4T2P (Traits, Concorrência, IO, Arch)",
-            V3Stage::MiniPaint => {
-                "12 marcos · Projeto gráfico Canvas2D independente de resize + PPM"
+        self.subtitle_for(false)
+    }
+
+    pub const fn subtitle_for(self, english: bool) -> &'static str {
+        if english {
+            match self {
+                V3Stage::Basico => "14 entries · Core foundations (5T + P01 + 7T + P02)",
+                V3Stage::Meio => "48 entries · 12 cycles 3T1P (Types, Ownership, Structs, Errors)",
+                V3Stage::Dificil => "61 entries · Review + 12 cycles 3T2P + Pong/Snake/Editor",
+                V3Stage::Fim => "60 entries · 10 units 4T2P (Traits, Concurrency, IO, Arch)",
+                V3Stage::MiniPaint => {
+                    "12 milestones · Resize-independent Canvas2D graphics project + PPM"
+                }
+                V3Stage::CaveGame => {
+                    "18 milestones · Voxel World + Bevy 0.20 (chunks, culling, seed)"
+                }
             }
-            V3Stage::CaveGame => "18 marcos · Mundo Voxel + Bevy 0.20 (chunks, culling, seed)",
+        } else {
+            match self {
+                V3Stage::Basico => "14 entradas · Fundamentos absolutos (5T + P01 + 7T + P02)",
+                V3Stage::Meio => "48 entradas · 12 ciclos 3T1P (Tipos, Ownership, Structs, Erros)",
+                V3Stage::Dificil => "61 entradas · Revisão + 12 ciclos 3T2P + Pong/Snake/Editor",
+                V3Stage::Fim => "60 entradas · 10 unidades 4T2P (Traits, Concorrência, IO, Arch)",
+                V3Stage::MiniPaint => {
+                    "12 marcos · Projeto gráfico Canvas2D independente de resize + PPM"
+                }
+                V3Stage::CaveGame => "18 marcos · Mundo Voxel + Bevy 0.20 (chunks, culling, seed)",
+            }
         }
     }
 }
@@ -95,6 +129,38 @@ pub struct V3Entry {
     pub completion_evidence: &'static str,
     pub mapped_lesson_id: Option<&'static str>,
     pub mapped_exercise_id: Option<&'static str>,
+}
+
+impl V3Entry {
+    pub fn title_for(&self, english: bool) -> &'static str {
+        if english {
+            crate::curriculum::en_tr::v3_entry_en(self.id)
+                .map(|(t, _, _)| t)
+                .unwrap_or(self.title)
+        } else {
+            self.title
+        }
+    }
+
+    pub fn learning_goal_for(&self, english: bool) -> &'static str {
+        if english {
+            crate::curriculum::en_tr::v3_entry_en(self.id)
+                .map(|(_, g, _)| g)
+                .unwrap_or(self.learning_goal)
+        } else {
+            self.learning_goal
+        }
+    }
+
+    pub fn completion_evidence_for(&self, english: bool) -> &'static str {
+        if english {
+            crate::curriculum::en_tr::v3_entry_en(self.id)
+                .map(|(_, _, e)| e)
+                .unwrap_or(self.completion_evidence)
+        } else {
+            self.completion_evidence
+        }
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -3116,13 +3182,20 @@ pub fn is_v3_entry_unlocked(
 /// Constrói a especificação prática Cargo executável (`PracticeSpec`) para qualquer
 /// uma das 89 entradas práticas e marcos Capstone da trilha V3.
 pub fn build_v3_practice_spec(entry: &V3Entry) -> Option<crate::learn::PracticeSpec> {
+    build_v3_practice_spec_for(entry, false)
+}
+
+pub fn build_v3_practice_spec_for(
+    entry: &V3Entry,
+    english: bool,
+) -> Option<crate::learn::PracticeSpec> {
     use crate::learn::{PracticeMode, PracticeSpec};
 
     if entry.kind == V3EntryKind::Theory {
         return None;
     }
     if entry.id == "D09-P01" {
-        let mut spec = crate::learn::interactive_practice_spec_d09();
+        let mut spec = crate::learn::interactive_practice_spec_d09_for(english);
         spec.lesson_id = entry.id;
         return Some(spec);
     }
@@ -3291,58 +3364,87 @@ pub fn build_v3_practice_spec(entry: &V3Entry) -> Option<crate::learn::PracticeS
     };
 
     if let Some((starter, hints, tests)) = custom_test {
-        return Some(PracticeSpec {
+        let mut spec = PracticeSpec {
             id: entry.id,
             lesson_id: entry.id,
-            title: entry.title,
-            prompt: entry.learning_goal,
+            title: entry.title_for(english),
+            prompt: entry.learning_goal_for(english),
             starter,
             hints,
             mode: PracticeMode::CargoTest { tests },
-        });
+        };
+        if english {
+            crate::curriculum::en_tr::translate_practice_spec_to_en(&mut spec);
+        }
+        return Some(spec);
     }
 
     let canonical = canonical_lesson_for_v3_entry(entry);
-    let mut base = crate::learn::practice_spec_for_lesson(canonical)?;
+    let mut base = crate::learn::practice_spec_for_lesson_for(canonical, english)?;
     if entry.id != "B-P01" && entry.id != "B-P02" {
         base.id = entry.id;
-        base.title = entry.title;
-        base.prompt = entry.learning_goal;
+        base.title = entry.title_for(english);
+        base.prompt = entry.learning_goal_for(english);
     }
     base.lesson_id = entry.id;
     Some(base)
 }
 
-/// Constrói uma lição completa e navegável em português brasileiro (`Lesson`) para
+/// Constrói uma lição completa e navegável no idioma pedido (`pt-BR` ou `en-US`) para
 /// qualquer uma das 213 entradas do catálogo RustLab V3, sem páginas vazias.
 pub fn build_v3_lesson(entry: &V3Entry, base_cur: &Curriculum) -> Lesson {
+    build_v3_lesson_for(entry, base_cur, false)
+}
+
+/// Constrói uma lição completa da trilha V3 escolhendo explicitamente português ou inglês.
+pub fn build_v3_lesson_for(entry: &V3Entry, base_cur: &Curriculum, english: bool) -> Lesson {
     let canonical = canonical_lesson_for_v3_entry(entry);
     let base_lesson = base_cur.lesson(canonical);
 
+    let title_str = entry.title_for(english);
+    let goal_str = entry.learning_goal_for(english);
+    let evidence_str = entry.completion_evidence_for(english);
+
     let mut blocks: Vec<Block> = Vec::new();
     let prereq_label = if entry.prerequisites.is_empty() {
-        "Nenhum pré-requisito — ponto de entrada do estágio.".to_string()
+        if english {
+            "No prerequisites — entry point for this stage.".to_string()
+        } else {
+            "Nenhum pré-requisito — ponto de entrada do estágio.".to_string()
+        }
     } else {
         entry.prerequisites.join(", ")
     };
     let cycle_label = entry.cycle.unwrap_or("BASE");
-    let kind_label = match entry.kind {
-        V3EntryKind::Theory => "Teoria guiada + Demo interativa + Quiz de compreensão",
-        V3EntryKind::Practice => {
+    let kind_label = match (english, entry.kind) {
+        (true, V3EntryKind::Theory) => "Guided theory + interactive demo + comprehension quiz",
+        (true, V3EntryKind::Practice) => {
+            "Hands-on practice with embedded Cargo Mini-IDE (`Tab` / `F5`) + 100+100 XP"
+        }
+        (true, V3EntryKind::CapstoneMilestone) => {
+            "Real Capstone milestone (`Tab` / `F5`) + Applied Project"
+        }
+        (false, V3EntryKind::Theory) => "Teoria guiada + Demo interativa + Quiz de compreensão",
+        (false, V3EntryKind::Practice) => {
             "Prática real com Mini-IDE Cargo embutida (`Tab` / `F5`) + 100+100 XP"
         }
-        V3EntryKind::CapstoneMilestone => {
+        (false, V3EntryKind::CapstoneMilestone) => {
             "Marco prático Capstone real (`Tab` / `F5`) + Projeto Aplicado"
         }
     };
 
     blocks.push(Block::Text {
-        text: format!(
-            "Estágio: {} (ciclo {cycle_label}) · Tipo: {kind_label}\nPré-requisitos: {prereq_label}\n\nObjetivo desta etapa:\n{}\n\nEvidência esperada:\n{}",
-            entry.stage.label(),
-            entry.learning_goal,
-            entry.completion_evidence
-        ),
+        text: if english {
+            format!(
+                "Stage: {} (cycle {cycle_label}) · Type: {kind_label}\nPrerequisites: {prereq_label}\n\nGoal for this step:\n{goal_str}\n\nExpected evidence:\n{evidence_str}",
+                entry.stage.label_for(true),
+            )
+        } else {
+            format!(
+                "Estágio: {} (ciclo {cycle_label}) · Tipo: {kind_label}\nPré-requisitos: {prereq_label}\n\nObjetivo desta etapa:\n{goal_str}\n\nEvidência esperada:\n{evidence_str}",
+                entry.stage.label_for(false),
+            )
+        },
     });
 
     if let Some(base) = base_lesson {
@@ -3362,14 +3464,23 @@ pub fn build_v3_lesson(entry: &V3Entry, base_cur: &Curriculum) -> Lesson {
                 blocks.push(code_block.clone());
             } else {
                 blocks.push(Block::Code {
-                    code: format!(
-                        "fn main() {{\n    // Etapa {} — {}\n    println!(\"{}: {}\");\n}}",
-                        entry.id, entry.title, entry.id, entry.learning_goal
-                    ),
+                    code: if english {
+                        format!(
+                            "fn main() {{\n    // Step {} — {}\n    println!(\"{}: {}\");\n}}",
+                            entry.id, title_str, entry.id, goal_str
+                        )
+                    } else {
+                        format!(
+                            "fn main() {{\n    // Etapa {} — {}\n    println!(\"{}: {}\");\n}}",
+                            entry.id, title_str, entry.id, goal_str
+                        )
+                    },
                     file: Some("src/main.rs".to_string()),
-                    explain: Some(
-                        "Exemplo mínimo executável em Rust 2024 para esta etapa.".to_string(),
-                    ),
+                    explain: Some(if english {
+                        "Minimal runnable Rust 2024 example for this step.".to_string()
+                    } else {
+                        "Exemplo mínimo executável em Rust 2024 para esta etapa.".to_string()
+                    }),
                 });
             }
         }
@@ -3379,62 +3490,118 @@ pub fn build_v3_lesson(entry: &V3Entry, base_cur: &Curriculum) -> Lesson {
             blocks.push(Block::Demo {
                 demo: DemoKind::Function,
                 name: entry.id.to_string(),
-                steps: vec![
-                    "1. Entender estado e tipos de entrada".to_string(),
-                    "2. Transformar com segurança pelo compilador".to_string(),
-                    "3. Validar com cargo run/test sem suposições".to_string(),
-                ],
-                caption: Some(
-                    "Fluxo didático da etapa V3 (tecle `d` para avançar passos).".to_string(),
-                ),
+                steps: if english {
+                    vec![
+                        "1. Understand state and input types".to_string(),
+                        "2. Transform safely with compiler checks".to_string(),
+                        "3. Verify with cargo run/test instead of guessing".to_string(),
+                    ]
+                } else {
+                    vec![
+                        "1. Entender estado e tipos de entrada".to_string(),
+                        "2. Transformar com segurança pelo compilador".to_string(),
+                        "3. Validar com cargo run/test sem suposições".to_string(),
+                    ]
+                },
+                caption: Some(if english {
+                    "V3 learning flow (press `d` to step forward).".to_string()
+                } else {
+                    "Fluxo didático da etapa V3 (tecle `d` para avançar passos).".to_string()
+                }),
             });
         }
     }
 
     blocks.push(Block::Callout {
         kind: CalloutKind::Warning,
-        text: format!(
-            "Modelo mental e armadilha comum em `{}`: evite chutar tipos ou ignorar avisos do compilador (`rustc`). Leia a assinatura, teste uma mudança mínima e observe a evidência real: {}.",
-            entry.id, entry.completion_evidence
-        ),
+        text: if english {
+            format!(
+                "Mental model and common trap in `{}`: avoid guessing types or ignoring `rustc` warnings. Read signatures closely, test one small edit, and verify real evidence: {evidence_str}.",
+                entry.id
+            )
+        } else {
+            format!(
+                "Modelo mental e armadilha comum em `{}`: evite chutar tipos ou ignorar avisos do compilador (`rustc`). Leia a assinatura, teste uma mudança mínima e observe a evidência real: {evidence_str}.",
+                entry.id
+            )
+        },
     });
 
     blocks.push(Block::Quiz {
-        question: format!(
-            "[{}] Qual afirmação descreve corretamente o objetivo principal de \"{}\"?",
-            entry.id, entry.title
-        ),
-        options: vec![
-            entry.learning_goal.to_string(),
-            "Decorar atalhos aleatórios sem verificar compilação ou invariantes de tipo."
-                .to_string(),
-            "Evitar o Cargo e ignorar mensagens de erro do compilador até o fim do projeto."
-                .to_string(),
-            "Copiar código pronto sem testar casos de borda ou checar pré-requisitos.".to_string(),
-        ],
+        question: if english {
+            format!(
+                "[{}] Which statement accurately states the main goal of \"{title_str}\"?",
+                entry.id
+            )
+        } else {
+            format!(
+                "[{}] Qual afirmação descreve corretamente o objetivo principal de \"{title_str}\"?",
+                entry.id
+            )
+        },
+        options: if english {
+            vec![
+                goal_str.to_string(),
+                "Memorize random shortcuts without checking compilation or type invariants."
+                    .to_string(),
+                "Avoid Cargo and ignore compiler errors until the very end of the project."
+                    .to_string(),
+                "Copy-paste code snippets without testing edge cases or prerequisites."
+                    .to_string(),
+            ]
+        } else {
+            vec![
+                goal_str.to_string(),
+                "Decorar atalhos aleatórios sem verificar compilação ou invariantes de tipo."
+                    .to_string(),
+                "Evitar o Cargo e ignorar mensagens de erro do compilador até o fim do projeto."
+                    .to_string(),
+                "Copiar código pronto sem testar casos de borda ou checar pré-requisitos."
+                    .to_string(),
+            ]
+        },
         correct: 0,
-        why: Some(format!(
-            "Correto! Nesta etapa ({}) buscamos: {} Evidência: {}",
-            entry.id, entry.learning_goal, entry.completion_evidence
-        )),
+        why: Some(if english {
+            format!(
+                "Correct! In this step ({}) our goal is: {goal_str} Evidence: {evidence_str}",
+                entry.id
+            )
+        } else {
+            format!(
+                "Correto! Nesta etapa ({}) buscamos: {goal_str} Evidência: {evidence_str}",
+                entry.id
+            )
+        }),
     });
 
     blocks.push(Block::Callout {
         kind: CalloutKind::Tip,
-        text: format!(
-            "Reflexão pós-etapa ({}): 1) Por que o compilador aceitou essa solução? 2) Que invariante os tipos garantem mesmo em casos extremos? Quando terminar o quiz{} você desbloqueia o próximo passo!",
-            entry.id,
-            if entry.kind != V3EntryKind::Theory {
-                " e sua prática real no painel inferior (Tab + F5)"
-            } else {
-                ""
-            }
-        ),
+        text: if english {
+            format!(
+                "Post-step reflection ({}): 1) Why did the compiler accept this design? 2) Which invariant do the types guarantee on edge cases? Once you finish the quiz{} you unlock the next step!",
+                entry.id,
+                if entry.kind != V3EntryKind::Theory {
+                    " and the hands-on practice below (Tab + F5)"
+                } else {
+                    ""
+                }
+            )
+        } else {
+            format!(
+                "Reflexão pós-etapa ({}): 1) Por que o compilador aceitou essa solução? 2) Que invariante os tipos garantem mesmo em casos extremos? Quando terminar o quiz{} você desbloqueia o próximo passo!",
+                entry.id,
+                if entry.kind != V3EntryKind::Theory {
+                    " e sua prática real no painel inferior (Tab + F5)"
+                } else {
+                    ""
+                }
+            )
+        },
     });
 
     Lesson {
         id: entry.id.to_string(),
-        title: format!("[{}] {}", entry.id, entry.title),
+        title: format!("[{}] {title_str}", entry.id),
         estimated_minutes: match entry.kind {
             V3EntryKind::Theory => 10,
             V3EntryKind::Practice => 15,
@@ -3953,5 +4120,45 @@ mod tests {
         prog.exercises_completed.insert("B-P02".to_string());
         assert!(is_v3_stage_unlocked(&prog, V3Stage::Meio, false));
         assert!(is_v3_entry_unlocked(&prog, m01_t01, false));
+    }
+
+    #[test]
+    fn blueprint_v3_em_ingles_cobre_estagios_entradas_licoes_e_praticas() {
+        let cur_en = crate::curriculum::Curriculum::embedded_for(true).unwrap();
+
+        for stage in V3Stage::ALL {
+            assert!(!stage.label_for(true).trim().is_empty());
+            assert!(!stage.subtitle_for(true).trim().is_empty());
+        }
+        assert_eq!(V3Stage::Basico.label_for(true), "THE BASICS");
+
+        let entries = v3_curriculum_blueprint();
+        assert_eq!(entries.len(), 213);
+
+        let mut practice_count = 0usize;
+        for entry in entries {
+            assert!(!entry.title_for(true).trim().is_empty(), "{}", entry.id);
+            assert!(
+                !entry.learning_goal_for(true).trim().is_empty(),
+                "{}",
+                entry.id
+            );
+            assert!(
+                !entry.completion_evidence_for(true).trim().is_empty(),
+                "{}",
+                entry.id
+            );
+            let lesson = build_v3_lesson_for(entry, &cur_en, true);
+            assert_eq!(lesson.id, entry.id);
+            assert!(!lesson.blocks.is_empty(), "{}", entry.id);
+            if let Some(spec) = build_v3_practice_spec_for(entry, true) {
+                practice_count += 1;
+                assert!(!spec.title.trim().is_empty(), "{}", entry.id);
+                assert!(!spec.prompt.trim().is_empty(), "{}", entry.id);
+                assert!(!spec.hints.is_empty(), "{}", entry.id);
+                assert!(!spec.starter.trim().is_empty(), "{}", entry.id);
+            }
+        }
+        assert_eq!(practice_count, 89);
     }
 }

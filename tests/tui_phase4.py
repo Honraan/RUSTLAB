@@ -65,7 +65,10 @@ class Tui:
         self.send(b"\r")
         self.send(b"e")
         self.send(b"\r")
-        self.wait(lambda: "Seu c" in self.text(), "editor do exercício")
+        self.wait(
+            lambda: "Seu c" in self.text() or "Your code" in self.text(),
+            "editor do exercício",
+        )
 
     def replace(self, source):
         self.send(b"\x01")  # Ctrl+A
@@ -111,13 +114,19 @@ def main():
             tui.send(b"\x1b[15~")
             mark = len(tui.raw)
             tui.send(b"\r")  # autoriza
-            tui.wait(lambda: "testes falharam" in tui.text(mark), "starter deve falhar")
+            tui.wait(
+                lambda: "testes falharam" in tui.text(mark) or "tests failed" in tui.text(mark),
+                "starter deve falhar",
+            )
             assert "soma" not in progress().get("completed_exercises", [])
 
             tui.replace("pub fn soma(a:i32,b:i32)->i32 { a + }")
             mark = len(tui.raw)
             tui.send(b"\x1b[15~")
-            tui.wait(lambda: "compilou" in tui.text(mark), "erro de compilação")
+            tui.wait(
+                lambda: "compilou" in tui.text(mark) or "did not compile" in tui.text(mark),
+                "erro de compilação",
+            )
             solution = "pub fn soma(a:i32,b:i32)->i32 { a + b }\n"
             tui.replace(solution)
             tui.send(b"\x1bOP")  # F1
@@ -132,7 +141,10 @@ def main():
         tui = Tui(binary, root)
         try:
             tui.open_soma()
-            tui.wait(lambda: "Ainda n" in tui.text(), "retomada sem inventar novo resultado")
+            tui.wait(
+                lambda: "Ainda n" in tui.text() or "Not run yet" in tui.text(),
+                "retomada sem inventar novo resultado",
+            )
             assert progress()["exercise_answers"]["soma"] == solution
             assert "a + b" in tui.text(), "resposta não foi renderizada ao retomar"
             tui.exit_cleanly()

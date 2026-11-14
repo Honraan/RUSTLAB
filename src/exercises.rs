@@ -124,6 +124,7 @@ impl ExerciseState {
     }
 
     pub fn on_key(&mut self, app: &mut App, key: KeyEvent) {
+        let en = app.is_english();
         if self.consent_pending {
             match key.code {
                 KeyCode::Enter | KeyCode::Char('y') | KeyCode::Char('s') => {
@@ -131,7 +132,11 @@ impl ExerciseState {
                     app.config.execution.consent = ExecConsent::Granted;
                     if let Err(e) = app.save_config() {
                         app.set_status(
-                            format!("não salvei consentimento: {e}"),
+                            if en {
+                                format!("failed to save consent: {e}")
+                            } else {
+                                format!("não salvei consentimento: {e}")
+                            },
                             StatusKind::Warning,
                         );
                     }
@@ -139,7 +144,14 @@ impl ExerciseState {
                 }
                 KeyCode::Esc | KeyCode::Char('n') => {
                     self.consent_pending = false;
-                    app.set_status("nenhum teste foi executado", StatusKind::Info);
+                    app.set_status(
+                        if en {
+                            "no tests were run"
+                        } else {
+                            "nenhum teste foi executado"
+                        },
+                        StatusKind::Info,
+                    );
                 }
                 _ => {}
             }
@@ -238,7 +250,14 @@ impl ExerciseState {
             KeyCode::F(1) => self.reveal_hint(app),
             KeyCode::Char('s') if ctrl => {
                 if self.save_answers(app).is_ok() {
-                    app.set_status("respostas salvas em disco", StatusKind::Success);
+                    app.set_status(
+                        if app.is_english() {
+                            "answers saved to disk"
+                        } else {
+                            "respostas salvas em disco"
+                        },
+                        StatusKind::Success,
+                    );
                 }
             }
             KeyCode::Char(c) if !ctrl => self.with_editor(|e| e.insert_char(c)),
@@ -302,8 +321,16 @@ impl ExerciseState {
                 .exercise_answers
                 .insert(session.id.clone(), session.editor.buf.to_string_lossy());
         }
+        let en = app.is_english();
         if let Err(err) = app.persist_progress() {
-            app.set_status(format!("não salvei as respostas: {err}. Ctrl+S tenta novamente; o código continua no editor."), StatusKind::Warning);
+            app.set_status(
+                if en {
+                    format!("failed to save answers: {err}. Ctrl+S retries; your code stays in the editor.")
+                } else {
+                    format!("não salvei as respostas: {err}. Ctrl+S tenta novamente; o código continua no editor.")
+                },
+                StatusKind::Warning,
+            );
             return Err(err);
         }
         for session in self.drafts.values_mut().chain(self.session.iter_mut()) {
@@ -313,6 +340,7 @@ impl ExerciseState {
     }
 
     fn reveal_hint(&mut self, app: &mut App) {
+        let en = app.is_english();
         let Some(s) = self.session.as_mut() else {
             return;
         };
@@ -321,7 +349,11 @@ impl ExerciseState {
         };
         if s.shown_hints >= ex.hints.len() {
             app.set_status(
-                "todas as dicas disponíveis já foram reveladas",
+                if en {
+                    "all available hints have already been revealed"
+                } else {
+                    "todas as dicas disponíveis já foram reveladas"
+                },
                 StatusKind::Info,
             );
             return;
@@ -334,16 +366,25 @@ impl ExerciseState {
             .insert(s.id.clone(), s.shown_hints.min(u8::MAX as usize) as u8);
         if let Err(e) = app.persist_progress() {
             app.set_status(
-                format!("dica mostrada, mas progresso não salvo: {e}"),
+                if en {
+                    format!("hint shown, but progress not saved: {e}")
+                } else {
+                    format!("dica mostrada, mas progresso não salvo: {e}")
+                },
                 StatusKind::Warning,
             );
         }
     }
 
     fn run_tests(&mut self, app: &mut App) {
+        let en = app.is_english();
         if app.exec.running {
             app.set_status(
-                "já há um comando Cargo rodando; aguarde ou use Ctrl+K",
+                if en {
+                    "a Cargo command is already running; please wait or press Ctrl+K"
+                } else {
+                    "já há um comando Cargo rodando; aguarde ou use Ctrl+K"
+                },
                 StatusKind::Warning,
             );
             return;
@@ -364,7 +405,11 @@ impl ExerciseState {
         let dir = match fresh_temp_dir(&ex.id) {
             Ok(dir) => dir,
             Err(e) => {
-                let reason = format!("não consegui criar diretório temporário: {e}");
+                let reason = if en {
+                    format!("could not create temp directory: {e}")
+                } else {
+                    format!("não consegui criar diretório temporário: {e}")
+                };
                 session.outcome = ExerciseOutcome::StartFailed;
                 session.output = vec![reason.clone()];
                 session.output_scroll = 0;
@@ -374,7 +419,11 @@ impl ExerciseState {
         };
         if let Err(e) = prepare_fixture(&dir, ex, &session.editor.buf.to_string_lossy()) {
             let _ = std::fs::remove_dir_all(&dir);
-            let reason = format!("não consegui preparar testes: {e}");
+            let reason = if en {
+                format!("could not prepare tests: {e}")
+            } else {
+                format!("não consegui preparar testes: {e}")
+            };
             session.outcome = ExerciseOutcome::StartFailed;
             session.output = vec![reason.clone()];
             session.output_scroll = 0;
@@ -388,7 +437,11 @@ impl ExerciseState {
         session.outcome = ExerciseOutcome::Running;
         match app.exec.submit(ToolCommand::ExerciseTest, dir) {
             Ok(()) => app.set_status(
-                "rodando testes determinísticos do exercício…",
+                if en {
+                    "running deterministic exercise tests…"
+                } else {
+                    "rodando testes determinísticos do exercício…"
+                },
                 StatusKind::Info,
             ),
             Err(e) => {
@@ -403,6 +456,7 @@ impl ExerciseState {
     }
 
     pub fn handle_exec_event(&mut self, ev: ExecEvent, app: &mut App) {
+        let en = app.is_english();
         let Some(session) = self.session.as_mut() else {
             return;
         };
@@ -434,20 +488,32 @@ impl ExerciseState {
                             app.award_xp(
                                 format!("exercise:{}", session.id),
                                 base,
-                                "exercício concluído",
+                                if en {
+                                    "exercise completed"
+                                } else {
+                                    "exercício concluído"
+                                },
                             );
                             if bonus > 0 {
                                 app.award_xp(
                                     format!("exercise:{}:independent", session.id),
                                     bonus,
-                                    "bônus sem dicas",
+                                    if en {
+                                        "no-hints bonus"
+                                    } else {
+                                        "bônus sem dicas"
+                                    },
                                 );
                             }
                         } else {
                             app.award_xp(
                                 format!("exercise:{}", session.id),
                                 30,
-                                "exercício concluído",
+                                if en {
+                                    "exercise completed"
+                                } else {
+                                    "exercício concluído"
+                                },
                             );
                         }
                     }
@@ -457,26 +523,42 @@ impl ExerciseState {
                     );
                     if let Err(e) = app.persist_progress() {
                         app.set_status(
-                            format!("exercício passou, mas progresso não salvo: {e}"),
+                            if en {
+                                format!("exercise passed, but progress not saved: {e}")
+                            } else {
+                                format!("exercício passou, mas progresso não salvo: {e}")
+                            },
                             StatusKind::Warning,
                         );
                     } else {
                         app.set_status(
-                            "testes passaram; exercício concluído e progresso salvo",
+                            if en {
+                                "tests passed; exercise completed and progress saved"
+                            } else {
+                                "testes passaram; exercício concluído e progresso salvo"
+                            },
                             StatusKind::Success,
                         );
                     }
                 } else {
                     if compile_failed
                         && let Some(help) =
-                            crate::learn::explain_compiler_error_pt_br(&session.output.join("\n"))
+                            crate::learn::explain_compiler_error_for(&session.output.join("\n"), en)
                     {
-                        session.push_output(format!("Explicação do Ferris: {help}"));
+                        session.push_output(format!(
+                            "{}: {help}",
+                            if en {
+                                "Ferris explains"
+                            } else {
+                                "Explicação do Ferris"
+                            }
+                        ));
                     }
-                    let message = if compile_failed {
-                        "o código não compilou; veja o diagnóstico"
-                    } else {
-                        "um ou mais testes falharam; veja a saída"
+                    let message = match (compile_failed, en) {
+                        (true, true) => "code did not compile; see diagnostics",
+                        (true, false) => "o código não compilou; veja o diagnóstico",
+                        (false, true) => "one or more tests failed; see output",
+                        (false, false) => "um ou mais testes falharam; veja a saída",
                     };
                     app.set_status(message, StatusKind::Warning);
                 }
@@ -487,10 +569,22 @@ impl ExerciseState {
             ExecEvent::TimedOut { .. } => {
                 session.outcome = ExerciseOutcome::TimedOut;
                 session.push_output(
-                    "Tempo limite atingido; processo encerrado. Verifique loops sem fim.".into(),
+                    if en {
+                        "Time limit reached; process terminated. Check for infinite loops."
+                    } else {
+                        "Tempo limite atingido; processo encerrado. Verifique loops sem fim."
+                    }
+                    .into(),
                 );
                 session.output_scroll = 0;
-                app.set_status("testes excederam o limite de tempo", StatusKind::Warning);
+                app.set_status(
+                    if en {
+                        "tests exceeded the time limit"
+                    } else {
+                        "testes excederam o limite de tempo"
+                    },
+                    StatusKind::Warning,
+                );
                 if let Some(dir) = session.pending_dir.take() {
                     let _ = std::fs::remove_dir_all(dir);
                 }
@@ -498,10 +592,22 @@ impl ExerciseState {
             ExecEvent::Cancelled { .. } => {
                 session.outcome = ExerciseOutcome::Cancelled;
                 session.push_output(
-                    "Execução cancelada pelo usuário; nenhum novo resultado foi registrado.".into(),
+                    if en {
+                        "Execution cancelled by user; no new result was recorded."
+                    } else {
+                        "Execução cancelada pelo usuário; nenhum novo resultado foi registrado."
+                    }
+                    .into(),
                 );
                 session.output_scroll = 0;
-                app.set_status("testes cancelados", StatusKind::Info);
+                app.set_status(
+                    if en {
+                        "tests cancelled"
+                    } else {
+                        "testes cancelados"
+                    },
+                    StatusKind::Info,
+                );
                 if let Some(dir) = session.pending_dir.take() {
                     let _ = std::fs::remove_dir_all(dir);
                 }
@@ -602,7 +708,10 @@ mod tests {
 
     fn app(tag: &str) -> (App, PathBuf) {
         let mut app = App::from_config(
-            crate::config::Config::default(),
+            crate::config::Config {
+                language: "pt-BR".to_string(),
+                ..crate::config::Config::default()
+            },
             None,
             true,
             crate::audio::AudioReport {

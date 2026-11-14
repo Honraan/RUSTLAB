@@ -24,6 +24,7 @@ use crate::config::ThemeId;
 use crate::theme::Theme;
 
 pub fn draw(frame: &mut Frame, app: &mut App) {
+    crate::i18n::set_english(app.is_english());
     let area = frame.area();
 
     // Terminal ridiculamente pequeno: mensagem em vez de layout quebrado.
@@ -124,26 +125,52 @@ fn footer(app: &App) -> Paragraph<'static> {
                 &[
                     app.t("footer.nav"),
                     app.t("footer.enter"),
-                    "Tab trocar · v 10 caps · Alt+V prévia · r revisar",
+                    app.bi(
+                        "Tab trocar · v 10 caps · Alt+V prévia · r revisar",
+                        "Tab switch · v 10 chaps · Alt+V preview · r review",
+                    ),
                     app.t("footer.esc"),
                 ]
             } else {
                 &[
                     app.t("footer.nav"),
                     app.t("footer.enter"),
-                    "Tab trocar · e exercícios · v Trilha V3 · r revisar",
+                    app.bi(
+                        "Tab trocar · e exercícios · v Trilha V3 · r revisar",
+                        "Tab switch · e exercises · v V3 Track · r review",
+                    ),
                     app.t("footer.esc"),
                 ]
             }
         }
         Screen::LessonView => {
             if app.lesson_view.as_ref().is_some_and(|v| v.practice_focused) {
+                if app.is_english() {
+                    &[
+                        "F5 Run",
+                        "Ctrl+S Save",
+                        "F1..F3 Hints",
+                        "Tab Read/Quiz",
+                        "Esc Back",
+                    ]
+                } else {
+                    &[
+                        "F5 Executar",
+                        "Ctrl+S Salvar",
+                        "F1..F3 Dicas",
+                        "Tab Leitura/Quiz",
+                        "Esc Voltar",
+                    ]
+                }
+            } else if app.is_english() {
                 &[
-                    "F5 Executar",
-                    "Ctrl+S Salvar",
-                    "F1..F3 Dicas",
-                    "Tab Leitura/Quiz",
-                    "Esc Voltar",
+                    "Tab/e practice",
+                    "↑↓ read",
+                    "1-9 answer",
+                    "d demo",
+                    "m mentor",
+                    "←/→ lesson",
+                    app.t("footer.esc"),
                 ]
             } else {
                 &[
@@ -158,65 +185,144 @@ fn footer(app: &App) -> Paragraph<'static> {
             }
         }
         Screen::Create => match app.create.as_ref().map(|state| state.view) {
-            Some(crate::create::CreateView::Start) => &[
-                "↑↓ escolher ação",
-                "d alterar pasta",
-                "Enter confirmar/abrir",
-                "Esc voltar ao menu",
-            ],
-            Some(crate::create::CreateView::Workspace) => &[
-                "F5 Executar",
-                "Ctrl+S Salvar",
-                "F4 Compilar (Linux/Win)",
-                "F6 Testar",
-                "Alt+A Agente IA",
-                "F9 Bibliotecas (▼)",
-                "F1 Doc/Ajuda",
-                "Shift+Tab Foco",
-                "Esc Fechar projeto",
-            ],
+            Some(crate::create::CreateView::Start) => {
+                if app.is_english() {
+                    &[
+                        "↑↓ choose action",
+                        "d change folder",
+                        "Enter confirm/open",
+                        "Esc back to menu",
+                    ]
+                } else {
+                    &[
+                        "↑↓ escolher ação",
+                        "d alterar pasta",
+                        "Enter confirmar/abrir",
+                        "Esc voltar ao menu",
+                    ]
+                }
+            }
+            Some(crate::create::CreateView::Workspace) => {
+                if app.is_english() {
+                    &[
+                        "F5 Run",
+                        "Ctrl+S Save",
+                        "F4 Build (Linux/Win)",
+                        "F6 Test",
+                        "Alt+A AI Agent",
+                        "F9 Crates (▼)",
+                        "F1 Docs/Help",
+                        "Shift+Tab Focus",
+                        "Esc Close project",
+                    ]
+                } else {
+                    &[
+                        "F5 Executar",
+                        "Ctrl+S Salvar",
+                        "F4 Compilar (Linux/Win)",
+                        "F6 Testar",
+                        "Alt+A Agente IA",
+                        "F9 Bibliotecas (▼)",
+                        "F1 Doc/Ajuda",
+                        "Shift+Tab Foco",
+                        "Esc Fechar projeto",
+                    ]
+                }
+            }
             None => &[app.t("footer.esc")],
         },
-        Screen::Exercises if app.exercises.as_ref().is_some_and(|s| s.consent_pending) => &[
-            "Enter autorizar execução local",
-            "Esc recusar (nada será executado)",
-        ],
+        Screen::Exercises if app.exercises.as_ref().is_some_and(|s| s.consent_pending) => {
+            if app.is_english() {
+                &["Enter authorize local run", "Esc decline (nothing runs)"]
+            } else {
+                &[
+                    "Enter autorizar execução local",
+                    "Esc recusar (nada será executado)",
+                ]
+            }
+        }
         Screen::Exercises
             if app
                 .exercises
                 .as_ref()
                 .is_some_and(|s| s.view == crate::exercises::ExerciseView::List) =>
         {
-            &["↑↓ escolher", "Enter abrir/retomar", "Esc voltar"]
+            if app.is_english() {
+                &["↑↓ choose", "Enter open/resume", "Esc back"]
+            } else {
+                &["↑↓ escolher", "Enter abrir/retomar", "Esc voltar"]
+            }
         }
-        Screen::Exercises => &[
-            "F5 testar",
-            "F1 dica",
-            "F2/F3 rever dicas",
-            "F4/Shift+F4 rolar dica",
-            "F9/Shift+F9 enunciado",
-            "PgUp/PgDn saída",
-            "Ctrl+S salvar",
-            "Ctrl+K cancelar",
-            "Esc voltar",
-        ],
+        Screen::Exercises => {
+            if app.is_english() {
+                &[
+                    "F5 test",
+                    "F1 hint",
+                    "F2/F3 review hints",
+                    "F4/Shift+F4 scroll hint",
+                    "F9/Shift+F9 prompt",
+                    "PgUp/PgDn output",
+                    "Ctrl+S save",
+                    "Ctrl+K cancel",
+                    "Esc back",
+                ]
+            } else {
+                &[
+                    "F5 testar",
+                    "F1 dica",
+                    "F2/F3 rever dicas",
+                    "F4/Shift+F4 rolar dica",
+                    "F9/Shift+F9 enunciado",
+                    "PgUp/PgDn saída",
+                    "Ctrl+S salvar",
+                    "Ctrl+K cancelar",
+                    "Esc voltar",
+                ]
+            }
+        }
         Screen::Help | Screen::Placeholder(_) => &[app.t("footer.esc")],
-        Screen::Progress => &[
-            "↑↓ rolar",
-            "Home início",
-            "e exercícios",
-            "m mentor",
-            "Esc menu",
-        ],
-        Screen::Mentor => &[
-            "1–5 ação",
-            "6/p pergunta livre",
-            "o/m modelo Ollama",
-            "Enter executar",
-            "PgUp/PgDn rolar",
-            "Ctrl+K cancelar",
-            "Esc/Ctrl+T voltar",
-        ],
+        Screen::Progress => {
+            if app.is_english() {
+                &[
+                    "↑↓ scroll",
+                    "Home top",
+                    "e exercises",
+                    "m mentor",
+                    "Esc menu",
+                ]
+            } else {
+                &[
+                    "↑↓ rolar",
+                    "Home início",
+                    "e exercícios",
+                    "m mentor",
+                    "Esc menu",
+                ]
+            }
+        }
+        Screen::Mentor => {
+            if app.is_english() {
+                &[
+                    "1–5 action",
+                    "6/p free question",
+                    "o/m Ollama model",
+                    "Enter run",
+                    "PgUp/PgDn scroll",
+                    "Ctrl+K cancel",
+                    "Esc/Ctrl+T back",
+                ]
+            } else {
+                &[
+                    "1–5 ação",
+                    "6/p pergunta livre",
+                    "o/m modelo Ollama",
+                    "Enter executar",
+                    "PgUp/PgDn rolar",
+                    "Ctrl+K cancelar",
+                    "Esc/Ctrl+T voltar",
+                ]
+            }
+        }
     };
     let mut spans = Vec::new();
     if !matches!(app.screen, Screen::Create) {

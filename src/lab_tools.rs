@@ -71,34 +71,72 @@ impl LabToolTab {
     }
 
     pub const fn short_title(self) -> &'static str {
-        match self {
-            Self::RaioXMemoria => "1:RaioX",
-            Self::LenteCompilador => "2:Lente",
-            Self::DebuggerVisual => "3:Debug",
-            Self::ConserteOCodigo => "4:Fix",
-            Self::PlaygroundComunidade => "5:Play",
-            Self::EcossistemasModernos => "6:Eco",
-            Self::MapaLifetimes => "7:Life",
-            Self::LayoutMemoria => "8:Size",
-            Self::DesacucararMacros => "9:Macro",
-            Self::PoliglotaIntuicao => "0:Polig",
+        self.short_title_for(false)
+    }
+
+    pub const fn short_title_for(self, english: bool) -> &'static str {
+        match (self, english) {
+            (Self::RaioXMemoria, true) => "1:XRay",
+            (Self::LenteCompilador, true) => "2:Lens",
+            (Self::DebuggerVisual, true) => "3:Debug",
+            (Self::ConserteOCodigo, true) => "4:Fix",
+            (Self::PlaygroundComunidade, true) => "5:Play",
+            (Self::EcossistemasModernos, true) => "6:Eco",
+            (Self::MapaLifetimes, true) => "7:Life",
+            (Self::LayoutMemoria, true) => "8:Size",
+            (Self::DesacucararMacros, true) => "9:Macro",
+            (Self::PoliglotaIntuicao, true) => "0:Poly",
+            (Self::RaioXMemoria, false) => "1:RaioX",
+            (Self::LenteCompilador, false) => "2:Lente",
+            (Self::DebuggerVisual, false) => "3:Debug",
+            (Self::ConserteOCodigo, false) => "4:Fix",
+            (Self::PlaygroundComunidade, false) => "5:Play",
+            (Self::EcossistemasModernos, false) => "6:Eco",
+            (Self::MapaLifetimes, false) => "7:Life",
+            (Self::LayoutMemoria, false) => "8:Size",
+            (Self::DesacucararMacros, false) => "9:Macro",
+            (Self::PoliglotaIntuicao, false) => "0:Polig",
         }
     }
 
     pub const fn title(self) -> &'static str {
-        match self {
-            Self::RaioXMemoria => "Raio-X de Ownership, Stack/Heap & Alocações",
-            Self::LenteCompilador => "Lente Socrática do Compilador & Modo 10 Anos (ELI10)",
-            Self::DebuggerVisual => "Debugger Visual & Nativo (rust-gdb / lldb)",
-            Self::ConserteOCodigo => "Desafio Gamificado: Conserte o Código & Golfing",
-            Self::PlaygroundComunidade => "Rust Playground, Exportação & Soluções da Comunidade",
-            Self::EcossistemasModernos => {
+        self.title_for(false)
+    }
+
+    pub const fn title_for(self, english: bool) -> &'static str {
+        match (self, english) {
+            (Self::RaioXMemoria, true) => "Ownership, Stack/Heap & Allocation X-Ray",
+            (Self::LenteCompilador, true) => "Socratic Compiler Lens & ELI10 Mode",
+            (Self::DebuggerVisual, true) => "Visual & Native Debugger (rust-gdb / lldb)",
+            (Self::ConserteOCodigo, true) => "Gamified Challenge: Fix the Code & Golfing",
+            (Self::PlaygroundComunidade, true) => "Rust Playground, Export & Community Solutions",
+            (Self::EcossistemasModernos, true) => {
+                "Modern Tracks: WebAssembly · Tokio CLI · Axum Backend"
+            }
+            (Self::MapaLifetimes, true) => "Visual Lifetime Map ('a, 'b) & Scopes",
+            (Self::LayoutMemoria, true) => "Memory Size X-Ray (size_of / align_of), Padding & NPO",
+            (Self::DesacucararMacros, true) => "Macro & Syntax Sugar Desugarer",
+            (Self::PoliglotaIntuicao, true) => {
+                "Polyglot Dictionary (Python/JS/C++) & SRS Flashcards"
+            }
+            (Self::RaioXMemoria, false) => "Raio-X de Ownership, Stack/Heap & Alocações",
+            (Self::LenteCompilador, false) => {
+                "Lente Socrática do Compilador & Modo 10 Anos (ELI10)"
+            }
+            (Self::DebuggerVisual, false) => "Debugger Visual & Nativo (rust-gdb / lldb)",
+            (Self::ConserteOCodigo, false) => "Desafio Gamificado: Conserte o Código & Golfing",
+            (Self::PlaygroundComunidade, false) => {
+                "Rust Playground, Exportação & Soluções da Comunidade"
+            }
+            (Self::EcossistemasModernos, false) => {
                 "Trilhas Modernas: WebAssembly · CLI Tokio · Backend Axum"
             }
-            Self::MapaLifetimes => "Mapa Visual de Lifetimes ('a, 'b) & Escopos",
-            Self::LayoutMemoria => "Raio-X de Tamanho (size_of / align_of), Padding & NPO",
-            Self::DesacucararMacros => "Desaçucarador de Macros & Syntax Sugar",
-            Self::PoliglotaIntuicao => "Dicionário Poliglota (Python/JS/C++) & Flashcards SRS",
+            (Self::MapaLifetimes, false) => "Mapa Visual de Lifetimes ('a, 'b) & Escopos",
+            (Self::LayoutMemoria, false) => "Raio-X de Tamanho (size_of / align_of), Padding & NPO",
+            (Self::DesacucararMacros, false) => "Desaçucarador de Macros & Syntax Sugar",
+            (Self::PoliglotaIntuicao, false) => {
+                "Dicionário Poliglota (Python/JS/C++) & Flashcards SRS"
+            }
         }
     }
 
@@ -145,10 +183,14 @@ pub struct LabState {
 
 impl LabState {
     pub fn open_tab(&mut self, tab: LabToolTab, code: &str, diags_text: &str) {
+        self.open_tab_for(tab, code, diags_text, false);
+    }
+
+    pub fn open_tab_for(&mut self, tab: LabToolTab, code: &str, diags_text: &str, english: bool) {
         self.open = true;
         self.tab = tab;
         self.scroll = 0;
-        self.refresh(code, diags_text);
+        self.refresh_for(code, diags_text, english);
         if tab == LabToolTab::DebuggerVisual
             && (!self.debugger.active || self.debugger.steps.is_empty())
         {
@@ -157,11 +199,15 @@ impl LabState {
     }
 
     pub fn refresh(&mut self, code: &str, diags_text: &str) {
-        self.last_xray = Some(MemoryXRayReport::analyze(code));
-        self.last_lens = Some(SocraticErrorLens::analyze(diags_text, code));
-        self.last_lifetimes = Some(LifetimeVisualizerReport::analyze(code));
-        self.last_layout = Some(MemoryLayoutReport::analyze(code));
-        self.last_desugar = Some(DesugarReport::analyze(code));
+        self.refresh_for(code, diags_text, false);
+    }
+
+    pub fn refresh_for(&mut self, code: &str, diags_text: &str, english: bool) {
+        self.last_xray = Some(MemoryXRayReport::analyze_for(code, english));
+        self.last_lens = Some(SocraticErrorLens::analyze_for(diags_text, code, english));
+        self.last_lifetimes = Some(LifetimeVisualizerReport::analyze_for(code, english));
+        self.last_layout = Some(MemoryLayoutReport::analyze_for(code, english));
+        self.last_desugar = Some(DesugarReport::analyze_for(code, english));
     }
 }
 
@@ -195,14 +241,25 @@ pub enum VarOwnershipState {
 
 impl VarOwnershipState {
     pub fn tag(&self) -> String {
-        match self {
-            Self::Ativo => "[✓ ativo]".to_string(),
-            Self::Movido { destino, linha } => {
+        self.tag_for(false)
+    }
+
+    pub fn tag_for(&self, english: bool) -> String {
+        match (self, english) {
+            (Self::Ativo, true) => "[✓ active]".to_string(),
+            (Self::Ativo, false) => "[✓ ativo]".to_string(),
+            (Self::Movido { destino, linha }, true) => {
+                format!("[✗ moved -> {destino} @ L{linha}]")
+            }
+            (Self::Movido { destino, linha }, false) => {
                 format!("[✗ movido -> {destino} @ L{linha}]")
             }
-            Self::EmprestadoImutavel(linha) => format!("[& emprestado @ L{linha}]"),
-            Self::EmprestadoMutavel(linha) => format!("[&mut emprestado @ L{linha}]"),
-            Self::ConflitoBorrow => "[! CONFLITO DE BORROW]".to_string(),
+            (Self::EmprestadoImutavel(linha), true) => format!("[& borrowed @ L{linha}]"),
+            (Self::EmprestadoImutavel(linha), false) => format!("[& emprestado @ L{linha}]"),
+            (Self::EmprestadoMutavel(linha), true) => format!("[&mut borrowed @ L{linha}]"),
+            (Self::EmprestadoMutavel(linha), false) => format!("[&mut emprestado @ L{linha}]"),
+            (Self::ConflitoBorrow, true) => "[! BORROW CONFLICT]".to_string(),
+            (Self::ConflitoBorrow, false) => "[! CONFLITO DE BORROW]".to_string(),
         }
     }
 }
@@ -227,10 +284,24 @@ pub struct AllocationMetrics {
 
 impl AllocationMetrics {
     pub const fn badge(self) -> &'static str {
+        self.badge_for(false)
+    }
+
+    pub const fn badge_for(self, english: bool) -> &'static str {
         if self.heap_allocations == 0 && self.clones_count == 0 {
-            "[Zero-Cost ★ 0 Alocações Heap]"
+            if english {
+                "[Zero-Cost ★ 0 Heap Allocations]"
+            } else {
+                "[Zero-Cost ★ 0 Alocações Heap]"
+            }
         } else if self.clones_count == 0 {
-            "[Alocação Controlada · Sem Clones Extras]"
+            if english {
+                "[Controlled Allocation · No Extra Clones]"
+            } else {
+                "[Alocação Controlada · Sem Clones Extras]"
+            }
+        } else if english {
+            "[Warning: Avoidable Clones/Heap]"
         } else {
             "[Atenção: Clones/Heap Evitáveis]"
         }
@@ -247,6 +318,10 @@ pub struct MemoryXRayReport {
 impl MemoryXRayReport {
     /// Analisa estaticamente o código Rust para mapear Stack vs Heap, Moves, Borrows e Alocações.
     pub fn analyze(code: &str) -> Self {
+        Self::analyze_for(code, false)
+    }
+
+    pub fn analyze_for(code: &str, english: bool) -> Self {
         let mut vars: Vec<VarSlot> = Vec::new();
         let mut index_by_name: HashMap<String, usize> = HashMap::new();
         let mut metrics = AllocationMetrics::default();
@@ -273,10 +348,26 @@ impl MemoryXRayReport {
                     // Verifica borrow criado no RHS (&x ou &mut x).
                     if let Some(target) = rhs_clean.strip_prefix("&mut ") {
                         let base = extract_leading_ident(target);
-                        mark_borrow(&mut vars, &index_by_name, base, true, line_no, &mut notes);
+                        mark_borrow_for(
+                            &mut vars,
+                            &index_by_name,
+                            base,
+                            true,
+                            line_no,
+                            &mut notes,
+                            english,
+                        );
                     } else if let Some(target) = rhs_clean.strip_prefix('&') {
                         let base = extract_leading_ident(target);
-                        mark_borrow(&mut vars, &index_by_name, base, false, line_no, &mut notes);
+                        mark_borrow_for(
+                            &mut vars,
+                            &index_by_name,
+                            base,
+                            false,
+                            line_no,
+                            &mut notes,
+                            english,
+                        );
                     } else if !rhs_clean.contains(".clone()") {
                         let src_ident = extract_leading_ident(rhs_clean);
                         if rhs_clean == src_ident
@@ -288,9 +379,11 @@ impl MemoryXRayReport {
                                 destino: name.clone(),
                                 linha: line_no,
                             };
-                            notes.push(format!(
-                                "L{line_no}: Posse de `{src_ident}` foi movida para `{name}` (move semantics)."
-                            ));
+                            notes.push(if english {
+                                format!("L{line_no}: Ownership of `{src_ident}` moved to `{name}` (move semantics).")
+                            } else {
+                                format!("L{line_no}: Posse de `{src_ident}` foi movida para `{name}` (move semantics).")
+                            });
                         }
                     }
 
@@ -325,9 +418,11 @@ impl MemoryXRayReport {
                         VarOwnershipState::EmprestadoImutavel(_)
                     ) {
                         vars[var_idx].state = VarOwnershipState::ConflitoBorrow;
-                        notes.push(format!(
-                            "L{line_no}: Conflito de borrow em `{var_name}` — mutação enquanto existe `&` ativo!"
-                        ));
+                        notes.push(if english {
+                            format!("L{line_no}: Borrow conflict on `{var_name}` — mutation while active `&` exists!")
+                        } else {
+                            format!("L{line_no}: Conflito de borrow em `{var_name}` — mutação enquanto existe `&` ativo!")
+                        });
                     } else if matches!(vars[var_idx].state, VarOwnershipState::Ativo)
                         && trimmed.contains(&mut_borrow)
                     {
@@ -337,9 +432,11 @@ impl MemoryXRayReport {
                     && matches!(vars[var_idx].state, VarOwnershipState::EmprestadoMutavel(_))
                 {
                     vars[var_idx].state = VarOwnershipState::ConflitoBorrow;
-                    notes.push(format!(
-                        "L{line_no}: Conflito de borrow em `{var_name}` — `&` enquanto existe `&mut` ativo!"
-                    ));
+                    notes.push(if english {
+                        format!("L{line_no}: Borrow conflict on `{var_name}` — `&` while active `&mut` exists!")
+                    } else {
+                        format!("L{line_no}: Conflito de borrow em `{var_name}` — `&` enquanto existe `&mut` ativo!")
+                    });
                 }
 
                 // Detecta passagem por valor em chamada simples `fn_name(var)` para variáveis Heap.
@@ -353,12 +450,14 @@ impl MemoryXRayReport {
                     && !trimmed.contains(&format!("(&mut {var_name})"))
                 {
                     vars[var_idx].state = VarOwnershipState::Movido {
-                        destino: "chamada()".to_string(),
+                        destino: if english { "call()" } else { "chamada()" }.to_string(),
                         linha: line_no,
                     };
-                    notes.push(format!(
-                        "L{line_no}: `{var_name}` foi movido para dentro da função chamada (considere passar `&{var_name}`)."
-                    ));
+                    notes.push(if english {
+                        format!("L{line_no}: `{var_name}` moved into called function (consider passing `&{var_name}`).")
+                    } else {
+                        format!("L{line_no}: `{var_name}` foi movido para dentro da função chamada (considere passar `&{var_name}`).")
+                    });
                 }
             }
         }
@@ -371,32 +470,60 @@ impl MemoryXRayReport {
     }
 
     pub fn summary_lines(&self) -> Vec<String> {
+        self.summary_lines_for(false)
+    }
+
+    pub fn summary_lines_for(&self, english: bool) -> Vec<String> {
         let mut out = vec![
-            format!(
-                "Medidor de Alocações: {} · Stack: {} · Heap: {} · Clones: {} · Iteradores Zero-Cost: {}",
-                self.metrics.badge(),
-                self.metrics.stack_count,
-                self.metrics.heap_allocations,
-                self.metrics.clones_count,
-                self.metrics.zero_cost_chains
-            ),
+            if english {
+                format!(
+                    "Allocation Meter: {} · Stack: {} · Heap: {} · Clones: {} · Zero-Cost Iterators: {}",
+                    self.metrics.badge_for(true),
+                    self.metrics.stack_count,
+                    self.metrics.heap_allocations,
+                    self.metrics.clones_count,
+                    self.metrics.zero_cost_chains
+                )
+            } else {
+                format!(
+                    "Medidor de Alocações: {} · Stack: {} · Heap: {} · Clones: {} · Iteradores Zero-Cost: {}",
+                    self.metrics.badge_for(false),
+                    self.metrics.stack_count,
+                    self.metrics.heap_allocations,
+                    self.metrics.clones_count,
+                    self.metrics.zero_cost_chains
+                )
+            },
             String::new(),
-            "Mapa Visual STACK ──ptr──▶ HEAP:".to_string(),
+            if english {
+                "Visual Map STACK ──ptr──▶ HEAP:".to_string()
+            } else {
+                "Mapa Visual STACK ──ptr──▶ HEAP:".to_string()
+            },
         ];
         if self.vars.is_empty() {
-            out.push("  (Nenhuma variável `let` detectada no arquivo atual)".to_string());
+            out.push(if english {
+                "  (No `let` variable detected in current file)".to_string()
+            } else {
+                "  (Nenhuma variável `let` detectada no arquivo atual)".to_string()
+            });
         } else {
             for slot in &self.vars {
                 let mut_tag = if slot.mutable { "mut " } else { "" };
-                let state_tag = slot.state.tag();
+                let state_tag = slot.state.tag_for(english);
                 if slot.region == StorageRegion::Heap {
                     out.push(format!(
                         "  [STACK L{:02}] {mut_tag}{}: {} (ptr,len,cap) ──▶ [HEAP: buffer]  {state_tag}",
                         slot.declared_line, slot.name, slot.ty_hint
                     ));
                 } else {
+                    let val_label = if english {
+                        "direct value"
+                    } else {
+                        "valor direto"
+                    };
                     out.push(format!(
-                        "  [STACK L{:02}] {mut_tag}{}: {} (valor direto)                {state_tag}",
+                        "  [STACK L{:02}] {mut_tag}{}: {} ({val_label})                {state_tag}",
                         slot.declared_line, slot.name, slot.ty_hint
                     ));
                 }
@@ -404,7 +531,11 @@ impl MemoryXRayReport {
         }
         if !self.notes.is_empty() {
             out.push(String::new());
-            out.push("Eventos de Ownership & Borrow Checker:".to_string());
+            out.push(if english {
+                "Ownership & Borrow Checker Events:".to_string()
+            } else {
+                "Eventos de Ownership & Borrow Checker:".to_string()
+            });
             for note in &self.notes {
                 out.push(format!("  • {note}"));
             }
@@ -413,13 +544,14 @@ impl MemoryXRayReport {
     }
 }
 
-fn mark_borrow(
+fn mark_borrow_for(
     vars: &mut [VarSlot],
     index_by_name: &HashMap<String, usize>,
     target: &str,
     mutable: bool,
     line_no: usize,
     notes: &mut Vec<String>,
+    english: bool,
 ) {
     let Some(&idx) = index_by_name.get(target) else {
         return;
@@ -427,21 +559,27 @@ fn mark_borrow(
     match vars[idx].state.clone() {
         VarOwnershipState::Movido { destino, .. } => {
             vars[idx].state = VarOwnershipState::ConflitoBorrow;
-            notes.push(format!(
-                "L{line_no}: Tentou emprestar `{target}` após move para `{destino}`!"
-            ));
+            notes.push(if english {
+                format!("L{line_no}: Tried to borrow `{target}` after move to `{destino}`!")
+            } else {
+                format!("L{line_no}: Tentou emprestar `{target}` após move para `{destino}`!")
+            });
         }
         VarOwnershipState::EmprestadoMutavel(_) => {
             vars[idx].state = VarOwnershipState::ConflitoBorrow;
-            notes.push(format!(
-                "L{line_no}: `{target}` já possui `&mut` ativo — não pode coexistir outro empréstimo!"
-            ));
+            notes.push(if english {
+                format!("L{line_no}: `{target}` already has an active `&mut` — cannot coexist with another borrow!")
+            } else {
+                format!("L{line_no}: `{target}` já possui `&mut` ativo — não pode coexistir outro empréstimo!")
+            });
         }
         VarOwnershipState::EmprestadoImutavel(_) if mutable => {
             vars[idx].state = VarOwnershipState::ConflitoBorrow;
-            notes.push(format!(
-                "L{line_no}: `{target}` já tem `&` imutável ativo — `&mut` causaria corrida de dados!"
-            ));
+            notes.push(if english {
+                format!("L{line_no}: `{target}` already has an active `&` — `&mut` would risk a data race!")
+            } else {
+                format!("L{line_no}: `{target}` já tem `&` imutável ativo — `&mut` causaria corrida de dados!")
+            });
         }
         VarOwnershipState::Ativo | VarOwnershipState::EmprestadoImutavel(_) => {
             vars[idx].state = if mutable {
@@ -599,8 +737,40 @@ pub struct SocraticErrorLens {
 
 impl SocraticErrorLens {
     pub fn analyze(diagnostics_text: &str, source_code: &str) -> Self {
+        Self::analyze_for(diagnostics_text, source_code, false)
+    }
+
+    pub fn analyze_for(diagnostics_text: &str, source_code: &str, english: bool) -> Self {
         let low = diagnostics_text.to_ascii_lowercase();
         if diagnostics_text.contains("E0382") || low.contains("borrow of moved value") {
+            if english {
+                return Self {
+                    code: "E0382",
+                    title: "Value used after ownership transfer (Move)",
+                    socratic_question: "Which part needs to be the final OWNER of this data, and which only needs to READ it temporarily?",
+                    eli10_metaphor: "Think of a physical notebook: once you hand the notebook to a friend (move), you can't write in it anymore — unless you only let them look at a page (&) or make a photocopy (.clone()).",
+                    fixes: [
+                        IdiomaticFix {
+                            label: "Borrow (&) for reading",
+                            before: "print_msg(text);\nprintln!(\"{text}\");",
+                            after: "print_msg(&text);\nprintln!(\"{text}\");",
+                            explanation: "Passing `&text` borrows without moving ownership; zero cost.",
+                        },
+                        IdiomaticFix {
+                            label: "Reorder last read before the move",
+                            before: "consume(text);\nlet len = text.len();",
+                            after: "let len = text.len();\nconsume(text);",
+                            explanation: "Read properties while you still own the value.",
+                        },
+                        IdiomaticFix {
+                            label: "Clone only when two owners are needed",
+                            before: "send(text);\narchive(text);",
+                            after: "send(text.clone());\narchive(text);",
+                            explanation: "Creates an independent Heap copy when both sides truly require ownership.",
+                        },
+                    ],
+                };
+            }
             return Self {
                 code: "E0382",
                 title: "Valor usado após transferência de posse (Move)",
@@ -632,6 +802,34 @@ impl SocraticErrorLens {
             || diagnostics_text.contains("E0499")
             || low.contains("cannot borrow")
         {
+            if english {
+                return Self {
+                    code: "E0502/E0499",
+                    title: "Conflict between immutable (&) and mutable (&mut) borrows",
+                    socratic_question: "Do you still use the `&` reference after the line that tries to mutate the data via `&mut`?",
+                    eli10_metaphor: "Picture a recipe on a whiteboard: many people can read it together (&). But if someone needs to erase and rewrite it (&mut), nobody can be mid-read at the same time!",
+                    fixes: [
+                        IdiomaticFix {
+                            label: "Shorten the read borrow scope (NLL)",
+                            before: "let r = &v[0];\nv.push(99);\nprintln!(\"{r}\");",
+                            after: "let first = v[0];\nv.push(99);\nprintln!(\"{first}\");",
+                            explanation: "Copy small values (`i32`) or finish using `r` before `v.push`.",
+                        },
+                        IdiomaticFix {
+                            label: "Group mutations before borrowing",
+                            before: "let r = &v;\nv.push(10);\nprintln!(\"{r:?}\");",
+                            after: "v.push(10);\nlet r = &v;\nprintln!(\"{r:?}\");",
+                            explanation: "Perform all modifications first and create references afterwards.",
+                        },
+                        IdiomaticFix {
+                            label: "Use an index instead of a live reference",
+                            before: "let best = &items[0];\nitems.push(next);",
+                            after: "let idx = 0;\nitems.push(next);\nlet best = &items[idx];",
+                            explanation: "`usize` does not hold a Borrow Checker lock on the vector.",
+                        },
+                    ],
+                };
+            }
             return Self {
                 code: "E0502/E0499",
                 title: "Conflito entre empréstimo imutável (&) e mutável (&mut)",
@@ -660,6 +858,34 @@ impl SocraticErrorLens {
             };
         }
         if diagnostics_text.contains("E0384") || low.contains("cannot assign twice to immutable") {
+            if english {
+                return Self {
+                    code: "E0384",
+                    title: "Attempt to mutate an immutable variable",
+                    socratic_question: "Does this variable really need to mutate over time, or would shadowing with another `let` be clearer?",
+                    eli10_metaphor: "In Rust every box starts padlocked (`let`). To unlock and swap its contents later, put a `let mut` label on it when you declare it!",
+                    fixes: [
+                        IdiomaticFix {
+                            label: "Add `mut` at declaration",
+                            before: "let total = 0;\ntotal += 5;",
+                            after: "let mut total = 0;\ntotal += 5;",
+                            explanation: "Standard pattern for accumulators, counters, and mutable state.",
+                        },
+                        IdiomaticFix {
+                            label: "Shadowing with `let`",
+                            before: "let text = \" 42 \";\ntext = text.trim();",
+                            after: "let text = \" 42 \";\nlet text = text.trim();",
+                            explanation: "Lets you transform a value or type without making it mutable.",
+                        },
+                        IdiomaticFix {
+                            label: "Direct expression without mutability",
+                            before: "let msg;\nif ok { msg = \"yes\"; } else { msg = \"no\"; }",
+                            after: "let msg = if ok { \"yes\" } else { \"no\" };",
+                            explanation: "In Rust `if/else` returns a value directly.",
+                        },
+                    ],
+                };
+            }
             return Self {
                 code: "E0384",
                 title: "Tentativa de alterar variável imutável",
@@ -691,6 +917,34 @@ impl SocraticErrorLens {
             || diagnostics_text.contains("E0106")
             || low.contains("does not live long enough")
         {
+            if english {
+                return Self {
+                    code: "E0597/E0106",
+                    title: "Reference outlives its owner (Lifetime)",
+                    socratic_question: "Where is the real owner born and at which closing brace `}` does it get dropped?",
+                    eli10_metaphor: "A park ticket (`&`) is only valid while the theme park (owner) is open. Once the gates close at `}`, you must take home a souvenir you actually own (`String`)!",
+                    fixes: [
+                        IdiomaticFix {
+                            label: "Return an owned value (`String` instead of `&str`)",
+                            before: "fn name() -> &str { let s = String::from(\"Ana\"); &s }",
+                            after: "fn name() -> String { String::from(\"Ana\") }",
+                            explanation: "You cannot return a reference to a variable created inside the function.",
+                        },
+                        IdiomaticFix {
+                            label: "Link inputs and output with `'a`",
+                            before: "fn longer(a: &str, b: &str) -> &str { ... }",
+                            after: "fn longer<'a>(a: &'a str, b: &'a str) -> &'a str { ... }",
+                            explanation: "Tells the compiler the returned reference comes from `a` or `b`.",
+                        },
+                        IdiomaticFix {
+                            label: "Move declaration outside the inner block",
+                            before: "let r; { let x = 5; r = &x; }\nprintln!(\"{r}\");",
+                            after: "let x = 5;\nlet r = &x;\nprintln!(\"{r}\");",
+                            explanation: "Ensures `x` lives at least as long as `r`.",
+                        },
+                    ],
+                };
+            }
             return Self {
                 code: "E0597/E0106",
                 title: "Referência vive mais que o valor dono (Lifetime)",
@@ -719,6 +973,34 @@ impl SocraticErrorLens {
             };
         }
         if diagnostics_text.contains("E0308") || low.contains("mismatched types") {
+            if english {
+                return Self {
+                    code: "E0308",
+                    title: "Mismatched types (or trailing `;` on return)",
+                    socratic_question: "Is there a semicolon `;` on the last line of the function turning its return value into `()`?",
+                    eli10_metaphor: "It's like trying to fit a square peg (`String`) into a round hole (`&str`) — or mailing an empty box (`;`) when the receiver expected the gift inside.",
+                    fixes: [
+                        IdiomaticFix {
+                            label: "Remove `;` from the final return expression",
+                            before: "fn double(x: i32) -> i32 {\n    x * 2;\n}",
+                            after: "fn double(x: i32) -> i32 {\n    x * 2\n}",
+                            explanation: "Without `;`, the expression becomes the function's return value.",
+                        },
+                        IdiomaticFix {
+                            label: "Convert `String` ↔ `&str` cleanly",
+                            before: "let s: String = \"hi\";",
+                            after: "let s: String = \"hi\".to_string(); // or use &str",
+                            explanation: "`&str` accepts `&my_string`; `String` asks for `.to_string()` or `.into()`.",
+                        },
+                        IdiomaticFix {
+                            label: "Annotate explicit type on `collect` / `parse`",
+                            before: "let n = \"42\".parse();",
+                            after: "let n: i32 = \"42\".parse().unwrap_or(0);",
+                            explanation: "Tells the compiler the exact numeric target type.",
+                        },
+                    ],
+                };
+            }
             return Self {
                 code: "E0308",
                 title: "Tipos incompatíveis (ou `;` sobrando no retorno)",
@@ -749,6 +1031,34 @@ impl SocraticErrorLens {
 
         // Lente preventiva baseada no código-fonte quando não há erro ativo.
         if source_code.contains(".clone()") {
+            if english {
+                return Self {
+                    code: "LENTE-CLONE",
+                    title: "Preventive Lens: Optimize Heap copies (.clone)",
+                    socratic_question: "Is this `.clone()` really necessary, or can the function accept a borrowed slice (`&str` / `&[T]`)?",
+                    eli10_metaphor: "Cloning is photocopying an entire book just to read one sentence. Most of the time, borrowing the book with `&` is enough!",
+                    fixes: [
+                        IdiomaticFix {
+                            label: "Switch read parameter from `String` to `&str`",
+                            before: "fn count(s: String) -> usize { s.len() }\ncount(name.clone());",
+                            after: "fn count(s: &str) -> usize { s.len() }\ncount(&name);",
+                            explanation: "Eliminates 100% of the Heap allocation at the call site.",
+                        },
+                        IdiomaticFix {
+                            label: "Iterate with `&list` instead of `.clone()`",
+                            before: "for item in list.clone() { ... }",
+                            after: "for item in &list { ... }",
+                            explanation: "Borrow-iterating keeps ownership of the original vector.",
+                        },
+                        IdiomaticFix {
+                            label: "Use `std::mem::take` when moving from a struct",
+                            before: "let old = self.buf.clone();\nself.buf.clear();",
+                            after: "let old = std::mem::take(&mut self.buf);",
+                            explanation: "Moves ownership without copying any bytes!",
+                        },
+                    ],
+                };
+            }
             return Self {
                 code: "LENTE-CLONE",
                 title: "Lente Preventiva: Otimize cópias na Heap (.clone)",
@@ -772,6 +1082,35 @@ impl SocraticErrorLens {
                         before: "let antigo = self.buf.clone();\nself.buf.clear();",
                         after: "let antigo = std::mem::take(&mut self.buf);",
                         explanation: "Move a posse sem copiar nenhum byte!",
+                    },
+                ],
+            };
+        }
+
+        if english {
+            return Self {
+                code: "LENTE-OK",
+                title: "Socratic Lens: Best Practices & No Active Errors",
+                socratic_question: "Do all your functions handle failures without `unwrap()` and accept `&str`/`&[T]` when only reading data?",
+                eli10_metaphor: "Your code looks like a tidy workshop: every variable knows its owner and no tools are left scattered on the floor!",
+                fixes: [
+                    IdiomaticFix {
+                        label: "Prefer `Option`/`Result` + `?` over `.unwrap()`",
+                        before: "let n: i32 = txt.trim().parse().unwrap();",
+                        after: "let n: i32 = txt.trim().parse().ok()?;",
+                        explanation: "Prevents production panics while staying concise.",
+                    },
+                    IdiomaticFix {
+                        label: "Use slices (`&str`, `&[T]`) in signatures",
+                        before: "fn sum(v: Vec<i32>) -> i32",
+                        after: "fn sum(v: &[i32]) -> i32",
+                        explanation: "Accepts arrays, `Vec`, and slices with zero allocations.",
+                    },
+                    IdiomaticFix {
+                        label: "Zero-cost iterator pipeline",
+                        before: "let mut acc = 0; for x in v { if *x > 0 { acc += x; } }",
+                        after: "let acc: i32 = v.iter().filter(|&&x| x > 0).sum();",
+                        explanation: "Compiles to the same tight machine loop with no extra vector.",
                     },
                 ],
             };
@@ -1551,6 +1890,121 @@ pub const TROUBLESHOOTING_QUESTS: [TroubleshootingQuest; 8] = [
     },
 ];
 
+pub const TROUBLESHOOTING_QUESTS_EN: [TroubleshootingQuest; 8] = [
+    TroubleshootingQuest {
+        id: "FIX-01",
+        title: "FIX-01 · Borrow Conflict (& and &mut)",
+        error_tag: "E0502",
+        description: "The code keeps a live `&itens[0]` reference while calling `itens.push(40)`. Make it compile without cloning the vector!",
+        broken_code: TROUBLESHOOTING_QUESTS[0].broken_code,
+        fixed_reference: TROUBLESHOOTING_QUESTS[0].fixed_reference,
+        par_lines: 2,
+        max_heap_allocs: 1,
+        hint: "Since `i32` implements `Copy`, store `let primeiro = itens[0];` by value (no `&`) and add `primeiro` without `*`!",
+        required_tokens: &["let primeiro = itens[0]", "itens.push(40)"],
+        forbidden_tokens: &["&itens[0]", ".clone()"],
+    },
+    TroubleshootingQuest {
+        id: "FIX-02",
+        title: "FIX-02 · String Value Moved Into Function",
+        error_tag: "E0382",
+        description: "`saudar(nome)` consumes the `String` so the following `println!` fails. Fix it by borrowing `&str` (0 clones!).",
+        broken_code: TROUBLESHOOTING_QUESTS[1].broken_code,
+        fixed_reference: TROUBLESHOOTING_QUESTS[1].fixed_reference,
+        par_lines: 2,
+        max_heap_allocs: 2,
+        hint: "Change the parameter `pessoa: String` to `pessoa: &str` and call `saudar(&nome)`.",
+        required_tokens: &["pessoa: &str", "saudar(&nome)"],
+        forbidden_tokens: &[".clone()"],
+    },
+    TroubleshootingQuest {
+        id: "FIX-03",
+        title: "FIX-03 · Missing Mutability on Accumulator",
+        error_tag: "E0384",
+        description: "The loop tries to accumulate into `soma`, but mutability is missing. Fix by changing only 1 line.",
+        broken_code: TROUBLESHOOTING_QUESTS[2].broken_code,
+        fixed_reference: TROUBLESHOOTING_QUESTS[2].fixed_reference,
+        par_lines: 1,
+        max_heap_allocs: 0,
+        hint: "Add `mut` to the line `let soma = 0;`.",
+        required_tokens: &["let mut soma = 0"],
+        forbidden_tokens: &[],
+    },
+    TroubleshootingQuest {
+        id: "FIX-04",
+        title: "FIX-04 · Stray Semicolon on Return Expression",
+        error_tag: "E0308",
+        description: "`quadrado` returns `()` instead of `i32` due to an accidental `;`.",
+        broken_code: TROUBLESHOOTING_QUESTS[3].broken_code,
+        fixed_reference: TROUBLESHOOTING_QUESTS[3].fixed_reference,
+        par_lines: 1,
+        max_heap_allocs: 0,
+        hint: "Remove the `;` from `x * x;` so it becomes the return expression.",
+        required_tokens: &["x * x"],
+        forbidden_tokens: &["x * x;"],
+    },
+    TroubleshootingQuest {
+        id: "FIX-05",
+        title: "FIX-05 · Reference Dropped Before Return",
+        error_tag: "E0597",
+        description: "`etiqueta` returns `&str` pointing to a local `String` that drops at the end of the function. Transfer ownership instead!",
+        broken_code: TROUBLESHOOTING_QUESTS[4].broken_code,
+        fixed_reference: TROUBLESHOOTING_QUESTS[4].fixed_reference,
+        par_lines: 3,
+        max_heap_allocs: 1,
+        hint: "Change the return type to `-> String` and return `format!(\"ID-{cod}\")` directly.",
+        required_tokens: &["-> String"],
+        forbidden_tokens: &["-> &str", "&s"],
+    },
+    TroubleshootingQuest {
+        id: "FIX-06",
+        title: "FIX-06 · Allocation Golfing: Zero-Cost Pipeline",
+        error_tag: "ZERO-COST",
+        description: "The code allocates an extra `Vec` with `Vec::new()` and `.push()` just to sum even numbers. Rewrite with 0 Heap allocations!",
+        broken_code: TROUBLESHOOTING_QUESTS[5].broken_code,
+        fixed_reference: TROUBLESHOOTING_QUESTS[5].fixed_reference,
+        par_lines: 7,
+        max_heap_allocs: 0,
+        hint: "Use `nums.iter().copied().filter(|n| n % 2 == 0).sum()` — zero Heap allocations!",
+        required_tokens: &[".iter()", ".filter(", ".sum()"],
+        forbidden_tokens: &["Vec::new", "vec![", ".collect"],
+    },
+    TroubleshootingQuest {
+        id: "FIX-07",
+        title: "FIX-07 · Missing Generic Trait Bound",
+        error_tag: "E0277",
+        description: "`maior<T>` compares `a >= b` without requiring `T: PartialOrd`. Add the required trait bound.",
+        broken_code: TROUBLESHOOTING_QUESTS[6].broken_code,
+        fixed_reference: TROUBLESHOOTING_QUESTS[6].fixed_reference,
+        par_lines: 1,
+        max_heap_allocs: 0,
+        hint: "Declare `<T: PartialOrd>` in `maior`'s signature.",
+        required_tokens: &["PartialOrd"],
+        forbidden_tokens: &["fn maior<T>("],
+    },
+    TroubleshootingQuest {
+        id: "FIX-08",
+        title: "FIX-08 · Safety: Eliminate unwrap() in Parser",
+        error_tag: "SAFETY",
+        description: "Replace `.unwrap()` with safe error propagation returning `Option<i32>`.",
+        broken_code: TROUBLESHOOTING_QUESTS[7].broken_code,
+        fixed_reference: TROUBLESHOOTING_QUESTS[7].fixed_reference,
+        par_lines: 1,
+        max_heap_allocs: 0,
+        hint: "Use `.ok()?` after `.parse()` to return `None` on invalid input without panicking.",
+        required_tokens: &[".ok()?"],
+        forbidden_tokens: &[".unwrap()"],
+    },
+];
+
+pub fn troubleshooting_quests(english: bool) -> &'static [TroubleshootingQuest] {
+    if english {
+        &TROUBLESHOOTING_QUESTS_EN
+    } else {
+        &TROUBLESHOOTING_QUESTS
+    }
+}
+
 pub fn count_modified_lines(original: &str, current: &str) -> usize {
     let a: Vec<&str> = original.lines().map(str::trim).collect();
     let b: Vec<&str> = current.lines().map(str::trim).collect();
@@ -1572,29 +2026,53 @@ pub fn evaluate_quest(
     quest: &TroubleshootingQuest,
     current_code: &str,
 ) -> Result<QuestEvaluation, String> {
+    evaluate_quest_for(quest, current_code, false)
+}
+
+pub fn evaluate_quest_for(
+    quest: &TroubleshootingQuest,
+    current_code: &str,
+    english: bool,
+) -> Result<QuestEvaluation, String> {
     if current_code.trim() == quest.broken_code.trim() {
-        return Err("Você ainda não editou o código quebrado da missão.".to_string());
+        return Err(if english {
+            "You haven't edited the broken quest code yet."
+        } else {
+            "Você ainda não editou o código quebrado da missão."
+        }
+        .to_string());
     }
     for token in quest.forbidden_tokens {
         if current_code.contains(token) {
-            return Err(format!(
-                "O padrão problemático `{token}` ainda está presente no código."
-            ));
+            return Err(if english {
+                format!("The problematic pattern `{token}` is still present in the code.")
+            } else {
+                format!("O padrão problemático `{token}` ainda está presente no código.")
+            });
         }
     }
     for token in quest.required_tokens {
         if !current_code.contains(token) {
-            return Err(format!(
-                "Solução incompleta: esperava encontrar `{token}` na correção idiomática."
-            ));
+            return Err(if english {
+                format!("Incomplete solution: expected to find `{token}` in the idiomatic fix.")
+            } else {
+                format!("Solução incompleta: esperava encontrar `{token}` na correção idiomática.")
+            });
         }
     }
-    let xray = MemoryXRayReport::analyze(current_code);
+    let xray = MemoryXRayReport::analyze_for(current_code, english);
     if xray.metrics.heap_allocations > quest.max_heap_allocs {
-        return Err(format!(
-            "Orçamento de Heap excedido: usou {} alocação(ões), máximo permitido é {}.",
-            xray.metrics.heap_allocations, quest.max_heap_allocs
-        ));
+        return Err(if english {
+            format!(
+                "Heap budget exceeded: used {} allocation(s), max allowed is {}.",
+                xray.metrics.heap_allocations, quest.max_heap_allocs
+            )
+        } else {
+            format!(
+                "Orçamento de Heap excedido: usou {} alocação(ões), máximo permitido é {}.",
+                xray.metrics.heap_allocations, quest.max_heap_allocs
+            )
+        });
     }
     let modified_lines = count_modified_lines(quest.broken_code, current_code);
     let golf_bonus = modified_lines <= quest.par_lines && xray.metrics.clones_count == 0;
@@ -1631,19 +2109,43 @@ pub fn build_playground_url(code: &str) -> String {
 }
 
 pub fn export_project_share_card(root: &Path, code: &str) -> std::io::Result<PathBuf> {
+    export_project_share_card_for(root, code, false)
+}
+
+pub fn export_project_share_card_for(
+    root: &Path,
+    code: &str,
+    english: bool,
+) -> std::io::Result<PathBuf> {
     let url = build_playground_url(code);
-    let xray = MemoryXRayReport::analyze(code);
-    let summary = xray.summary_lines().join("\n");
-    let content = format!(
-        "# Projeto RustLab — Pacote de Compartilhamento\n\n\
-        ## Link direto para o Rust Playground\n\
-        <{url}>\n\n\
-        ## Raio-X de Memória & Alocações\n\
-        ```text\n{summary}\n```\n\n\
-        ## Código-fonte\n\
-        ```rust\n{code}\n```\n"
-    );
-    let path = root.join("COMPARTILHAR_RUSTLAB.md");
+    let xray = MemoryXRayReport::analyze_for(code, english);
+    let summary = xray.summary_lines_for(english).join("\n");
+    let content = if english {
+        format!(
+            "# RustLab Project — Share Card\n\n\
+            ## Direct link to Rust Playground\n\
+            <{url}>\n\n\
+            ## Memory & Allocation X-Ray\n\
+            ```text\n{summary}\n```\n\n\
+            ## Source Code\n\
+            ```rust\n{code}\n```\n"
+        )
+    } else {
+        format!(
+            "# Projeto RustLab — Pacote de Compartilhamento\n\n\
+            ## Link direto para o Rust Playground\n\
+            <{url}>\n\n\
+            ## Raio-X de Memória & Alocações\n\
+            ```text\n{summary}\n```\n\n\
+            ## Código-fonte\n\
+            ```rust\n{code}\n```\n"
+        )
+    };
+    let path = root.join(if english {
+        "SHARE_RUSTLAB.md"
+    } else {
+        "COMPARTILHAR_RUSTLAB.md"
+    });
     std::fs::write(&path, content)?;
     Ok(path)
 }
@@ -1657,8 +2159,40 @@ pub struct CommunityApproach {
 }
 
 pub fn community_solutions_for(context: &str) -> [CommunityApproach; 3] {
+    community_solutions_for_lang(context, false)
+}
+
+pub fn community_solutions_for_lang(context: &str, english: bool) -> [CommunityApproach; 3] {
     let low = context.to_ascii_lowercase();
-    if low.contains("soma") || low.contains("iter") || low.contains("par") || low.contains("vec") {
+    if low.contains("soma")
+        || low.contains("sum")
+        || low.contains("iter")
+        || low.contains("par")
+        || low.contains("even")
+        || low.contains("vec")
+    {
+        if english {
+            return [
+                CommunityApproach {
+                    name: "1. Zero-Cost Functional Pipeline (Idiomatic Rust)",
+                    style_badge: "Zero Heap · Concise",
+                    pros: "Uses `.iter().filter().map().sum()` compiling without allocating an intermediate vector.",
+                    code: "pub fn process(values: &[i32]) -> i32 {\n    values\n        .iter()\n        .copied()\n        .filter(|&v| v > 0)\n        .map(|v| v * 2)\n        .sum()\n}\n\nfn main() {\n    println!(\"Result: {}\", process(&[-2, 3, 5]));\n}\n",
+                },
+                CommunityApproach {
+                    name: "2. Explicit Classic Imperative (Beginner-Friendly)",
+                    style_badge: "Easy to Step in Debugger",
+                    pros: "Ideal for inspecting each variable in the Visual Debugger (`Alt+J`).",
+                    code: "pub fn process(values: &[i32]) -> i32 {\n    let mut total = 0;\n    for &v in values {\n        if v > 0 {\n            total += v * 2;\n        }\n    }\n    total\n}\n\nfn main() {\n    println!(\"Result: {}\", process(&[-2, 3, 5]));\n}\n",
+                },
+                CommunityApproach {
+                    name: "3. Type-Driven `fold` with Rich Accumulator",
+                    style_badge: "Immutable · Testable",
+                    pros: "Aggregates stats cleanly with no scattered mutable state.",
+                    code: "#[derive(Debug, Default, PartialEq, Eq)]\npub struct Summary { pub total: i32, pub valid: usize }\n\npub fn summarize(values: &[i32]) -> Summary {\n    values.iter().copied().filter(|&v| v > 0).fold(Summary::default(), |acc, v| Summary {\n        total: acc.total + v * 2,\n        valid: acc.valid + 1,\n    })\n}\n\nfn main() {\n    println!(\"{:?}\", summarize(&[-2, 3, 5]));\n}\n",
+                },
+            ];
+        }
         return [
             CommunityApproach {
                 name: "1. Pipeline Funcional Zero-Cost (Idiomático Rust)",
@@ -1677,6 +2211,29 @@ pub fn community_solutions_for(context: &str) -> [CommunityApproach; 3] {
                 style_badge: "Imutável · Testável",
                 pros: "Agrupa estatísticas de forma pura sem estado mutável espalhado.",
                 code: "#[derive(Debug, Default, PartialEq, Eq)]\npub struct Resumo { pub total: i32, pub validos: usize }\n\npub fn resumir(valores: &[i32]) -> Resumo {\n    valores.iter().copied().filter(|&v| v > 0).fold(Resumo::default(), |acc, v| Resumo {\n        total: acc.total + v * 2,\n        validos: acc.validos + 1,\n    })\n}\n\nfn main() {\n    println!(\"{:?}\", resumir(&[-2, 3, 5]));\n}\n",
+            },
+        ];
+    }
+
+    if english {
+        return [
+            CommunityApproach {
+                name: "1. Borrowed Slices (`&str` / `&[T]`) + Zero Clones",
+                style_badge: "Idiomatic Zero-Cost",
+                pros: "Avoids requiring `String` in functions that only read text.",
+                code: "pub fn format_title(name: &str, level: u32) -> String {\n    format!(\"[Lv.{level}] {name}\")\n}\n\nfn main() {\n    println!(\"{}\", format_title(\"Ferris\", 3));\n}\n",
+            },
+            CommunityApproach {
+                name: "2. Enum + Exhaustive `match` with `?` Propagation",
+                style_badge: "Type Safety",
+                pros: "Turns business rules into compile-time verified variants.",
+                code: "pub enum Action { Add(i32), Double }\n\npub fn apply(value: i32, action: Action) -> Option<i32> {\n    match action {\n        Action::Add(x) => value.checked_add(x),\n        Action::Double => value.checked_mul(2),\n    }\n}\n\nfn main() {\n    println!(\"{:?}\", apply(21, Action::Double));\n}\n",
+            },
+            CommunityApproach {
+                name: "3. Newtype Pattern with Constructor Validation",
+                style_badge: "Clean Architecture",
+                pros: "Makes invalid states unrepresentable after creation.",
+                code: "#[derive(Debug, Clone, Copy, PartialEq, Eq)]\npub struct Score(u32);\n\nimpl Score {\n    pub fn new(v: u32) -> Option<Self> { (v <= 1000).then_some(Self(v)) }\n    pub fn value(self) -> u32 { self.0 }\n}\n\nfn main() {\n    println!(\"{:?}\", Score::new(100));\n}\n",
             },
         ];
     }
@@ -1756,6 +2313,50 @@ pub const MODERN_ECOSYSTEMS: [ModernEcosystemTemplate; 3] = [
     },
 ];
 
+pub const MODERN_ECOSYSTEMS_EN: [ModernEcosystemTemplate; 3] = [
+    ModernEcosystemTemplate {
+        id: "wasm-web",
+        name: "WebAssembly / Browser (wasm-bindgen)",
+        ecosystem: "Web & Frontend",
+        dep_name: "wasm-bindgen",
+        dep_version: "0.2",
+        summary: "Graphics & game-loop engine in Rust ready to export to the browser via `#[wasm_bindgen]` and `wasm-pack`.",
+        architecture_notes: "Separate pure state (physics, particles, RGBA grid) from `#[wasm_bindgen]` so you can run unit tests with `F6` instantly in the terminal before bundling with `wasm-pack build --target web`.",
+        run_instructions: "F6 runs offline tests · `d` adds `wasm-bindgen = \"0.2\"` to Cargo.toml · Web build: `cargo build --target wasm32-unknown-unknown`.",
+        template_code: MODERN_ECOSYSTEMS[0].template_code,
+    },
+    ModernEcosystemTemplate {
+        id: "cli-clap-tokio",
+        name: "Systems / Production CLI (clap + tokio)",
+        ecosystem: "CLI Tools & Async",
+        dep_name: "clap",
+        dep_version: "4",
+        summary: "`clap`-style command parser + async batch processing with structured exit codes.",
+        architecture_notes: "Modeling subcommands as an `enum ComandoCli` makes the parser unit-testable with argument slices without spawning external processes. Add `clap` (`derive`) and `tokio` (`full`) when scaling to real I/O.",
+        run_instructions: "F5 runs · F6 tests parser · `d` adds `clap = \"4\"` to Cargo.toml.",
+        template_code: MODERN_ECOSYSTEMS[1].template_code,
+    },
+    ModernEcosystemTemplate {
+        id: "backend-axum",
+        name: "Backend & REST APIs (axum + serde)",
+        ecosystem: "Web Backend & Microservices",
+        dep_name: "axum",
+        dep_version: "0.8",
+        summary: "Typed HTTP router with health endpoints (`GET /health`), in-memory CRUD, and JSON serialization.",
+        architecture_notes: "Extracting pure handlers (`Request -> HttpResposta`) lets you validate status codes and JSON payloads with `cargo test` in milliseconds before starting the Tokio/Axum server on port 3000.",
+        run_instructions: "F5 runs simulation · F6 tests HTTP routes · `d` adds `axum = \"0.8\"` to Cargo.toml.",
+        template_code: MODERN_ECOSYSTEMS[2].template_code,
+    },
+];
+
+pub fn modern_ecosystems(english: bool) -> &'static [ModernEcosystemTemplate] {
+    if english {
+        &MODERN_ECOSYSTEMS_EN
+    } else {
+        &MODERN_ECOSYSTEMS
+    }
+}
+
 // =========================================================================
 // 7. MAPA VISUAL DE LIFETIMES ('a, 'b) COLORIDO & DETECÇÃO DE ESCOPOS
 // =========================================================================
@@ -1770,11 +2371,18 @@ pub enum LifetimeKind {
 
 impl LifetimeKind {
     pub const fn badge(self) -> &'static str {
-        match self {
-            Self::Owner => "DONO",
-            Self::SharedBorrow => "&'a IMUT",
-            Self::MutBorrow => "&'b mut",
-            Self::ExplicitAnnotation => "ANOTAÇÃO 'a",
+        self.badge_for(false)
+    }
+
+    pub const fn badge_for(self, english: bool) -> &'static str {
+        match (self, english) {
+            (Self::Owner, true) => "OWNER",
+            (Self::Owner, false) => "DONO",
+            (Self::SharedBorrow, true) => "&'a IMMUT",
+            (Self::SharedBorrow, false) => "&'a IMUT",
+            (Self::MutBorrow, _) => "&'b mut",
+            (Self::ExplicitAnnotation, true) => "ANNOTATION 'a",
+            (Self::ExplicitAnnotation, false) => "ANOTAÇÃO 'a",
         }
     }
 }
@@ -1810,6 +2418,10 @@ pub struct LifetimeVisualizerReport {
 impl LifetimeVisualizerReport {
     /// Analisa declarações, blocos `{ ... }`, empréstimos `&` / `&mut` e lifetimes explícitos.
     pub fn analyze(code: &str) -> Self {
+        Self::analyze_for(code, false)
+    }
+
+    pub fn analyze_for(code: &str, english: bool) -> Self {
         let raw_lines: Vec<&str> = code.lines().collect();
         let total_lines = raw_lines.len().max(1);
         let mut explicit_annotations = Vec::new();
@@ -1867,10 +2479,16 @@ impl LifetimeVisualizerReport {
                 conflicts.push(LifetimeConflict {
                     line: line_no,
                     error_code: "E0515",
-                    title: format!("Retorno de referência a valor local `{ret_target}`"),
-                    explanation: format!(
-                        "`{ret_target}` nasce dentro da função e é destruído ao fechar `}}` na saída; retorne o valor com posse (`String` / `T`) ou receba `&'a` por parâmetro."
-                    ),
+                    title: if english {
+                        format!("Returning reference to local variable `{ret_target}`")
+                    } else {
+                        format!("Retorno de referência a valor local `{ret_target}`")
+                    },
+                    explanation: if english {
+                        format!("`{ret_target}` is created inside the function and dropped at `}}` on return; return an owned value (`String` / `T`) or accept `&'a` via parameter.")
+                    } else {
+                        format!("`{ret_target}` nasce dentro da função e é destruído ao fechar `}}` na saída; retorne o valor com posse (`String` / `T`) ou receba `&'a` por parâmetro.")
+                    },
                 });
             }
 
@@ -1894,13 +2512,22 @@ impl LifetimeVisualizerReport {
                     conflicts.push(LifetimeConflict {
                         line: line_no,
                         error_code: "E0597",
-                        title: format!(
-                            "`{target_ident}` (bloco L{}) vive menos que `{lhs_ident}` (escopo L{})",
-                            inner_owner.birth_line, outer_ref.birth_line
-                        ),
-                        explanation: format!(
-                            "`{target_ident}` será descartado no `}}` interno enquanto `{lhs_ident}` continua vivo no escopo externo."
-                        ),
+                        title: if english {
+                            format!(
+                                "`{target_ident}` (block L{}) does not live as long as `{lhs_ident}` (scope L{})",
+                                inner_owner.birth_line, outer_ref.birth_line
+                            )
+                        } else {
+                            format!(
+                                "`{target_ident}` (bloco L{}) vive menos que `{lhs_ident}` (escopo L{})",
+                                inner_owner.birth_line, outer_ref.birth_line
+                            )
+                        },
+                        explanation: if english {
+                            format!("`{target_ident}` is dropped at the inner `}}` while `{lhs_ident}` remains alive in the outer scope.")
+                        } else {
+                            format!("`{target_ident}` será descartado no `}}` interno enquanto `{lhs_ident}` continua vivo no escopo externo.")
+                        },
                     });
                 }
             }
@@ -1919,13 +2546,14 @@ impl LifetimeVisualizerReport {
                     let last_use = find_last_mention_line(&raw_lines, idx, &ident, depth);
 
                     if let Some(tgt) = target.as_deref() {
-                        check_active_borrow_overlap(
+                        check_active_borrow_overlap_for(
                             &spans,
                             &raw_lines,
                             line_no,
                             tgt,
                             is_mut_borrow,
                             &mut conflicts,
+                            english,
                         );
                     }
 
@@ -1938,14 +2566,21 @@ impl LifetimeVisualizerReport {
                     } else {
                         LifetimeKind::Owner
                     };
-                    let label = match (kind, target.as_deref()) {
-                        (LifetimeKind::MutBorrow, Some(t)) => {
+                    let label = match (kind, target.as_deref(), english) {
+                        (LifetimeKind::MutBorrow, Some(t), true) => {
+                            format!("&mut of `{t}` (exclusive)")
+                        }
+                        (LifetimeKind::MutBorrow, Some(t), false) => {
                             format!("&mut de `{t}` (exclusivo)")
                         }
-                        (LifetimeKind::SharedBorrow, Some(t)) => {
+                        (LifetimeKind::SharedBorrow, Some(t), true) => {
+                            format!("& of `{t}` (shared)")
+                        }
+                        (LifetimeKind::SharedBorrow, Some(t), false) => {
                             format!("& de `{t}` (compartilhado)")
                         }
-                        _ => format!("Posse `{ident}` (stack/escopo)"),
+                        (_, _, true) => format!("Owned `{ident}` (stack/scope)"),
+                        (_, _, false) => format!("Posse `{ident}` (stack/escopo)"),
                     };
                     spans.push(LifetimeSpan {
                         name: ident,
@@ -1980,14 +2615,28 @@ impl LifetimeVisualizerReport {
                         conflicts.push(LifetimeConflict {
                             line: line_no,
                             error_code: "E0502/E0506",
-                            title: format!(
-                                "Mutação em `{mutated}` com empréstimo `{}` ativo até abaixo",
-                                b.name
-                            ),
-                            explanation: format!(
-                                "`{}` emprestou `{mutated}` em L{} e ainda será lido depois da linha L{line_no}.",
-                                b.name, b.birth_line
-                            ),
+                            title: if english {
+                                format!(
+                                    "Mutation of `{mutated}` while borrow `{}` stays active below",
+                                    b.name
+                                )
+                            } else {
+                                format!(
+                                    "Mutação em `{mutated}` com empréstimo `{}` ativo até abaixo",
+                                    b.name
+                                )
+                            },
+                            explanation: if english {
+                                format!(
+                                    "`{}` borrowed `{mutated}` at L{} and is still read after line L{line_no}.",
+                                    b.name, b.birth_line
+                                )
+                            } else {
+                                format!(
+                                    "`{}` emprestou `{mutated}` em L{} e ainda será lido depois da linha L{line_no}.",
+                                    b.name, b.birth_line
+                                )
+                            },
                         });
                         break;
                     }
@@ -2033,37 +2682,73 @@ impl LifetimeVisualizerReport {
     }
 
     pub fn summary_lines(&self) -> Vec<String> {
+        self.summary_lines_for(false)
+    }
+
+    pub fn summary_lines_for(&self, english: bool) -> Vec<String> {
         let mut out = Vec::new();
-        out.push(format!(
-            "Lifetimes explícitos detectados: {}",
-            if self.explicit_annotations.is_empty() {
-                "nenhum (elision automática do compilador)".to_string()
-            } else {
-                self.explicit_annotations
-                    .iter()
-                    .map(|(l, t)| format!("{t} @ L{l}"))
-                    .collect::<Vec<_>>()
-                    .join(", ")
-            }
-        ));
-        if self.conflicts.is_empty() {
-            out.push("Status do Borrow Checker: ✓ Nenhum conflito estrutural de tempo de vida detectado.".to_string());
+        out.push(if english {
+            format!(
+                "Explicit lifetimes detected: {}",
+                if self.explicit_annotations.is_empty() {
+                    "none (automatic compiler lifetime elision)".to_string()
+                } else {
+                    self.explicit_annotations
+                        .iter()
+                        .map(|(l, t)| format!("{t} @ L{l}"))
+                        .collect::<Vec<_>>()
+                        .join(", ")
+                }
+            )
         } else {
-            out.push(format!("Conflitos de Lifetime ({}):", self.conflicts.len()));
+            format!(
+                "Lifetimes explícitos detectados: {}",
+                if self.explicit_annotations.is_empty() {
+                    "nenhum (elision automática do compilador)".to_string()
+                } else {
+                    self.explicit_annotations
+                        .iter()
+                        .map(|(l, t)| format!("{t} @ L{l}"))
+                        .collect::<Vec<_>>()
+                        .join(", ")
+                }
+            )
+        });
+        if self.conflicts.is_empty() {
+            out.push(if english {
+                "Borrow Checker Status: ✓ No structural lifetime conflicts detected.".to_string()
+            } else {
+                "Status do Borrow Checker: ✓ Nenhum conflito estrutural de tempo de vida detectado."
+                    .to_string()
+            });
+        } else {
+            out.push(if english {
+                format!("Lifetime Conflicts ({}):", self.conflicts.len())
+            } else {
+                format!("Conflitos de Lifetime ({}):", self.conflicts.len())
+            });
             for c in &self.conflicts {
                 out.push(format!("  ✘ L{} [{}] {}", c.line, c.error_code, c.title));
                 out.push(format!("    {}", c.explanation));
             }
         }
         out.push(String::new());
-        out.push("Linha do Tempo dos Escopos (Origem ──▶ Fim):".to_string());
+        out.push(if english {
+            "Scope Timeline (Origin ──▶ End):".to_string()
+        } else {
+            "Linha do Tempo dos Escopos (Origem ──▶ Fim):".to_string()
+        });
         if self.spans.is_empty() {
-            out.push("  (nenhum binding/empréstimo mapeado neste arquivo)".to_string());
+            out.push(if english {
+                "  (no binding/borrow mapped in this file)".to_string()
+            } else {
+                "  (nenhum binding/empréstimo mapeado neste arquivo)".to_string()
+            });
         } else {
             for sp in &self.spans {
                 out.push(format!(
                     "  [{}] {:<10} {}  L{}-L{} · {}",
-                    sp.kind.badge(),
+                    sp.kind.badge_for(english),
                     sp.name,
                     sp.timeline_bar,
                     sp.birth_line,
@@ -2157,13 +2842,14 @@ fn find_last_mention_line(
     last
 }
 
-fn check_active_borrow_overlap(
+fn check_active_borrow_overlap_for(
     spans: &[LifetimeSpan],
     raw_lines: &[&str],
     line_no: usize,
     target: &str,
     new_is_mut: bool,
     conflicts: &mut Vec<LifetimeConflict>,
+    english: bool,
 ) {
     let idx = line_no.saturating_sub(1);
     for prev in spans.iter().filter(|s| {
@@ -2182,23 +2868,45 @@ fn check_active_borrow_overlap(
             (LifetimeKind::MutBorrow, true) => conflicts.push(LifetimeConflict {
                 line: line_no,
                 error_code: "E0499",
-                title: format!(
-                    "Segundo `&mut` em `{target}` enquanto `{}` (L{}) segue ativo",
-                    prev.name, prev.birth_line
-                ),
-                explanation: "Em Rust só pode haver UMA referência `&mut` ativa ao mesmo dado por vez."
-                    .to_string(),
+                title: if english {
+                    format!(
+                        "Second `&mut` to `{target}` while `{}` (L{}) stays active",
+                        prev.name, prev.birth_line
+                    )
+                } else {
+                    format!(
+                        "Segundo `&mut` em `{target}` enquanto `{}` (L{}) segue ativo",
+                        prev.name, prev.birth_line
+                    )
+                },
+                explanation: if english {
+                    "In Rust there can only be ONE active `&mut` reference to the same data at a time."
+                } else {
+                    "Em Rust só pode haver UMA referência `&mut` ativa ao mesmo dado por vez."
+                }
+                .to_string(),
             }),
             (LifetimeKind::SharedBorrow, true) | (LifetimeKind::MutBorrow, false) => {
                 conflicts.push(LifetimeConflict {
                     line: line_no,
                     error_code: "E0502",
-                    title: format!(
-                        "Conflito `&` vs `&mut` em `{target}` com `{}` (L{}) ainda em uso",
-                        prev.name, prev.birth_line
-                    ),
-                    explanation: "Não é possível misturar empréstimo compartilhado `&` com mutável `&mut` simultaneamente."
-                        .to_string(),
+                    title: if english {
+                        format!(
+                            "Conflict `&` vs `&mut` on `{target}` with `{}` (L{}) still in use",
+                            prev.name, prev.birth_line
+                        )
+                    } else {
+                        format!(
+                            "Conflito `&` vs `&mut` em `{target}` com `{}` (L{}) ainda em uso",
+                            prev.name, prev.birth_line
+                        )
+                    },
+                    explanation: if english {
+                        "Shared `&` and mutable `&mut` borrows cannot coexist at the same time."
+                    } else {
+                        "Não é possível misturar empréstimo compartilhado `&` com mutável `&mut` simultaneamente."
+                    }
+                    .to_string(),
                 })
             }
             _ => {}
@@ -2310,6 +3018,10 @@ pub struct MemoryLayoutReport {
 
 impl MemoryLayoutReport {
     pub fn analyze(code: &str) -> Self {
+        Self::analyze_for(code, false)
+    }
+
+    pub fn analyze_for(code: &str, english: bool) -> Self {
         let mut user_types: Vec<StructLayoutAnalysis> = Vec::new();
         let mut known_structs: HashMap<String, (usize, usize)> = HashMap::new();
         let lines: Vec<&str> = code.lines().collect();
@@ -2346,38 +3058,73 @@ impl MemoryLayoutReport {
             i += 1;
         }
 
-        let npo_facts = vec![
-            StandardLayoutFact {
-                type_expr: "&T  /  Option<&T>",
-                size_bytes: 8,
-                align_bytes: 8,
-                note: "NPO (Null Pointer Optimization): ponteiro não-nulo usa endereço 0 como `None` sem gastar 1 byte extra!",
-            },
-            StandardLayoutFact {
-                type_expr: "Box<T>  /  Option<Box<T>>",
-                size_bytes: 8,
-                align_bytes: 8,
-                note: "Mesmo tamanho (8 bytes): `Box` nunca é nulo em memória válida.",
-            },
-            StandardLayoutFact {
-                type_expr: "u64  (8B)  →  Option<u64>",
-                size_bytes: 16,
-                align_bytes: 8,
-                note: "Precisa de tag discriminante + 7 bytes de padding, dobrando de 8B para 16B.",
-            },
-            StandardLayoutFact {
-                type_expr: "&str  (fat pointer)",
-                size_bytes: 16,
-                align_bytes: 8,
-                note: "Armazena apenas ponteiro (8B) + tamanho `len` (8B) na Stack, zero alocação Heap.",
-            },
-            StandardLayoutFact {
-                type_expr: "String  /  Vec<T>",
-                size_bytes: 24,
-                align_bytes: 8,
-                note: "Cabeçalho na Stack de 24 bytes (ptr + len + capacity) apontando para o buffer na Heap.",
-            },
-        ];
+        let npo_facts = if english {
+            vec![
+                StandardLayoutFact {
+                    type_expr: "&T  /  Option<&T>",
+                    size_bytes: 8,
+                    align_bytes: 8,
+                    note: "NPO (Null Pointer Optimization): non-null pointers use address 0 as `None` without spending 1 extra byte!",
+                },
+                StandardLayoutFact {
+                    type_expr: "Box<T>  /  Option<Box<T>>",
+                    size_bytes: 8,
+                    align_bytes: 8,
+                    note: "Same size (8 bytes): `Box` is never null in valid memory.",
+                },
+                StandardLayoutFact {
+                    type_expr: "u64  (8B)  →  Option<u64>",
+                    size_bytes: 16,
+                    align_bytes: 8,
+                    note: "Needs a discriminant tag + 7 bytes of padding, doubling from 8B to 16B.",
+                },
+                StandardLayoutFact {
+                    type_expr: "&str  (fat pointer)",
+                    size_bytes: 16,
+                    align_bytes: 8,
+                    note: "Stores only pointer (8B) + length `len` (8B) on the Stack, zero Heap allocation.",
+                },
+                StandardLayoutFact {
+                    type_expr: "String  /  Vec<T>",
+                    size_bytes: 24,
+                    align_bytes: 8,
+                    note: "24-byte Stack header (ptr + len + capacity) pointing to the Heap buffer.",
+                },
+            ]
+        } else {
+            vec![
+                StandardLayoutFact {
+                    type_expr: "&T  /  Option<&T>",
+                    size_bytes: 8,
+                    align_bytes: 8,
+                    note: "NPO (Null Pointer Optimization): ponteiro não-nulo usa endereço 0 como `None` sem gastar 1 byte extra!",
+                },
+                StandardLayoutFact {
+                    type_expr: "Box<T>  /  Option<Box<T>>",
+                    size_bytes: 8,
+                    align_bytes: 8,
+                    note: "Mesmo tamanho (8 bytes): `Box` nunca é nulo em memória válida.",
+                },
+                StandardLayoutFact {
+                    type_expr: "u64  (8B)  →  Option<u64>",
+                    size_bytes: 16,
+                    align_bytes: 8,
+                    note: "Precisa de tag discriminante + 7 bytes de padding, dobrando de 8B para 16B.",
+                },
+                StandardLayoutFact {
+                    type_expr: "&str  (fat pointer)",
+                    size_bytes: 16,
+                    align_bytes: 8,
+                    note: "Armazena apenas ponteiro (8B) + tamanho `len` (8B) na Stack, zero alocação Heap.",
+                },
+                StandardLayoutFact {
+                    type_expr: "String  /  Vec<T>",
+                    size_bytes: 24,
+                    align_bytes: 8,
+                    note: "Cabeçalho na Stack de 24 bytes (ptr + len + capacity) apontando para o buffer na Heap.",
+                },
+            ]
+        };
 
         Self {
             user_types,
@@ -2552,6 +3299,10 @@ pub struct DesugarReport {
 
 impl DesugarReport {
     pub fn analyze(code: &str) -> Self {
+        Self::analyze_for(code, false)
+    }
+
+    pub fn analyze_for(code: &str, english: bool) -> Self {
         let mut items = Vec::new();
         for (idx, raw) in code.lines().enumerate() {
             let line_no = idx + 1;
@@ -2568,7 +3319,11 @@ impl DesugarReport {
                     line_1based: Some(line_no),
                     sugar_snippet: t.to_string(),
                     expanded_rust: "{\n    ::std::io::_print(::core::format_args_nl!(\"...\"));\n}".to_string(),
-                    explanation: "Macros terminadas em `!` rodam em tempo de compilação: `println!` valida a string de formato na compilação e gera chamadas diretas a `format_args!` sem alocar `String`!",
+                    explanation: if english {
+                        "Macros ending in `!` run at compile time: `println!` validates the format string at compile time and emits direct `format_args!` calls without allocating a `String`!"
+                    } else {
+                        "Macros terminadas em `!` rodam em tempo de compilação: `println!` valida a string de formato na compilação e gera chamadas diretas a `format_args!` sem alocar `String`!"
+                    },
                 });
             }
             if t.contains("vec![") && !items.iter().any(|i| i.id == "macro-vec") {
@@ -2578,17 +3333,29 @@ impl DesugarReport {
                     line_1based: Some(line_no),
                     sugar_snippet: t.to_string(),
                     expanded_rust: "<[_]>::into_vec(\n    #[rustc_box]\n    ::alloc::boxed::Box::new([...])\n)".to_string(),
-                    explanation: "`vec![a, b, c]` não é mágico: aloca um array exato na Heap em um único bloco via `Box<[T]>` e converte para `Vec<T>` sem realocar `push` por `push`.",
+                    explanation: if english {
+                        "`vec![a, b, c]` isn't magic: it allocates an exact-size array on the Heap in one chunk via `Box<[T]>` and converts it to `Vec<T>` without push-by-push reallocations."
+                    } else {
+                        "`vec![a, b, c]` não é mágico: aloca um array exato na Heap em um único bloco via `Box<[T]>` e converte para `Vec<T>` sem realocar `push` por `push`."
+                    },
                 });
             }
             if contains_question_mark_op(t) && !items.iter().any(|i| i.id == "sugar-qmark") {
                 items.push(DesugarItem {
                     id: "sugar-qmark",
-                    title: "Operador `?` (Try trait)",
+                    title: if english {
+                        "Operator `?` (Try trait)"
+                    } else {
+                        "Operador `?` (Try trait)"
+                    },
                     line_1based: Some(line_no),
                     sugar_snippet: t.to_string(),
                     expanded_rust: "match Try::branch(expr) {\n    ControlFlow::Continue(val) => val,\n    ControlFlow::Break(err) => return FromResidual::from_residual(err),\n}".to_string(),
-                    explanation: "`?` desaçucara em um `match`: se deu `Ok(v)`/`Some(v)`, extrai `v`; se falhou, converte o erro com `From::from` e retorna antecipadamente.",
+                    explanation: if english {
+                        "`?` desugars to a `match`: on `Ok(v)`/`Some(v)` it unwraps `v`; on failure it converts the error via `From::from` and returns early."
+                    } else {
+                        "`?` desaçucara em um `match`: se deu `Ok(v)`/`Some(v)`, extrai `v`; se falhou, converte o erro com `From::from` e retorna antecipadamente."
+                    },
                 });
             }
             if t.starts_with("for ")
@@ -2597,21 +3364,47 @@ impl DesugarReport {
             {
                 items.push(DesugarItem {
                     id: "sugar-for",
-                    title: "Laço `for x in colecao`",
+                    title: if english {
+                        "Loop `for x in collection`"
+                    } else {
+                        "Laço `for x in colecao`"
+                    },
                     line_1based: Some(line_no),
                     sugar_snippet: t.to_string(),
-                    expanded_rust: "let mut __iter = ::core::iter::IntoIterator::into_iter(colecao);\nloop {\n    match ::core::iter::Iterator::next(&mut __iter) {\n        Some(x) => { /* corpo */ }\n        None => break,\n    }\n}".to_string(),
-                    explanation: "Todo `for` em Rust vira um `loop` chamando `Iterator::next(&mut iter)` sobre qualquer tipo que implemente `IntoIterator`.",
+                    expanded_rust: if english {
+                        "let mut __iter = ::core::iter::IntoIterator::into_iter(collection);\nloop {\n    match ::core::iter::Iterator::next(&mut __iter) {\n        Some(x) => { /* body */ }\n        None => break,\n    }\n}"
+                    } else {
+                        "let mut __iter = ::core::iter::IntoIterator::into_iter(colecao);\nloop {\n    match ::core::iter::Iterator::next(&mut __iter) {\n        Some(x) => { /* corpo */ }\n        None => break,\n    }\n}"
+                    }
+                    .to_string(),
+                    explanation: if english {
+                        "Every `for` in Rust lowers into a `loop` calling `Iterator::next(&mut iter)` over any type implementing `IntoIterator`."
+                    } else {
+                        "Todo `for` em Rust vira um `loop` chamando `Iterator::next(&mut iter)` sobre qualquer tipo que implemente `IntoIterator`."
+                    },
                 });
             }
             if t.starts_with("#[derive(") && !items.iter().any(|i| i.id == "attr-derive") {
                 items.push(DesugarItem {
                     id: "attr-derive",
-                    title: "Macro de Atributo #[derive(...)]",
+                    title: if english {
+                        "Attribute Macro #[derive(...)]"
+                    } else {
+                        "Macro de Atributo #[derive(...)]"
+                    },
                     line_1based: Some(line_no),
                     sugar_snippet: t.to_string(),
-                    expanded_rust: "impl ::core::fmt::Debug for SuaStruct {\n    fn fmt(&self, f: &mut ::core::fmt::Formatter<'_>) -> ::core::fmt::Result {\n        f.debug_struct(\"SuaStruct\") /* campos... */ .finish()\n    }\n}".to_string(),
-                    explanation: "`#[derive(...)]` injeta implementações padrão automáticas dos traits pedidos no mesmo arquivo em tempo de compilação.",
+                    expanded_rust: if english {
+                        "impl ::core::fmt::Debug for YourStruct {\n    fn fmt(&self, f: &mut ::core::fmt::Formatter<'_>) -> ::core::fmt::Result {\n        f.debug_struct(\"YourStruct\") /* fields... */ .finish()\n    }\n}"
+                    } else {
+                        "impl ::core::fmt::Debug for SuaStruct {\n    fn fmt(&self, f: &mut ::core::fmt::Formatter<'_>) -> ::core::fmt::Result {\n        f.debug_struct(\"SuaStruct\") /* campos... */ .finish()\n    }\n}"
+                    }
+                    .to_string(),
+                    explanation: if english {
+                        "`#[derive(...)]` automatically injects standard trait implementations into the file at compile time."
+                    } else {
+                        "`#[derive(...)]` injeta implementações padrão automáticas dos traits pedidos no mesmo arquivo em tempo de compilação."
+                    },
                 });
             }
             if t.starts_with("if let ") && !items.iter().any(|i| i.id == "sugar-iflet") {
@@ -2620,8 +3413,17 @@ impl DesugarReport {
                     title: "Syntax Sugar `if let`",
                     line_1based: Some(line_no),
                     sugar_snippet: t.to_string(),
-                    expanded_rust: "match valor {\n    Padrao(x) => { /* ramo then */ }\n    _ => {}\n}".to_string(),
-                    explanation: "`if let` é literalmente um `match` que trata apenas uma variante específica e descarta todo o resto com `_ => {}`.",
+                    expanded_rust: if english {
+                        "match value {\n    Pattern(x) => { /* then branch */ }\n    _ => {}\n}"
+                    } else {
+                        "match valor {\n    Padrao(x) => { /* ramo then */ }\n    _ => {}\n}"
+                    }
+                    .to_string(),
+                    explanation: if english {
+                        "`if let` is literally a `match` that handles one specific pattern and ignores everything else with `_ => {}`."
+                    } else {
+                        "`if let` é literalmente um `match` que trata apenas uma variante específica e descarta todo o resto com `_ => {}`."
+                    },
                 });
             }
             if (t.contains("async fn ") || t.contains(".await"))
@@ -2629,18 +3431,31 @@ impl DesugarReport {
             {
                 items.push(DesugarItem {
                     id: "sugar-async",
-                    title: "Assíncrono `async fn` / `.await`",
+                    title: if english {
+                        "Async `async fn` / `.await`"
+                    } else {
+                        "Assíncrono `async fn` / `.await`"
+                    },
                     line_1based: Some(line_no),
                     sugar_snippet: t.to_string(),
-                    expanded_rust: "fn minha_fn() -> impl ::core::future::Future<Output = T> {\n    enum __Estado { Inicio, Aguardando(SubFuture), Concluido }\n    /* máquina de estados poll(&mut self, cx) */\n}".to_string(),
-                    explanation: "`async fn` NÃO cria thread: o compilador gera uma máquina de estados compacta na memória que avança quando o runtime chama `.poll()`.",
+                    expanded_rust: if english {
+                        "fn my_fn() -> impl ::core::future::Future<Output = T> {\n    enum __State { Start, Waiting(SubFuture), Done }\n    /* state machine poll(&mut self, cx) */\n}"
+                    } else {
+                        "fn minha_fn() -> impl ::core::future::Future<Output = T> {\n    enum __Estado { Inicio, Aguardando(SubFuture), Concluido }\n    /* máquina de estados poll(&mut self, cx) */\n}"
+                    }
+                    .to_string(),
+                    explanation: if english {
+                        "`async fn` does NOT spawn a thread: the compiler generates a compact in-memory state machine driven forward when the runtime calls `.poll()`."
+                    } else {
+                        "`async fn` NÃO cria thread: o compilador gera uma máquina de estados compacta na memória que avança quando o runtime chama `.poll()`."
+                    },
                 });
             }
         }
 
         let detected_from_editor = !items.is_empty();
         if items.len() < 2 {
-            for fallback in classic_desugar_examples() {
+            for fallback in classic_desugar_examples_for(english) {
                 if !items.iter().any(|i| i.id == fallback.id) {
                     items.push(fallback);
                 }
@@ -2668,7 +3483,35 @@ fn contains_question_mark_op(line: &str) -> bool {
     false
 }
 
-fn classic_desugar_examples() -> Vec<DesugarItem> {
+fn classic_desugar_examples_for(english: bool) -> Vec<DesugarItem> {
+    if english {
+        return vec![
+            DesugarItem {
+                id: "macro-vec",
+                title: "Macro vec![1, 2, 3] (Classic example)",
+                line_1based: None,
+                sugar_snippet: "let v = vec![1, 2, 3];".to_string(),
+                expanded_rust: "let v = <[_]>::into_vec(::alloc::boxed::Box::new([1, 2, 3]));".to_string(),
+                explanation: "Creates an exact-size array on the Heap and turns it into a ready `Vec` with zero reallocations.",
+            },
+            DesugarItem {
+                id: "sugar-for",
+                title: "Loop `for item in list` (Classic example)",
+                line_1based: None,
+                sugar_snippet: "for item in &list { println!(\"{item}\"); }".to_string(),
+                expanded_rust: "let mut __it = (&list).into_iter();\nwhile let Some(item) = __it.next() {\n    ::std::io::_print(format_args_nl!(\"{item}\"));\n}".to_string(),
+                explanation: "Syntactic sugar over `Iterator::next` — which is why it works identically for arrays, ranges `0..10`, and collections.",
+            },
+            DesugarItem {
+                id: "sugar-qmark",
+                title: "Operator `?` (Classic example)",
+                line_1based: None,
+                sugar_snippet: "let n: i32 = text.parse()?;".to_string(),
+                expanded_rust: "let n: i32 = match text.parse() {\n    Ok(v) => v,\n    Err(e) => return Err(From::from(e)),\n};".to_string(),
+                explanation: "Replaces repetitive error-handling boilerplate while keeping error propagation completely explicit in the return type.",
+            },
+        ];
+    }
     vec![
         DesugarItem {
             id: "macro-vec",
@@ -2776,6 +3619,77 @@ pub const POLYGLOT_DICTIONARY: [PolyglotEntry; 6] = [
     },
 ];
 
+pub const POLYGLOT_DICTIONARY_EN: [PolyglotEntry; 6] = [
+    PolyglotEntry {
+        id: "POLY-01",
+        concept: "Missing Values (Null / None / undefined)",
+        from_python: "val = None  # only fails at runtime with AttributeError",
+        from_js: "const val = null ?? 'default';  // undefined vs null",
+        from_cpp: "std::optional<T> / nullptr  // dereferencing null is UB",
+        idiomatic_rust: "Option<T> (Some(x) | None) — NullPointer won't compile!",
+        why_rust_differs: "Rust has no `null`: the `Option<T>` type forces you to handle `None` via `match`, `if let`, `.unwrap_or()`, or `?`.",
+        rust_code: POLYGLOT_DICTIONARY[0].rust_code,
+    },
+    PolyglotEntry {
+        id: "POLY-02",
+        concept: "Error Handling (try/catch -> Result + ?)",
+        from_python: "try: x = int(s)\nexcept ValueError as e: ...",
+        from_js: "try { JSON.parse(s) } catch (err) { ... }",
+        from_cpp: "throw std::runtime_error(...) / negative error codes",
+        idiomatic_rust: "Result<T, E> + `?` operator — errors visible in signatures!",
+        why_rust_differs: "Hidden exceptions create invisible control flow; `Result` enforces explicit failure paths with zero stack-unwinding overhead.",
+        rust_code: POLYGLOT_DICTIONARY[1].rust_code,
+    },
+    PolyglotEntry {
+        id: "POLY-03",
+        concept: "List Transformations (map / filter / comprehension)",
+        from_python: "[x * 2 for x in nums if x > 0]  # allocates a new list",
+        from_js: "nums.filter(x => x > 0).map(x => x * 2)  // builds 2 arrays!",
+        from_cpp: "std::ranges::views::filter | views::transform",
+        idiomatic_rust: "slice.iter().copied().filter(...).map(...).sum()",
+        why_rust_differs: "Rust iterators are lazy and monomorphized: `.filter().map().sum()` compiles into one tight machine loop with ZERO intermediate allocations.",
+        rust_code: POLYGLOT_DICTIONARY[2].rust_code,
+    },
+    PolyglotEntry {
+        id: "POLY-04",
+        concept: "Classes & Inheritance -> Struct + Trait + Composition",
+        from_python: "class Bot(Entity): def act(self): ...",
+        from_js: "class Bot extends Entity { act() {} }",
+        from_cpp: "class Bot : public Entity { virtual void act(); };",
+        idiomatic_rust: "struct Data + trait Behavior + impl Trait for Data",
+        why_rust_differs: "No deep implementation inheritance; composition and traits give zero-cost static dispatch (`impl Trait`) or explicit dynamic dispatch (`&dyn Trait`).",
+        rust_code: POLYGLOT_DICTIONARY[3].rust_code,
+    },
+    PolyglotEntry {
+        id: "POLY-05",
+        concept: "Memory & Pointers (GC / Smart Pointers -> Ownership)",
+        from_python: "GC + automatic refcounting everywhere (GIL)",
+        from_js: "Garbage Collector managed by V8",
+        from_cpp: "std::unique_ptr (move) / std::shared_ptr / raw ptrs",
+        idiomatic_rust: "Single ownership (T), borrows (&T / &mut T), and Box/Arc",
+        why_rust_differs: "No Garbage Collector pauses and no dangling pointers: the compiler inserts `drop()` deterministically when an owner leaves scope.",
+        rust_code: POLYGLOT_DICTIONARY[4].rust_code,
+    },
+    PolyglotEntry {
+        id: "POLY-06",
+        concept: "Safe Concurrency (Threads / Promises -> Send + Sync)",
+        from_python: "threading limited by GIL / asyncio",
+        from_js: "Single-threaded event loop with Promise.all",
+        from_cpp: "std::thread + std::mutex (data races possible!)",
+        idiomatic_rust: "Mutex<T> wraps the data + Send/Sync prevent data races!",
+        why_rust_differs: "In C++ the mutex sits next to the data; in Rust `Mutex<T>` OWNS the data inside — you cannot touch `T` without locking first.",
+        rust_code: POLYGLOT_DICTIONARY[5].rust_code,
+    },
+];
+
+pub fn polyglot_dictionary(english: bool) -> &'static [PolyglotEntry] {
+    if english {
+        &POLYGLOT_DICTIONARY_EN
+    } else {
+        &POLYGLOT_DICTIONARY
+    }
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct IntuitionFlashcard {
     pub id: &'static str,
@@ -2785,6 +3699,89 @@ pub struct IntuitionFlashcard {
     pub compiles: bool,
     pub error_code: &'static str,
     pub explanation: &'static str,
+}
+
+pub const INTUITION_FLASHCARDS_EN: [IntuitionFlashcard; 8] = [
+    IntuitionFlashcard {
+        id: "FLASH-01",
+        title: "Moving a String then reading it",
+        topic: "Ownership",
+        snippet: "let a = String::from(\"hi\");\nlet b = a;\nprintln!(\"{a}\");",
+        compiles: false,
+        error_code: "E0382",
+        explanation: "`String` does not implement `Copy`; `let b = a` moves ownership to `b`, invalidating `a`.",
+    },
+    IntuitionFlashcard {
+        id: "FLASH-02",
+        title: "Copying i32 on assignment",
+        topic: "Stack & Copy",
+        snippet: "let x = 42;\nlet y = x;\nprintln!(\"{x} + {y}\");",
+        compiles: true,
+        error_code: "COMPILES",
+        explanation: "`i32` lives entirely on the Stack and implements `Copy`; both `x` and `y` remain valid.",
+    },
+    IntuitionFlashcard {
+        id: "FLASH-03",
+        title: "NLL: last use of `&v` before `v.push`",
+        topic: "Non-Lexical Lifetimes",
+        snippet: "let mut v = vec![1, 2];\nlet first = v[0];\nprintln!(\"{first}\");\nv.push(3);",
+        compiles: true,
+        error_code: "COMPILES",
+        explanation: "`v[0]` copies an `i32`, and even with `let r = &v[0]`, once `r` is never used after `println!`, NLL ends the borrow before `v.push(3)`!",
+    },
+    IntuitionFlashcard {
+        id: "FLASH-04",
+        title: "Two `&mut` borrows active simultaneously",
+        topic: "Exclusivity",
+        snippet: "let mut x = 5;\nlet r1 = &mut x;\nlet r2 = &mut x;\nprintln!(\"{r1} {r2}\");",
+        compiles: false,
+        error_code: "E0499",
+        explanation: "Both `r1` and `r2` stay alive until `println!`: two simultaneous mutable borrows are forbidden.",
+    },
+    IntuitionFlashcard {
+        id: "FLASH-05",
+        title: "Returning `&String` created inside a function",
+        topic: "Dangling Reference",
+        snippet: "fn create() -> &String {\n    let s = String::from(\"tmp\");\n    &s\n}",
+        compiles: false,
+        error_code: "E0106/E0515",
+        explanation: "`s` is dropped when `create()` exits, leaving `&s` pointing to freed memory. Return owned `String` instead!",
+    },
+    IntuitionFlashcard {
+        id: "FLASH-06",
+        title: "Deref Coercion: passing `&String` to `&str`",
+        topic: "Slices & Deref",
+        snippet: "fn greet(name: &str) { println!(\"{name}\"); }\nlet owner = String::from(\"Ferris\");\ngreet(&owner);",
+        compiles: true,
+        error_code: "COMPILES",
+        explanation: "`String` implements `Deref<Target = str>`, allowing `&String` wherever `&str` is expected without cloning!",
+    },
+    IntuitionFlashcard {
+        id: "FLASH-07",
+        title: "Mutating a String while a slice is used later",
+        topic: "Borrow Conflict",
+        snippet: "let mut s = String::from(\"rust\");\nlet slice = &s[..2];\ns.push('!');\nprintln!(\"{slice}\");",
+        compiles: false,
+        error_code: "E0502",
+        explanation: "`s.push('!')` might reallocate the Heap buffer, invalidating `slice` which is still read on the last line.",
+    },
+    IntuitionFlashcard {
+        id: "FLASH-08",
+        title: "Multiple simultaneous immutable `&T` borrows",
+        topic: "Shared Borrowing",
+        snippet: "let s = String::from(\"safe\");\nlet r1 = &s;\nlet r2 = &s;\nprintln!(\"{r1} and {r2}\");",
+        compiles: true,
+        error_code: "COMPILES",
+        explanation: "Multiple shared references `&T` at the same time are 100% safe because nobody mutates the data.",
+    },
+];
+
+pub fn intuition_flashcard(idx: usize, english: bool) -> IntuitionFlashcard {
+    if english {
+        INTUITION_FLASHCARDS_EN[idx % INTUITION_FLASHCARDS_EN.len()]
+    } else {
+        INTUITION_FLASHCARDS[idx % INTUITION_FLASHCARDS.len()]
+    }
 }
 
 pub const INTUITION_FLASHCARDS: [IntuitionFlashcard; 8] = [
@@ -2866,15 +3863,39 @@ pub fn evaluate_flashcard_answer(
     card: &IntuitionFlashcard,
     user_says_compiles: bool,
 ) -> (bool, String) {
+    evaluate_flashcard_answer_for(card, user_says_compiles, false)
+}
+
+pub fn evaluate_flashcard_answer_for(
+    card: &IntuitionFlashcard,
+    user_says_compiles: bool,
+    english: bool,
+) -> (bool, String) {
     let correct = card.compiles == user_says_compiles;
     let verdict = if card.compiles {
-        "COMPILA ✔"
+        if english {
+            "COMPILES ✔"
+        } else {
+            "COMPILA ✔"
+        }
     } else {
         card.error_code
     };
     let msg = if correct {
+        if english {
+            format!(
+                "✔ Spot on! ({verdict}) — {} (+25 XP if new)",
+                card.explanation
+            )
+        } else {
+            format!(
+                "✔ Acertou! ({verdict}) — {} (+25 XP se inédito)",
+                card.explanation
+            )
+        }
+    } else if english {
         format!(
-            "✔ Acertou! ({verdict}) — {} (+25 XP se inédito)",
+            "✘ Close! Actual compiler result: {verdict} — {}",
             card.explanation
         )
     } else {
@@ -2908,6 +3929,10 @@ pub struct NativeDebuggerProbe {
 }
 
 pub fn detect_native_debugger() -> NativeDebuggerProbe {
+    detect_native_debugger_for(false)
+}
+
+pub fn detect_native_debugger_for(english: bool) -> NativeDebuggerProbe {
     if let Ok(forced) = std::env::var("RUSTLAB_FAKE_DEBUGGER") {
         return match forced.trim() {
             "rust-gdb" => NativeDebuggerProbe {
@@ -2924,9 +3949,13 @@ pub fn detect_native_debugger() -> NativeDebuggerProbe {
             },
             _ => NativeDebuggerProbe {
                 kind: NativeDebuggerKind::SimulatedOnly,
-                binary_name: "simulado",
+                binary_name: if english { "simulated" } else { "simulado" },
                 available: false,
-                install_hint: "Instale gdb ou lldb no sistema para depuração nativa.",
+                install_hint: if english {
+                    "Install gdb or lldb on your system for native debugging."
+                } else {
+                    "Instale gdb ou lldb no sistema para depuração nativa."
+                },
             },
         };
     }
@@ -2949,9 +3978,13 @@ pub fn detect_native_debugger() -> NativeDebuggerProbe {
 
     NativeDebuggerProbe {
         kind: NativeDebuggerKind::SimulatedOnly,
-        binary_name: "simulado",
+        binary_name: if english { "simulated" } else { "simulado" },
         available: false,
-        install_hint: "Instale `gdb`/`lldb` (e `rust-gdb`) para anexar depuração nativa; enquanto isso, o Debugger Visual didático funciona 100% offline.",
+        install_hint: if english {
+            "Install `gdb`/`lldb` (and `rust-gdb`) to attach native debugging; meanwhile, the educational Visual Debugger works 100% offline."
+        } else {
+            "Instale `gdb`/`lldb` (e `rust-gdb`) para anexar depuração nativa; enquanto isso, o Debugger Visual didático funciona 100% offline."
+        },
     }
 }
 
@@ -3291,5 +4324,27 @@ fn ler(s: &str) -> Result<i32, std::num::ParseIntError> {
         );
         assert!(cmd_lldb.starts_with("rust-lldb"));
         assert!(cmd_lldb.contains("breakpoint set --file src/main.rs --line 5"));
+    }
+
+    #[test]
+    fn ferramentas_do_lab_suportam_ingles() {
+        let sample = "fn main() {\n    let s = String::from(\"hi\");\n    let r = &s;\n    println!(\"{r}\");\n}\n";
+        let mut lab = LabState::default();
+        lab.open_tab_for(LabToolTab::RaioXMemoria, sample, "error[E0382]", true);
+        assert!(lab.last_xray.is_some());
+        assert!(lab.last_lens.is_some());
+        assert!(lab.last_lifetimes.is_some());
+        assert!(lab.last_layout.is_some());
+        assert!(lab.last_desugar.is_some());
+
+        assert!(!troubleshooting_quests(true).is_empty());
+        assert!(!modern_ecosystems(true).is_empty());
+        assert_eq!(polyglot_dictionary(true).len(), 6);
+        assert_eq!(INTUITION_FLASHCARDS_EN.len(), 8);
+
+        let c1 = &INTUITION_FLASHCARDS_EN[0];
+        let (ok, msg) = evaluate_flashcard_answer_for(c1, false, true);
+        assert!(ok);
+        assert!(msg.contains("E0382"));
     }
 }

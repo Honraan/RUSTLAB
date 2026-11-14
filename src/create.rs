@@ -79,14 +79,23 @@ pub struct CreateAgentState {
     pub next_auto_review_interval: Duration,
 }
 
-impl Default for CreateAgentState {
-    fn default() -> Self {
+impl CreateAgentState {
+    pub fn welcome_text(english: bool) -> String {
+        crate::i18n::bi(
+            "Chat lateral pronto! Peça funções, correções ou testes.\nAtalhos: /modelo (Alt+O) · /corrigir · /testes · /revisar · /aplicar (Alt+Enter) · /limpar.",
+            "Lateral chat ready! Ask for functions, fixes, or tests.\nShortcuts: /model (Alt+O) · /fix · /tests · /review · /apply (Alt+Enter) · /clear.",
+            english,
+        )
+        .to_string()
+    }
+
+    pub fn new_for(english: bool) -> Self {
         Self {
             open: false,
             messages: vec![AgentChatMessage {
                 role: AgentRole::System,
                 sender: "Antigravity".to_string(),
-                text: "Chat lateral pronto! Peça funções, correções ou testes.\nAtalhos: /modelo (Alt+O) · /corrigir · /testes · /revisar · /aplicar (Alt+Enter) · /limpar.".to_string(),
+                text: Self::welcome_text(english),
             }],
             input: String::new(),
             scroll: 0,
@@ -99,6 +108,12 @@ impl Default for CreateAgentState {
             last_auto_review: Instant::now(),
             next_auto_review_interval: next_random_review_interval(),
         }
+    }
+}
+
+impl Default for CreateAgentState {
+    fn default() -> Self {
+        Self::new_for(crate::i18n::is_english())
     }
 }
 
@@ -256,6 +271,10 @@ impl Default for CreateState {
 
 impl CreateState {
     pub fn new() -> Self {
+        Self::new_for(crate::i18n::is_english())
+    }
+
+    pub fn new_for(english: bool) -> Self {
         Self {
             view: CreateView::Start,
             start_sel: 0,
@@ -282,7 +301,7 @@ impl CreateState {
             diagnostic_index: 0,
             workspace_index: WorkspaceIndex::default(),
             lsp: None,
-            lsp_status: "índice local".to_string(),
+            lsp_status: crate::i18n::bi("índice local", "local index", english).to_string(),
             editor_doc_version: 1,
             lsp_pending_hover: None,
             lsp_pending_def: None,
@@ -291,7 +310,7 @@ impl CreateState {
             project_match_idx: 0,
             doc_popup: None,
             pending_new_project_dir: None,
-            agent: CreateAgentState::default(),
+            agent: CreateAgentState::new_for(english),
             lib_menu_open: false,
             lib_menu_sel: 0,
             build_menu_open: false,
@@ -305,6 +324,27 @@ impl CreateState {
         }
     }
 
+    fn refresh_language_for(&mut self, en: bool) {
+        self.lsp_status = match self.lsp_status.as_str() {
+            "índice local" | "local index" => {
+                crate::i18n::bi("índice local", "local index", en).to_string()
+            }
+            "iniciando rust-analyzer" | "starting rust-analyzer" => {
+                crate::i18n::bi("iniciando rust-analyzer", "starting rust-analyzer", en).to_string()
+            }
+            "rust-analyzer pronto" | "rust-analyzer ready" => {
+                crate::i18n::bi("rust-analyzer pronto", "rust-analyzer ready", en).to_string()
+            }
+            _ => std::mem::take(&mut self.lsp_status),
+        };
+        if self.agent.messages.len() == 1
+            && self.agent.messages[0].role == AgentRole::System
+            && self.agent.messages[0].sender == "Antigravity"
+        {
+            self.agent.messages[0].text = CreateAgentState::welcome_text(en);
+        }
+    }
+
     // ------------------------------------------------------------------
     // Projetos
     // ------------------------------------------------------------------
@@ -312,9 +352,15 @@ impl CreateState {
     /// Fecha o projeto aberto (salvando alterações pendentes) e retorna à
     /// tela inicial do Modo Criar.
     pub fn close_project(&mut self, app: &mut App) {
+        let en = app.is_english();
+        self.refresh_language_for(en);
         if app.exec.running {
             app.set_status(
-                "aguarde ou cancele antes de fechar o projeto",
+                crate::i18n::bi(
+                    "aguarde ou cancele antes de fechar o projeto",
+                    "wait or cancel before closing the project",
+                    en,
+                ),
                 StatusKind::Warning,
             );
             return;
@@ -339,7 +385,7 @@ impl CreateState {
         self.diags.clear();
         self.diagnostic_index = 0;
         self.workspace_index = WorkspaceIndex::default();
-        self.lsp_status = "índice local".to_string();
+        self.lsp_status = crate::i18n::bi("índice local", "local index", en).to_string();
         self.lsp_pending_hover = None;
         self.lsp_pending_def = None;
         self.lsp_pending_comp = None;
@@ -359,13 +405,22 @@ impl CreateState {
         self.focus = Focus::Editor;
         self.view = CreateView::Start;
         self.start_sel = 0;
-        app.set_status("projeto fechado", StatusKind::Info);
+        app.set_status(
+            crate::i18n::bi("projeto fechado", "project closed", en),
+            StatusKind::Info,
+        );
     }
 
     pub fn open_project(&mut self, root: &Path, app: &mut App) {
+        let en = app.is_english();
+        self.refresh_language_for(en);
         if app.exec.running {
             app.set_status(
-                "aguarde ou cancele o processo antes de trocar projeto",
+                crate::i18n::bi(
+                    "aguarde ou cancele o processo antes de trocar projeto",
+                    "wait or cancel the running process before switching projects",
+                    en,
+                ),
                 StatusKind::Warning,
             );
             return;
@@ -375,7 +430,14 @@ impl CreateState {
         }
         self.completion = Default::default();
         let Some(project) = Project::detect(root) else {
-            app.set_status("não achei Cargo.toml nesse caminho", StatusKind::Warning);
+            app.set_status(
+                crate::i18n::bi(
+                    "não achei Cargo.toml nesse caminho",
+                    "Cargo.toml not found at that path",
+                    en,
+                ),
+                StatusKind::Warning,
+            );
             return;
         };
         let files = project.source_files();
@@ -393,13 +455,24 @@ impl CreateState {
             Some(Ok(text)) => text,
             Some(Err(err)) => {
                 app.set_status(
-                    format!("não consegui ler arquivo: {err}"),
+                    if en {
+                        format!("could not read file: {err}")
+                    } else {
+                        format!("não consegui ler arquivo: {err}")
+                    },
                     StatusKind::Warning,
                 );
                 return;
             }
             None => {
-                app.set_status("projeto sem arquivo legível", StatusKind::Warning);
+                app.set_status(
+                    crate::i18n::bi(
+                        "projeto sem arquivo legível",
+                        "project has no readable files",
+                        en,
+                    ),
+                    StatusKind::Warning,
+                );
                 return;
             }
         };
@@ -419,10 +492,12 @@ impl CreateState {
         match LspClient::start(&project.root) {
             Ok(client) => {
                 self.lsp = Some(client);
-                self.lsp_status = "iniciando rust-analyzer".to_string();
+                self.lsp_status =
+                    crate::i18n::bi("iniciando rust-analyzer", "starting rust-analyzer", en)
+                        .to_string();
             }
             Err(_) => {
-                self.lsp_status = "índice local".to_string();
+                self.lsp_status = crate::i18n::bi("índice local", "local index", en).to_string();
             }
         }
         self.project = Some(project);
@@ -445,11 +520,18 @@ impl CreateState {
         self.agent.student_modified_since_review = false;
         self.agent.last_auto_review = Instant::now();
         self.diags.clear();
-        self.console.system(format!(
-            "projeto '{}' aberto — {} arquivo(s)",
-            self.project.as_ref().map(|p| p.name()).unwrap_or_default(),
-            self.files.len()
-        ));
+        let proj_name = self.project.as_ref().map(|p| p.name()).unwrap_or_default();
+        self.console.system(if en {
+            format!(
+                "project '{proj_name}' opened — {} file(s)",
+                self.files.len()
+            )
+        } else {
+            format!(
+                "projeto '{proj_name}' aberto — {} arquivo(s)",
+                self.files.len()
+            )
+        });
         app.config.workspace.last_project = Some(
             self.project
                 .as_ref()
@@ -458,7 +540,10 @@ impl CreateState {
                 .to_string_lossy()
                 .to_string(),
         );
-        app.set_status("projeto aberto", StatusKind::Success);
+        app.set_status(
+            crate::i18n::bi("projeto aberto", "project opened", en),
+            StatusKind::Success,
+        );
         let recent = app.config.workspace.last_project.clone().unwrap();
         app.config
             .workspace
@@ -468,13 +553,18 @@ impl CreateState {
         app.config.workspace.recent_projects.truncate(8);
         if let Err(err) = app.save_config() {
             app.set_status(
-                format!("projeto aberto, mas recentes não salvos: {err}"),
+                if en {
+                    format!("project opened, but recent list not saved: {err}")
+                } else {
+                    format!("projeto aberto, mas recentes não salvos: {err}")
+                },
                 StatusKind::Warning,
             );
         }
     }
 
     pub fn switch_file(&mut self, idx: usize, app: &mut App) {
+        let en = app.is_english();
         self.completion = Default::default();
         if idx >= self.files.len() {
             return;
@@ -488,7 +578,11 @@ impl CreateState {
             Some(Ok(text)) => text,
             _ => {
                 app.set_status(
-                    "não consegui ler arquivo; editor preservado",
+                    crate::i18n::bi(
+                        "não consegui ler arquivo; editor preservado",
+                        "could not read file; editor preserved",
+                        en,
+                    ),
                     StatusKind::Warning,
                 );
                 return;
@@ -512,6 +606,7 @@ impl CreateState {
         if !self.editor.dirty {
             return;
         }
+        let en = app.is_english();
         let (Some(project), Some(path)) = (&self.project, self.editor.path.clone()) else {
             return;
         };
@@ -520,10 +615,20 @@ impl CreateState {
             Ok(()) => {
                 self.editor.mark_saved();
                 self.workspace_index = WorkspaceIndex::reindex(project, &self.files);
-                self.console.system(format!("salvo: {}", path.display()));
+                self.console.system(format!(
+                    "{}: {}",
+                    crate::i18n::bi("salvo", "saved", en),
+                    path.display()
+                ));
             }
             Err(e) => {
-                app.set_status(format!("erro ao salvar: {e}"), StatusKind::Warning);
+                app.set_status(
+                    format!(
+                        "{}: {e}",
+                        crate::i18n::bi("erro ao salvar", "save error", en)
+                    ),
+                    StatusKind::Warning,
+                );
             }
         }
     }
@@ -538,9 +643,14 @@ impl CreateState {
     }
 
     fn begin_prompt(&mut self, kind: PromptKind, app: &mut App) {
+        let en = app.is_english();
         if app.exec.running {
             app.set_status(
-                "aguarde ou cancele o comando antes desta ação",
+                crate::i18n::bi(
+                    "aguarde ou cancele o comando antes desta ação",
+                    "wait or cancel the running command before this action",
+                    en,
+                ),
                 StatusKind::Warning,
             );
             return;
@@ -562,6 +672,7 @@ impl CreateState {
         let Some(project) = &self.project else {
             return;
         };
+        let en = app.is_english();
         self.files = project.source_files();
         self.workspace_index = WorkspaceIndex::reindex(project, &self.files);
         self.open_idx = self
@@ -571,12 +682,22 @@ impl CreateState {
             .and_then(|path| self.files.iter().position(|p| p == path))
             .unwrap_or(0);
         self.selected_file = self.open_idx;
-        app.set_status("lista de arquivos atualizada", StatusKind::Info);
+        app.set_status(
+            crate::i18n::bi("lista de arquivos atualizada", "file list updated", en),
+            StatusKind::Info,
+        );
     }
 
     fn jump_diagnostic(&mut self, app: &mut App) {
         if self.diags.is_empty() {
-            app.set_status("sem diagnósticos para navegar", StatusKind::Info);
+            app.set_status(
+                crate::i18n::bi(
+                    "sem diagnósticos para navegar",
+                    "no diagnostics to navigate",
+                    app.is_english(),
+                ),
+                StatusKind::Info,
+            );
             return;
         }
         let diag = self.diags[self.diagnostic_index % self.diags.len()].clone();
@@ -615,7 +736,11 @@ impl CreateState {
             self.focus = Focus::Editor;
         } else {
             app.set_status(
-                "arquivo fora da lista indexada; Ctrl+R atualiza",
+                crate::i18n::bi(
+                    "arquivo fora da lista indexada; Ctrl+R atualiza",
+                    "file outside indexed list; Ctrl+R refreshes",
+                    app.is_english(),
+                ),
                 StatusKind::Info,
             );
         }
@@ -627,9 +752,14 @@ impl CreateState {
     }
 
     pub fn go_to_definition(&mut self, app: &mut App) {
+        let en = app.is_english();
         let Some(symbol) = self.cursor_symbol() else {
             app.set_status(
-                "posicione o cursor sobre um identificador",
+                crate::i18n::bi(
+                    "posicione o cursor sobre um identificador",
+                    "place the cursor on an identifier",
+                    en,
+                ),
                 StatusKind::Info,
             );
             return;
@@ -648,7 +778,8 @@ impl CreateState {
             self.jump_to_location(&sym.file, sym.line, sym.column, app);
             app.set_status(
                 format!(
-                    "definição de `{}` ({}:{})",
+                    "{} `{}` ({}:{})",
+                    crate::i18n::bi("definição de", "definition of", en),
                     sym.name,
                     sym.file
                         .file_name()
@@ -666,20 +797,36 @@ impl CreateState {
         {
             self.lsp_pending_def = Some(id);
             app.set_status(
-                format!("consultando definição de `{symbol}` no rust-analyzer…"),
+                if en {
+                    format!("querying `{symbol}` definition in rust-analyzer…")
+                } else {
+                    format!("consultando definição de `{symbol}` no rust-analyzer…")
+                },
                 StatusKind::Info,
             );
             return;
         }
         app.set_status(
-            format!("definição local de `{symbol}` não encontrada"),
+            if en {
+                format!("local definition of `{symbol}` not found")
+            } else {
+                format!("definição local de `{symbol}` não encontrada")
+            },
             StatusKind::Info,
         );
     }
 
     pub fn show_doc_at_cursor(&mut self, app: &mut App) {
+        let en = app.is_english();
         let Some(symbol) = self.cursor_symbol() else {
-            app.set_status("posicione o cursor sobre um símbolo Rust", StatusKind::Info);
+            app.set_status(
+                crate::i18n::bi(
+                    "posicione o cursor sobre um símbolo Rust",
+                    "place the cursor on a Rust symbol",
+                    en,
+                ),
+                StatusKind::Info,
+            );
             return;
         };
         if let Some(project) = &self.project
@@ -688,19 +835,22 @@ impl CreateState {
             self.workspace_index = WorkspaceIndex::reindex(project, &self.files);
         }
         let local_doc = self.workspace_index.find_doc(&symbol);
-        let resolved =
-            crate::doc_hint::resolve_symbol_doc(&symbol, &self.editor.buf.to_string_lossy());
+        let resolved = crate::doc_hint::resolve_symbol_doc_for(
+            &symbol,
+            &self.editor.buf.to_string_lossy(),
+            en,
+        );
         if let Some(doc) = local_doc {
             self.doc_popup = Some(DocPopup {
                 title: symbol.clone(),
                 body: doc,
-                url: resolved.map(|r| r.best_url().to_string()),
+                url: resolved.map(|r| r.best_url_for(en).to_string()),
             });
         } else if let Some(r) = resolved {
             self.doc_popup = Some(DocPopup {
                 title: r.title.clone(),
                 body: r.summary.clone(),
-                url: Some(r.best_url().to_string()),
+                url: Some(r.best_url_for(en).to_string()),
             });
         }
         if let (Some(lsp), Some(path)) = (self.lsp.as_mut(), self.editor.path.clone())
@@ -710,7 +860,11 @@ impl CreateState {
             self.lsp_pending_hover = Some(id);
             if self.doc_popup.is_none() {
                 app.set_status(
-                    format!("consultando `{symbol}` no rust-analyzer…"),
+                    if en {
+                        format!("querying `{symbol}` in rust-analyzer…")
+                    } else {
+                        format!("consultando `{symbol}` no rust-analyzer…")
+                    },
                     StatusKind::Info,
                 );
             }
@@ -718,15 +872,27 @@ impl CreateState {
         }
         if self.doc_popup.is_none() {
             app.set_status(
-                format!("sem documentação local para `{symbol}`"),
+                if en {
+                    format!("no local documentation for `{symbol}`")
+                } else {
+                    format!("sem documentação local para `{symbol}`")
+                },
                 StatusKind::Info,
             );
         }
     }
 
     pub fn jump_next_project_match(&mut self, app: &mut App) {
+        let en = app.is_english();
         if self.project_matches.is_empty() {
-            app.set_status("nenhuma busca de projeto ativa (Ctrl+G)", StatusKind::Info);
+            app.set_status(
+                crate::i18n::bi(
+                    "nenhuma busca de projeto ativa (Ctrl+G)",
+                    "no active project search (Ctrl+G)",
+                    en,
+                ),
+                StatusKind::Info,
+            );
             return;
         }
         let idx = self.project_match_idx % self.project_matches.len();
@@ -735,13 +901,14 @@ impl CreateState {
         self.jump_to_location(&hit.file, hit.line, hit.column, app);
         app.set_status(
             format!(
-                "busca no projeto ({}/{}) — {}:{}",
+                "{} ({}/{}) — {}:{}",
+                crate::i18n::bi("busca no projeto", "project search", en),
                 idx + 1,
                 self.project_matches.len(),
                 hit.file
                     .file_name()
                     .and_then(|n| n.to_str())
-                    .unwrap_or("arquivo"),
+                    .unwrap_or(crate::i18n::bi("arquivo", "file", en)),
                 hit.line + 1
             ),
             StatusKind::Info,
@@ -781,6 +948,7 @@ impl CreateState {
     }
 
     pub fn poll_lsp(&mut self, app: &mut App) -> bool {
+        let en = app.is_english();
         let Some(events) = self.lsp.as_mut().map(LspClient::poll_events) else {
             return false;
         };
@@ -790,7 +958,9 @@ impl CreateState {
         for ev in events {
             match ev {
                 LspEvent::Initialized => {
-                    self.lsp_status = "rust-analyzer pronto".to_string();
+                    self.lsp_status =
+                        crate::i18n::bi("rust-analyzer pronto", "rust-analyzer ready", en)
+                            .to_string();
                     if let (Some(lsp), Some(path)) = (self.lsp.as_mut(), self.editor.path.as_ref())
                         && path.extension().is_some_and(|e| e == "rs")
                     {
@@ -819,7 +989,8 @@ impl CreateState {
                             let title = self
                                 .cursor_symbol()
                                 .unwrap_or_else(|| "rust-analyzer".to_string());
-                            let url = crate::doc_hint::lookup(&title).map(|h| h.url.to_string());
+                            let url =
+                                crate::doc_hint::lookup_for(&title, en).map(|h| h.url.to_string());
                             self.doc_popup = Some(DocPopup { title, body, url });
                         }
                     }
@@ -833,7 +1004,14 @@ impl CreateState {
                         if let Some((path, line, col)) = location {
                             self.jump_to_location(&path, line, col, app);
                         } else {
-                            app.set_status("definição não encontrada", StatusKind::Info);
+                            app.set_status(
+                                crate::i18n::bi(
+                                    "definição não encontrada",
+                                    "definition not found",
+                                    en,
+                                ),
+                                StatusKind::Info,
+                            );
                         }
                     }
                 }
@@ -886,9 +1064,14 @@ impl CreateState {
     }
 
     fn submit_exec(&mut self, cmd: ToolCommand, app: &mut App) {
+        let en = app.is_english();
         if app.exec.running {
             app.set_status(
-                "já há um comando Cargo rodando; aguarde ou use Ctrl+K",
+                crate::i18n::bi(
+                    "já há um comando Cargo rodando; aguarde ou use Ctrl+K",
+                    "another Cargo command is already running; wait or press Ctrl+K",
+                    en,
+                ),
                 StatusKind::Warning,
             );
             return;
@@ -909,7 +1092,11 @@ impl CreateState {
             let project_path = dir.join(name);
             if let Err(e) = std::fs::create_dir_all(&dir) {
                 app.set_status(
-                    format!("não consegui criar {}: {e}", dir.display()),
+                    if en {
+                        format!("could not create {}: {e}", dir.display())
+                    } else {
+                        format!("não consegui criar {}: {e}", dir.display())
+                    },
                     StatusKind::Warning,
                 );
                 return;
@@ -917,7 +1104,11 @@ impl CreateState {
             match app.exec.submit(cmd, dir) {
                 Ok(()) => {
                     self.after_exec = AfterExec::OpenNewProject(project_path);
-                    self.console.system("▶ cargo new (criando projeto…)");
+                    self.console.system(crate::i18n::bi(
+                        "▶ cargo new (criando projeto…)",
+                        "▶ cargo new (creating project…)",
+                        en,
+                    ));
                 }
                 Err(e) => {
                     self.after_exec = AfterExec::None;
@@ -927,13 +1118,20 @@ impl CreateState {
             return;
         }
         let Some(project) = self.project.clone() else {
-            app.set_status("nenhum projeto aberto", StatusKind::Warning);
+            app.set_status(
+                crate::i18n::bi("nenhum projeto aberto", "no project open", en),
+                StatusKind::Warning,
+            );
             return;
         };
         // salvar antes de executar: rodar código velho confunde qualquer um
         if !self.save_ok(app) {
             app.set_status(
-                "execução cancelada: não consegui salvar o arquivo",
+                crate::i18n::bi(
+                    "execução cancelada: não consegui salvar o arquivo",
+                    "execution canceled: could not save the file",
+                    en,
+                ),
                 StatusKind::Warning,
             );
             return;
@@ -952,15 +1150,26 @@ impl CreateState {
         match app.exec.submit(cmd, project.root.clone()) {
             Ok(()) => {
                 let timeout = secs_of(&label);
-                self.console.system(format!(
-                    "▶ {label} — timeout {}s · Ctrl+K cancela · {}",
-                    if interactive { 300 } else { timeout },
-                    if interactive {
-                        "entrada por linhas · Enter envia · Ctrl+D EOF"
-                    } else {
-                        "stdin fechado"
-                    }
-                ));
+                let stdin_mode = if interactive {
+                    crate::i18n::bi(
+                        "entrada por linhas · Enter envia · Ctrl+D EOF",
+                        "line input · Enter sends · Ctrl+D EOF",
+                        en,
+                    )
+                } else {
+                    crate::i18n::bi("stdin fechado", "stdin closed", en)
+                };
+                self.console.system(if en {
+                    format!(
+                        "▶ {label} — timeout {}s · Ctrl+K cancels · {stdin_mode}",
+                        if interactive { 300 } else { timeout }
+                    )
+                } else {
+                    format!(
+                        "▶ {label} — timeout {}s · Ctrl+K cancela · {stdin_mode}",
+                        if interactive { 300 } else { timeout }
+                    )
+                });
                 self.console_input.clear();
                 self.focus = Focus::Console;
             }
@@ -970,9 +1179,13 @@ impl CreateState {
 
     /// Consome eventos do executor (chamado pelo loop principal).
     pub fn handle_exec_event(&mut self, ev: ExecEvent, app: &mut App) {
+        let en = app.is_english();
         match ev {
             ExecEvent::Started { label } => {
-                self.console.system(format!("… {label} iniciado"));
+                self.console.system(format!(
+                    "… {label} {}",
+                    crate::i18n::bi("iniciado", "started", en)
+                ));
             }
             ExecEvent::Chunk { kind, text } => {
                 if kind == StreamKind::Stderr {
@@ -993,8 +1206,11 @@ impl CreateState {
                 self.last_exit_success = Some(success);
                 let after = std::mem::replace(&mut self.after_exec, AfterExec::None);
                 if success {
-                    self.console
-                        .system(format!("✔ {label} terminou (código {})", code.unwrap_or(0)));
+                    self.console.system(if en {
+                        format!("✔ {label} finished (exit code {})", code.unwrap_or(0))
+                    } else {
+                        format!("✔ {label} terminou (código {})", code.unwrap_or(0))
+                    });
                     if matches!(after, AfterExec::None | AfterExec::LaunchExternalWindow) {
                         self.record_project_milestones(&label, app);
                     }
@@ -1002,31 +1218,55 @@ impl CreateState {
                         let bin_name = package_binary_name(project);
                         if label == "cargo build (Linux)" {
                             let path = project.root.join("target/release").join(&bin_name);
-                            self.console
-                                .system(format!("✔ Binário Linux pronto: {}", path.display()));
+                            self.console.system(format!(
+                                "{}: {}",
+                                crate::i18n::bi(
+                                    "✔ Binário Linux pronto",
+                                    "✔ Linux binary ready",
+                                    en
+                                ),
+                                path.display()
+                            ));
                         } else if label == "cargo build (Windows)" {
                             let path = project
                                 .root
                                 .join("target/x86_64-pc-windows-gnu/release")
                                 .join(format!("{bin_name}.exe"));
-                            self.console
-                                .system(format!("✔ Executável Windows pronto: {}", path.display()));
+                            self.console.system(format!(
+                                "{}: {}",
+                                crate::i18n::bi(
+                                    "✔ Executável Windows pronto",
+                                    "✔ Windows executable ready",
+                                    en
+                                ),
+                                path.display()
+                            ));
                         } else if after == AfterExec::LaunchExternalWindow {
                             let path = project.root.join("target/debug").join(&bin_name);
-                            match spawn_external_app(&path, &project.root) {
+                            match spawn_external_app(&path, &project.root, en) {
                                 Ok(msg) => {
                                     self.console.system(msg.clone());
                                     app.set_status(msg, StatusKind::Success);
                                 }
                                 Err(err) => {
-                                    self.console.system(format!("Aviso janela externa: {err}"));
+                                    self.console.system(format!(
+                                        "{}: {err}",
+                                        crate::i18n::bi(
+                                            "Aviso janela externa",
+                                            "External window notice",
+                                            en
+                                        )
+                                    ));
                                     app.set_status(err, StatusKind::Warning);
                                 }
                             }
                         }
                     }
                     if after != AfterExec::LaunchExternalWindow {
-                        app.set_status(format!("{label}: sucesso"), StatusKind::Success);
+                        app.set_status(
+                            format!("{label}: {}", crate::i18n::bi("sucesso", "succeeded", en)),
+                            StatusKind::Success,
+                        );
                     }
                 } else {
                     let exit = code.map(|c| c.to_string()).unwrap_or_else(|| "?".into());
@@ -1035,14 +1275,31 @@ impl CreateState {
                         .lines()
                         .map(str::trim)
                         .rfind(|line| !line.is_empty() && !line.starts_with("note:"))
-                        .map(|line| format!("{label} falhou (código {exit}): {line}"))
-                        .unwrap_or_else(|| format!("{label} falhou (código {exit})"));
-                    self.console
-                        .system(format!("✘ {label} terminou com erro (código {exit})"));
+                        .map(|line| {
+                            if en {
+                                format!("{label} failed (code {exit}): {line}")
+                            } else {
+                                format!("{label} falhou (código {exit}): {line}")
+                            }
+                        })
+                        .unwrap_or_else(|| {
+                            if en {
+                                format!("{label} failed (code {exit})")
+                            } else {
+                                format!("{label} falhou (código {exit})")
+                            }
+                        });
+                    self.console.system(if en {
+                        format!("✘ {label} exited with error (code {exit})")
+                    } else {
+                        format!("✘ {label} terminou com erro (código {exit})")
+                    });
                     if label == "cargo build (Windows)" {
-                        self.console.system(
+                        self.console.system(crate::i18n::bi(
                             "Dica Windows: instale `rustup target add x86_64-pc-windows-gnu` e `mingw-w64` no Linux para gerar .exe.",
-                        );
+                            "Windows hint: install `rustup target add x86_64-pc-windows-gnu` and `mingw-w64` on Linux to build .exe.",
+                            en,
+                        ));
                     } else if [
                         "alsa",
                         "asound",
@@ -1054,9 +1311,11 @@ impl CreateState {
                     .iter()
                     .any(|needle| self.stderr_buf.contains(needle))
                     {
-                        self.console.system(
+                        self.console.system(crate::i18n::bi(
                             "Dica Bevy/GUI Linux (dependências do sistema): Ubuntu/Debian: `sudo apt install pkg-config libx11-dev libasound2-dev libudev-dev libxkbcommon-x11-0 libwayland-dev` | openSUSE: `sudo zypper install pkg-config libudev-devel alsa-devel libX11-devel libXi-devel libXcursor-devel libxkbcommon-devel wayland-devel` | Fedora: `sudo dnf install pkgconf-pkg-config systemd-devel alsa-lib-devel libX11-devel libxkbcommon-devel wayland-devel` | Arch: `sudo pacman -S pkgconf systemd-libs alsa-lib libx11 libxkbcommon wayland`.",
-                        );
+                            "Bevy/GUI Linux hint (system dependencies): Ubuntu/Debian: `sudo apt install pkg-config libx11-dev libasound2-dev libudev-dev libxkbcommon-x11-0 libwayland-dev` | openSUSE: `sudo zypper install pkg-config libudev-devel alsa-devel libX11-devel libXi-devel libXcursor-devel libxkbcommon-devel wayland-devel` | Fedora: `sudo dnf install pkgconf-pkg-config systemd-devel alsa-lib-devel libX11-devel libxkbcommon-devel wayland-devel` | Arch: `sudo pacman -S pkgconf systemd-libs alsa-lib libx11 libxkbcommon wayland`.",
+                            en,
+                        ));
                     }
                     self.last_failure = Some(generic_detail.clone());
                     app.set_status(generic_detail, StatusKind::Warning);
@@ -1068,8 +1327,11 @@ impl CreateState {
                     self.diags = parse_diagnostics(&self.stderr_buf);
                     if !self.diags.is_empty() {
                         let (e, w) = count_diags(&self.diags);
-                        self.console
-                            .system(format!("diagnóstico: {e} erro(s), {w} aviso(s)"));
+                        self.console.system(if en {
+                            format!("diagnostics: {e} error(s), {w} warning(s)")
+                        } else {
+                            format!("diagnóstico: {e} erro(s), {w} aviso(s)")
+                        });
                     }
                 }
                 if let AfterExec::OpenNewProject(path) = after {
@@ -1082,11 +1344,23 @@ impl CreateState {
                             .lines()
                             .map(str::trim)
                             .rfind(|line| !line.is_empty() && !line.starts_with("note:"))
-                            .map(|line| format!("cargo new falhou (código {exit}): {line}"))
+                            .map(|line| {
+                                if en {
+                                    format!("cargo new failed (code {exit}): {line}")
+                                } else {
+                                    format!("cargo new falhou (código {exit}): {line}")
+                                }
+                            })
                             .unwrap_or_else(|| {
-                                format!(
-                                    "cargo new falhou (código {exit}); o Cargo não produziu uma mensagem de erro"
-                                )
+                                if en {
+                                    format!(
+                                        "cargo new failed (code {exit}); Cargo produced no error message"
+                                    )
+                                } else {
+                                    format!(
+                                        "cargo new falhou (código {exit}); o Cargo não produziu uma mensagem de erro"
+                                    )
+                                }
                             });
                         self.last_failure = Some(detail.clone());
                         app.set_status(detail, StatusKind::Warning);
@@ -1105,10 +1379,16 @@ impl CreateState {
                 }
             }
             ExecEvent::TimedOut { label } => {
-                self.console.system(format!(
-                    "⏱ {label} estourou o tempo limite e foi finalizado (loop infinito?)"
-                ));
-                let reason = format!("{label} atingiu o tempo limite");
+                self.console.system(if en {
+                    format!("⏱ {label} timed out and was terminated (infinite loop?)")
+                } else {
+                    format!("⏱ {label} estourou o tempo limite e foi finalizado (loop infinito?)")
+                });
+                let reason = if en {
+                    format!("{label} timed out")
+                } else {
+                    format!("{label} atingiu o tempo limite")
+                };
                 self.last_failure = Some(reason.clone());
                 app.set_status(reason, StatusKind::Warning);
                 self.last_exit_success = Some(false);
@@ -1116,17 +1396,26 @@ impl CreateState {
                 self.after_exec_reload = false;
             }
             ExecEvent::Cancelled { label } => {
-                self.console.system(format!("■ {label} cancelado"));
-                app.set_status("comando cancelado", StatusKind::Info);
+                self.console.system(format!(
+                    "■ {label} {}",
+                    crate::i18n::bi("cancelado", "canceled", en)
+                ));
+                app.set_status(
+                    crate::i18n::bi("comando cancelado", "command canceled", en),
+                    StatusKind::Info,
+                );
                 self.after_exec = AfterExec::None;
                 self.after_exec_reload = false;
             }
             ExecEvent::SpawnFailed { label, reason } => {
-                self.console
-                    .system(format!("✘ {label} não pôde iniciar: {reason}"));
-                let reason = format!("{label} não pôde iniciar: {reason}");
-                self.last_failure = Some(reason.clone());
-                app.set_status(reason, StatusKind::Warning);
+                let msg = if en {
+                    format!("{label} failed to start: {reason}")
+                } else {
+                    format!("{label} não pôde iniciar: {reason}")
+                };
+                self.console.system(format!("✘ {msg}"));
+                self.last_failure = Some(msg.clone());
+                app.set_status(msg, StatusKind::Warning);
                 self.last_exit_success = Some(false);
                 self.after_exec = AfterExec::None;
                 self.after_exec_reload = false;
@@ -1145,6 +1434,7 @@ impl CreateState {
     // ------------------------------------------------------------------
 
     pub fn on_key(&mut self, app: &mut App, key: KeyEvent) {
+        self.refresh_language_for(app.is_english());
         // overlays primeiro: consentimento > prompt > resto
         if self.consent_request.is_some() {
             self.on_consent_key(app, key);
@@ -1161,12 +1451,17 @@ impl CreateState {
     }
 
     fn on_consent_key(&mut self, app: &mut App, key: KeyEvent) {
+        let en = app.is_english();
         match key.code {
             KeyCode::Enter | KeyCode::Char('y') | KeyCode::Char('s') => {
                 app.config.execution.consent = ExecConsent::Granted;
                 if let Err(err) = app.save_config() {
                     app.set_status(
-                        format!("não consegui salvar consentimento: {err}"),
+                        if en {
+                            format!("could not save consent: {err}")
+                        } else {
+                            format!("não consegui salvar consentimento: {err}")
+                        },
                         StatusKind::Warning,
                     );
                 }
@@ -1181,7 +1476,11 @@ impl CreateState {
                 self.pending_new_project_dir = None;
                 self.after_exec_reload = false;
                 app.set_status(
-                    "execução não autorizada — nada foi rodado",
+                    crate::i18n::bi(
+                        "execução não autorizada — nada foi rodado",
+                        "execution not authorized — nothing was run",
+                        en,
+                    ),
                     StatusKind::Info,
                 );
             }
@@ -1190,6 +1489,7 @@ impl CreateState {
     }
 
     fn on_prompt_key(&mut self, app: &mut App, key: KeyEvent) {
+        let en = app.is_english();
         let Some(prompt) = self.prompt.as_mut() else {
             return;
         };
@@ -1221,10 +1521,17 @@ impl CreateState {
                                 let target = parent_dir.join(&name);
                                 if target.exists() {
                                     if let Some(p) = self.prompt.as_mut() {
-                                        p.error = Some(format!(
-                                            "{} já existe — escolha outro nome",
-                                            target.display()
-                                        ));
+                                        p.error = Some(if en {
+                                            format!(
+                                                "{} already exists — choose another name",
+                                                target.display()
+                                            )
+                                        } else {
+                                            format!(
+                                                "{} já existe — escolha outro nome",
+                                                target.display()
+                                            )
+                                        });
                                     }
                                     return;
                                 }
@@ -1247,7 +1554,12 @@ impl CreateState {
                             self.prompt = None;
                             app.set_status(
                                 format!(
-                                    "Pasta padrão restaurada: {}",
+                                    "{}: {}",
+                                    crate::i18n::bi(
+                                        "Pasta padrão restaurada",
+                                        "Default folder restored",
+                                        en
+                                    ),
                                     app.projects_base_dir().display()
                                 ),
                                 StatusKind::Info,
@@ -1260,25 +1572,48 @@ impl CreateState {
                             .any(|c| matches!(c, std::path::Component::ParentDir))
                         {
                             if let Some(p) = self.prompt.as_mut() {
-                                p.error = Some("caminho inválido: não use '..'".into());
+                                p.error = Some(
+                                    crate::i18n::bi(
+                                        "caminho inválido: não use '..'",
+                                        "invalid path: do not use '..'",
+                                        en,
+                                    )
+                                    .into(),
+                                );
                             }
                             return;
                         }
                         if let Err(err) = std::fs::create_dir_all(&dir) {
                             if let Some(p) = self.prompt.as_mut() {
-                                p.error = Some(format!("não consegui criar/abrir a pasta: {err}"));
+                                p.error = Some(if en {
+                                    format!("could not create/open folder: {err}")
+                                } else {
+                                    format!("não consegui criar/abrir a pasta: {err}")
+                                });
                             }
                             return;
                         }
                         app.config.workspace.projects_dir = Some(dir.to_string_lossy().to_string());
                         if let Err(err) = app.save_config() {
                             app.set_status(
-                                format!("pasta definida, mas config não salva: {err}"),
+                                if en {
+                                    format!("folder set, but config not saved: {err}")
+                                } else {
+                                    format!("pasta definida, mas config não salva: {err}")
+                                },
                                 StatusKind::Warning,
                             );
                         } else {
                             app.set_status(
-                                format!("Pasta para novos projetos: {}", dir.display()),
+                                format!(
+                                    "{}: {}",
+                                    crate::i18n::bi(
+                                        "Pasta para novos projetos",
+                                        "Folder for new projects",
+                                        en
+                                    ),
+                                    dir.display()
+                                ),
                                 StatusKind::Success,
                             );
                         }
@@ -1291,7 +1626,11 @@ impl CreateState {
                             let p = path.clone();
                             self.open_project(&p, app);
                         } else if let Some(p) = self.prompt.as_mut() {
-                            p.error = Some(format!("não achei Cargo.toml em {}", path.display()));
+                            p.error = Some(if en {
+                                format!("Cargo.toml not found in {}", path.display())
+                            } else {
+                                format!("não achei Cargo.toml em {}", path.display())
+                            });
                         }
                     }
                     PromptKind::NewFile => {
@@ -1301,7 +1640,13 @@ impl CreateState {
                         let result = self
                             .project
                             .as_ref()
-                            .ok_or_else(|| std::io::Error::other("nenhum projeto aberto"))
+                            .ok_or_else(|| {
+                                std::io::Error::other(crate::i18n::bi(
+                                    "nenhum projeto aberto",
+                                    "no project open",
+                                    en,
+                                ))
+                            })
                             .and_then(|p| p.create_file(text.trim()));
                         match result {
                             Ok(path) => {
@@ -1312,7 +1657,11 @@ impl CreateState {
                                     self.focus = Focus::Editor;
                                 }
                                 app.set_status(
-                                    "arquivo criado; declare mod no pai quando necessário",
+                                    crate::i18n::bi(
+                                        "arquivo criado; declare mod no pai quando necessário",
+                                        "file created; declare mod in parent if needed",
+                                        en,
+                                    ),
                                     StatusKind::Success,
                                 );
                             }
@@ -1329,8 +1678,14 @@ impl CreateState {
                             || kind == PromptKind::RemoveDependency && name.contains('@')
                         {
                             if let Some(prompt) = &mut self.prompt {
-                                prompt.error =
-                                    Some("use nome ou nome@versão; remoção aceita só nome".into());
+                                prompt.error = Some(
+                                    crate::i18n::bi(
+                                        "use nome ou nome@versão; remoção aceita só nome",
+                                        "use name or name@version; removal takes name only",
+                                        en,
+                                    )
+                                    .into(),
+                                );
                             }
                             return;
                         }
@@ -1346,8 +1701,14 @@ impl CreateState {
                         let query = text.trim().to_string();
                         if query.is_empty() {
                             if let Some(prompt) = &mut self.prompt {
-                                prompt.error =
-                                    Some("digite um símbolo ou trecho para buscar".into());
+                                prompt.error = Some(
+                                    crate::i18n::bi(
+                                        "digite um símbolo ou trecho para buscar",
+                                        "enter a symbol or snippet to search",
+                                        en,
+                                    )
+                                    .into(),
+                                );
                             }
                             return;
                         }
@@ -1369,7 +1730,11 @@ impl CreateState {
         self.project_match_idx = 0;
         if self.project_matches.is_empty() {
             app.set_status(
-                format!("nenhuma ocorrência de \"{query}\" no projeto"),
+                if app.is_english() {
+                    format!("no matches for \"{query}\" in project")
+                } else {
+                    format!("nenhuma ocorrência de \"{query}\" no projeto")
+                },
                 StatusKind::Info,
             );
         } else {
@@ -1411,7 +1776,14 @@ impl CreateState {
                         if let Some(path) = app.config.workspace.last_project.clone() {
                             self.open_project(Path::new(&path), app);
                         } else {
-                            app.set_status("nenhum projeto anterior salvo", StatusKind::Info);
+                            app.set_status(
+                                crate::i18n::bi(
+                                    "nenhum projeto anterior salvo",
+                                    "no previous project saved",
+                                    app.is_english(),
+                                ),
+                                StatusKind::Info,
+                            );
                         }
                     }
                     index => {
@@ -1449,7 +1821,11 @@ impl CreateState {
                     let _ = app.save_config();
                     self.agent.consent_pending = None;
                     app.set_status(
-                        "envio remoto recusado para o agente; usando guia local",
+                        crate::i18n::bi(
+                            "envio remoto recusado para o agente; usando guia local",
+                            "remote sending declined for agent; using local guide",
+                            app.is_english(),
+                        ),
                         StatusKind::Info,
                     );
                 }
@@ -1678,7 +2054,14 @@ impl CreateState {
             }
             KeyCode::Char('k') if ctrl && self.agent.manager.running => {
                 self.agent.manager.cancel();
-                app.set_status("consulta ao agente cancelada", StatusKind::Info);
+                app.set_status(
+                    crate::i18n::bi(
+                        "consulta ao agente cancelada",
+                        "agent query canceled",
+                        app.is_english(),
+                    ),
+                    StatusKind::Info,
+                );
                 return;
             }
             KeyCode::Char('k') if ctrl && app.exec.running => {
@@ -1692,7 +2075,10 @@ impl CreateState {
             KeyCode::Char('s') if ctrl => {
                 self.save_current(app);
                 if !self.editor.dirty {
-                    app.set_status("arquivo salvo", StatusKind::Success);
+                    app.set_status(
+                        crate::i18n::bi("arquivo salvo", "file saved", app.is_english()),
+                        StatusKind::Success,
+                    );
                 }
                 return;
             }
@@ -1840,7 +2226,11 @@ impl CreateState {
             match key.code {
                 KeyCode::Char('d') if ctrl => {
                     match app.exec.close_input() {
-                        Ok(()) => self.console.system("stdin: EOF enviado"),
+                        Ok(()) => self.console.system(crate::i18n::bi(
+                            "stdin: EOF enviado",
+                            "stdin: EOF sent",
+                            app.is_english(),
+                        )),
                         Err(err) => app.set_status(err, StatusKind::Warning),
                     };
                     return;
@@ -1988,6 +2378,8 @@ impl CreateState {
     /// Trata clique esquerdo na barra superior (▼ Bibliotecas / Compilar),
     /// nos modais centrais ou em símbolos do editor (abre documentação PT/EN).
     pub fn on_mouse_down(&mut self, x: u16, y: u16, app: &mut App) {
+        let en = app.is_english();
+        self.refresh_language_for(en);
         if self.view != CreateView::Workspace
             || self.consent_request.is_some()
             || self.prompt.is_some()
@@ -2006,10 +2398,11 @@ impl CreateState {
                 self.lib_menu_open = false;
                 return;
             }
+            let libs = crate::doc_hint::extra_libraries(en);
             let list_top = self.lib_modal_area.y.saturating_add(2);
             if y >= list_top && x < self.lib_modal_area.x.saturating_add(30) {
                 let idx = usize::from(y - list_top);
-                if idx < crate::doc_hint::EXTRA_LIBRARIES.len() {
+                if idx < libs.len() {
                     self.lib_menu_sel = idx;
                     self.install_library_into_code(idx, app);
                 }
@@ -2020,9 +2413,9 @@ impl CreateState {
                 .y
                 .saturating_add(self.lib_modal_area.height.saturating_sub(2));
             if y == footer_y
-                && let Some(lib) = crate::doc_hint::EXTRA_LIBRARIES.get(self.lib_menu_sel)
+                && let Some(lib) = libs.get(self.lib_menu_sel)
             {
-                let msg = open_documentation_url(lib.doc_url);
+                let msg = open_documentation_url(lib.doc_url, en);
                 app.set_status(msg, StatusKind::Info);
             }
             return;
@@ -2062,15 +2455,19 @@ impl CreateState {
                 return;
             };
             let code = self.editor.buf.to_string_lossy();
-            let resolved = crate::doc_hint::resolve_symbol_doc(&symbol, &code);
+            let resolved = crate::doc_hint::resolve_symbol_doc_for(&symbol, &code, en);
             let local_doc = self.workspace_index.find_doc(&symbol);
             let doc_url = resolved
                 .as_ref()
-                .map(|r| r.best_url().to_string())
+                .map(|r| r.best_url_for(en).to_string())
                 .or_else(|| {
-                    local_doc
-                        .as_ref()
-                        .map(|_| "https://rust-br.github.io/rust-book-pt-br/".to_string())
+                    local_doc.as_ref().map(|_| {
+                        if en {
+                            "https://doc.rust-lang.org/book/".to_string()
+                        } else {
+                            "https://rust-br.github.io/rust-book-pt-br/".to_string()
+                        }
+                    })
                 });
             if let Some(url) = doc_url.clone() {
                 if let Some(doc) = local_doc {
@@ -2086,14 +2483,16 @@ impl CreateState {
                         url: Some(url.clone()),
                     });
                 }
-                let msg = open_documentation_url(&url);
+                let msg = open_documentation_url(&url, en);
                 app.set_status(msg, StatusKind::Info);
             }
         }
     }
 
     fn on_lib_menu_key(&mut self, app: &mut App, key: KeyEvent) {
-        let len = crate::doc_hint::EXTRA_LIBRARIES.len();
+        let en = app.is_english();
+        let libs = crate::doc_hint::extra_libraries(en);
+        let len = libs.len();
         match key.code {
             KeyCode::Esc | KeyCode::F(9) => self.lib_menu_open = false,
             KeyCode::Up | KeyCode::Char('k') => {
@@ -2105,8 +2504,8 @@ impl CreateState {
                 }
             }
             KeyCode::Char('d') | KeyCode::Char('D') => {
-                if let Some(lib) = crate::doc_hint::EXTRA_LIBRARIES.get(self.lib_menu_sel) {
-                    let msg = open_documentation_url(lib.doc_url);
+                if let Some(lib) = libs.get(self.lib_menu_sel) {
+                    let msg = open_documentation_url(lib.doc_url, en);
                     app.set_status(msg, StatusKind::Info);
                 }
             }
@@ -2125,7 +2524,8 @@ impl CreateState {
     /// Adiciona a dependência escolhida ao `Cargo.toml` e insere `use ...;`
     /// no topo do arquivo `.rs` ativo (ou em `src/main.rs`).
     pub fn install_library_into_code(&mut self, idx: usize, app: &mut App) {
-        let Some(lib) = crate::doc_hint::EXTRA_LIBRARIES.get(idx) else {
+        let en = app.is_english();
+        let Some(lib) = crate::doc_hint::extra_libraries(en).get(idx) else {
             return;
         };
         let Some(project) = self.project.as_ref().cloned() else {
@@ -2139,7 +2539,14 @@ impl CreateState {
             match project.read(&cargo_path) {
                 Ok(text) => text,
                 Err(e) => {
-                    app.set_status(format!("erro ao ler Cargo.toml: {e}"), StatusKind::Warning);
+                    app.set_status(
+                        if en {
+                            format!("error reading Cargo.toml: {e}")
+                        } else {
+                            format!("erro ao ler Cargo.toml: {e}")
+                        },
+                        StatusKind::Warning,
+                    );
                     return;
                 }
             }
@@ -2153,7 +2560,11 @@ impl CreateState {
         if updated_cargo != cargo_raw {
             if let Err(e) = project.save(&cargo_path, &updated_cargo) {
                 app.set_status(
-                    format!("erro ao salvar Cargo.toml: {e}"),
+                    if en {
+                        format!("error saving Cargo.toml: {e}")
+                    } else {
+                        format!("erro ao salvar Cargo.toml: {e}")
+                    },
                     StatusKind::Warning,
                 );
                 return;
@@ -2199,32 +2610,49 @@ impl CreateState {
         self.workspace_index = WorkspaceIndex::reindex(&project, &self.files);
         self.lib_menu_open = false;
         self.focus = Focus::Editor;
-        self.console.system(format!(
-            "✔ Biblioteca `{}` ({}) pronta em Cargo.toml + `{}` em {}",
-            lib.name, lib.category, lib.use_line, target_name
-        ));
+        self.console.system(if en {
+            format!(
+                "✔ Library `{}` ({}) ready in Cargo.toml + `{}` in {}",
+                lib.name, lib.category, lib.use_line, target_name
+            )
+        } else {
+            format!(
+                "✔ Biblioteca `{}` ({}) pronta em Cargo.toml + `{}` em {}",
+                lib.name, lib.category, lib.use_line, target_name
+            )
+        });
         if lib.name == "bevy" {
-            self.console.system(
+            self.console.system(crate::i18n::bi(
                 "Dica Bevy: pressione `T` no menu F9 (ou `/bevy` no agente) para inserir template 2D e use `F4 → Rodar em outro terminal` se preferir rodar fora da IDE.",
-            );
+                "Bevy tip: press `T` in the F9 menu (or `/bevy` in the agent) to insert the 2D template, and use `F4 → Run in another terminal` to run outside the IDE.",
+                en,
+            ));
         }
         app.set_status(
-            format!(
-                "Biblioteca `{}` adicionada ao projeto e importada em {}",
-                lib.name, target_name
-            ),
+            if en {
+                format!(
+                    "Library `{}` added to project and imported in {}",
+                    lib.name, target_name
+                )
+            } else {
+                format!(
+                    "Biblioteca `{}` adicionada ao projeto e importada em {}",
+                    lib.name, target_name
+                )
+            },
             StatusKind::Success,
         );
     }
 
     /// Instala a biblioteca escolhida e insere um template inicial funcional no editor.
     pub fn install_library_template(&mut self, idx: usize, app: &mut App) {
-        let Some(lib) = crate::doc_hint::EXTRA_LIBRARIES.get(idx) else {
+        let en = app.is_english();
+        let Some(lib) = crate::doc_hint::extra_libraries(en).get(idx) else {
             return;
         };
         self.install_library_into_code(idx, app);
         let template = if lib.name == "bevy" {
-            crate::doc_hint::bevy_starter_template().to_string()
+            crate::doc_hint::bevy_starter_template_for(en).to_string()
         } else if lib.example.contains("fn main(") {
             format!("{}\n\n{}\n", lib.use_line, lib.example)
         } else {
@@ -2249,15 +2677,29 @@ impl CreateState {
             let main_path = project.root.join("src/main.rs");
             let _ = project.save(&main_path, &template);
         }
-        self.console.system(format!(
-            "★ Template inicial de `{}` aplicado (Ctrl+Z desfaz · F4 abre/roda em outro terminal).",
-            lib.name
-        ));
-        app.set_status(
+        self.console.system(if en {
             format!(
-                "Template inicial de `{}` inserido (Ctrl+Z desfaz)",
+                "★ Starter template for `{}` applied (Ctrl+Z undoes · F4 opens/runs in another terminal).",
                 lib.name
-            ),
+            )
+        } else {
+            format!(
+                "★ Template inicial de `{}` aplicado (Ctrl+Z desfaz · F4 abre/roda em outro terminal).",
+                lib.name
+            )
+        });
+        app.set_status(
+            if en {
+                format!(
+                    "Starter template for `{}` inserted (Ctrl+Z undoes)",
+                    lib.name
+                )
+            } else {
+                format!(
+                    "Template inicial de `{}` inserido (Ctrl+Z desfaz)",
+                    lib.name
+                )
+            },
             StatusKind::Success,
         );
     }
@@ -2279,6 +2721,7 @@ impl CreateState {
     }
 
     pub fn execute_build_menu_option(&mut self, idx: usize, app: &mut App) {
+        let en = app.is_english();
         self.build_menu_open = false;
         match idx {
             0 => {
@@ -2289,17 +2732,27 @@ impl CreateState {
             }
             1 => {
                 let Some(project) = self.project.as_ref().cloned() else {
-                    app.set_status("nenhum projeto aberto", StatusKind::Warning);
+                    app.set_status(
+                        crate::i18n::bi("nenhum projeto aberto", "no project open", en),
+                        StatusKind::Warning,
+                    );
                     return;
                 };
                 self.save_current(app);
-                match spawn_external_cargo_terminal(&project.root) {
+                match spawn_external_cargo_terminal(&project.root, en) {
                     Ok(msg) => {
                         self.console.system(format!("✔ {msg}"));
-                        self.console.system(format!(
-                            "Comando equivalente caso queira abrir outro terminal manualmente: cd \"{}\" && cargo run",
-                            project.root.display()
-                        ));
+                        self.console.system(if en {
+                            format!(
+                                "Equivalent command to open another terminal manually: cd \"{}\" && cargo run",
+                                project.root.display()
+                            )
+                        } else {
+                            format!(
+                                "Comando equivalente caso queira abrir outro terminal manualmente: cd \"{}\" && cargo run",
+                                project.root.display()
+                            )
+                        });
                         app.set_status(msg, StatusKind::Success);
                     }
                     Err(msg) => {
@@ -2327,9 +2780,14 @@ impl CreateState {
     /// Cria `PLANO.md` para o projeto independente da Etapa 10 (sem sobrescrever)
     /// e abre o arquivo no editor quando não houver alterações não salvas.
     pub fn create_project_plan(&mut self, app: &mut App) {
+        let en = app.is_english();
         let Some(project) = &self.project else {
             app.set_status(
-                "Abra um projeto antes de criar PLANO.md.",
+                crate::i18n::bi(
+                    "Abra um projeto antes de criar PLANO.md.",
+                    "Open a project before creating PLANO.md.",
+                    en,
+                ),
                 StatusKind::Warning,
             );
             return;
@@ -2341,7 +2799,10 @@ impl CreateState {
             }
             Err(err) => {
                 app.set_status(
-                    format!("Erro ao criar PLANO.md: {err}"),
+                    format!(
+                        "{}: {err}",
+                        crate::i18n::bi("Erro ao criar PLANO.md", "Error creating PLANO.md", en)
+                    ),
                     StatusKind::Warning,
                 );
                 return;
@@ -2358,7 +2819,7 @@ impl CreateState {
             app,
             "plan",
             25,
-            "Plano Etapa 10 (PLANO.md)",
+            crate::i18n::bi("Plano Etapa 10 (PLANO.md)", "Stage 10 Plan (PLANO.md)", en),
             &mut changed,
             &mut awarded,
         );
@@ -2368,9 +2829,17 @@ impl CreateState {
         }
         if !awarded {
             let msg = if created {
-                "PLANO.md criado para guiar seu projeto independente (Etapa 10)."
+                crate::i18n::bi(
+                    "PLANO.md criado para guiar seu projeto independente (Etapa 10).",
+                    "PLANO.md created to guide your independent project (Stage 10).",
+                    en,
+                )
             } else {
-                "PLANO.md já existe; arquivo aberto no editor."
+                crate::i18n::bi(
+                    "PLANO.md já existe; arquivo aberto no editor.",
+                    "PLANO.md already exists; file opened in editor.",
+                    en,
+                )
             };
             app.set_status(msg, StatusKind::Success);
         }
@@ -2392,35 +2861,57 @@ impl CreateState {
         let Some(project) = &self.project else {
             return;
         };
+        let en = app.is_english();
         let caps = project.inspect_capabilities();
         let mut changed = false;
         let mut awarded = false;
 
         let checks = [
-            (caps.has_plan_md, "plan", 25, "Plano Etapa 10 (PLANO.md)"),
+            (
+                caps.has_plan_md,
+                "plan",
+                25,
+                crate::i18n::bi("Plano Etapa 10 (PLANO.md)", "Stage 10 Plan (PLANO.md)", en),
+            ),
             (
                 caps.source_file_count >= 2,
                 "multi-module",
                 25,
-                "Projeto organizado em múltiplos arquivos",
+                crate::i18n::bi(
+                    "Projeto organizado em múltiplos arquivos",
+                    "Multi-file project organization",
+                    en,
+                ),
             ),
             (
                 caps.has_structs_or_enums,
                 "types",
                 20,
-                "Tipos próprios (struct/enum) no projeto",
+                crate::i18n::bi(
+                    "Tipos próprios (struct/enum) no projeto",
+                    "Custom types (struct/enum) in project",
+                    en,
+                ),
             ),
             (
                 caps.has_error_handling,
                 "error-handling",
                 25,
-                "Tratamento explícito com Option/Result",
+                crate::i18n::bi(
+                    "Tratamento explícito com Option/Result",
+                    "Explicit Option/Result error handling",
+                    en,
+                ),
             ),
             (
                 caps.has_doc_comments,
                 "docs",
                 20,
-                "Documentação de código com ///",
+                crate::i18n::bi(
+                    "Documentação de código com ///",
+                    "Code documentation with ///",
+                    en,
+                ),
             ),
         ];
         for (ok, key, xp, desc) in checks {
@@ -2434,7 +2925,7 @@ impl CreateState {
                     app,
                     "build",
                     20,
-                    "Build limpo no projeto",
+                    crate::i18n::bi("Build limpo no projeto", "Clean project build", en),
                     &mut changed,
                     &mut awarded,
                 );
@@ -2444,7 +2935,7 @@ impl CreateState {
                     app,
                     "clippy",
                     25,
-                    "Clippy aprovado no projeto",
+                    crate::i18n::bi("Clippy aprovado no projeto", "Clean Clippy check", en),
                     &mut changed,
                     &mut awarded,
                 );
@@ -2454,7 +2945,11 @@ impl CreateState {
                     app,
                     "tests",
                     35,
-                    "Testes unitários aprovados no projeto",
+                    crate::i18n::bi(
+                        "Testes unitários aprovados no projeto",
+                        "Unit tests passed in project",
+                        en,
+                    ),
                     &mut changed,
                     &mut awarded,
                 );
@@ -2464,7 +2959,11 @@ impl CreateState {
                     app,
                     "run",
                     20,
-                    "Aplicação executada no projeto",
+                    crate::i18n::bi(
+                        "Aplicação executada no projeto",
+                        "Application ran in project",
+                        en,
+                    ),
                     &mut changed,
                     &mut awarded,
                 );
@@ -2506,23 +3005,36 @@ impl CreateState {
     }
 
     pub fn toggle_agent_panel(&mut self, app: &mut App) {
+        let en = app.is_english();
+        self.refresh_language_for(en);
         if !self.agent.open {
             self.agent.open = true;
             self.focus = Focus::Agent;
             app.set_status(
-                "Agente Antigravity aberto à direita (Alt+O modelo · Alt+Enter aplicar)",
+                crate::i18n::bi(
+                    "Agente Antigravity aberto à direita (Alt+O modelo · Alt+Enter aplicar)",
+                    "Antigravity Agent opened on the right (Alt+O model · Alt+Enter apply)",
+                    en,
+                ),
                 StatusKind::Info,
             );
         } else if self.focus != Focus::Agent {
             self.focus = Focus::Agent;
             app.set_status(
-                "Foco no Agente Antigravity (Esc volta ao editor)",
+                crate::i18n::bi(
+                    "Foco no Agente Antigravity (Esc volta ao editor)",
+                    "Focus on Antigravity Agent (Esc returns to editor)",
+                    en,
+                ),
                 StatusKind::Info,
             );
         } else {
             self.agent.open = false;
             self.focus = Focus::Editor;
-            app.set_status("Painel do Agente fechado", StatusKind::Info);
+            app.set_status(
+                crate::i18n::bi("Painel do Agente fechado", "Agent panel closed", en),
+                StatusKind::Info,
+            );
         }
     }
 
@@ -2531,6 +3043,7 @@ impl CreateState {
     }
 
     pub fn poll_agent(&mut self, app: &mut App) -> bool {
+        let en = app.is_english();
         let mut changed = false;
         let events = self.agent.manager.poll_events();
         for ev in events {
@@ -2547,7 +3060,11 @@ impl CreateState {
                     self.agent.scroll = u16::MAX;
                     if has_code {
                         app.set_status(
-                            "Agente sugeriu código — Alt+Enter (ou /aplicar) aplica no editor",
+                            crate::i18n::bi(
+                                "Agente sugeriu código — Alt+Enter (ou /aplicar) aplica no editor",
+                                "Agent suggested code — Alt+Enter (or /apply) applies to editor",
+                                en,
+                            ),
                             StatusKind::Success,
                         );
                     }
@@ -2555,13 +3072,21 @@ impl CreateState {
                 MentorEvent::Failed { message, .. } => {
                     self.agent.messages.push(AgentChatMessage {
                         role: AgentRole::System,
-                        sender: "Aviso".to_string(),
+                        sender: crate::i18n::bi("Aviso", "Notice", en).to_string(),
                         text: format!(
-                            "{message}\nSua mensagem continua no histórico: reenvie ou use Alt+O para trocar de modelo."
+                            "{message}\n{}",
+                            crate::i18n::bi(
+                                "Sua mensagem continua no histórico: reenvie ou use Alt+O para trocar de modelo.",
+                                "Your message remains in history: resend or use Alt+O to switch models.",
+                                en
+                            )
                         ),
                     });
                     self.agent.scroll = u16::MAX;
-                    app.set_status(format!("Agente: {message}"), StatusKind::Warning);
+                    app.set_status(
+                        format!("{}: {message}", crate::i18n::bi("Agente", "Agent", en)),
+                        StatusKind::Warning,
+                    );
                 }
             }
         }
@@ -2609,6 +3134,7 @@ impl CreateState {
     }
 
     fn submit_agent_input(&mut self, app: &mut App) {
+        let en = app.is_english();
         let raw = self.agent.input.trim().to_string();
         if raw.is_empty() {
             return;
@@ -2628,7 +3154,7 @@ impl CreateState {
                 return;
             }
             "/bevy" => {
-                if let Some(bevy_idx) = crate::doc_hint::EXTRA_LIBRARIES
+                if let Some(bevy_idx) = crate::doc_hint::extra_libraries(en)
                     .iter()
                     .position(|l| l.name == "bevy")
                 {
@@ -2637,19 +3163,30 @@ impl CreateState {
                 self.agent.open = true;
                 self.focus = Focus::Agent;
                 self.agent.proposed_code =
-                    Some(crate::doc_hint::bevy_starter_template().to_string());
+                    Some(crate::doc_hint::bevy_starter_template_for(en).to_string());
                 self.agent.messages.push(AgentChatMessage {
                     role: AgentRole::Agent,
-                    sender: "Bevy Guia".to_string(),
-                    text: "Bevy (ECS) pronto!\n\
+                    sender: crate::i18n::bi("Bevy Guia", "Bevy Guide", en).to_string(),
+                    text: crate::i18n::bi(
+                        "Bevy (ECS) pronto!\n\
 • Dependência `bevy = \"0.20\"` + `[profile.dev]` adicionados ao Cargo.toml.\n\
 • Um template 2D completo (`Camera2d`, `Sprite` e movimento WASD/setas com `Transform`) foi preparado abaixo — pressione `Alt+Enter` para colar no editor.\n\
-• Para rodar: pressione `F4 → Rodar em outro terminal` (ou `cd` na pasta do projeto e `cargo run` em um segundo terminal enquanto você edita no RustLab!)."
-                        .to_string(),
+• Para rodar: pressione `F4 → Rodar em outro terminal` (ou `cd` na pasta do projeto e `cargo run` em um segundo terminal enquanto você edita no RustLab!).",
+                        "Bevy (ECS) ready!\n\
+• Dependency `bevy = \"0.20\"` + `[profile.dev]` added to Cargo.toml.\n\
+• A complete 2D template (`Camera2d`, `Sprite`, and WASD/arrow movement with `Transform`) is ready below — press `Alt+Enter` to insert it into the editor.\n\
+• To run: press `F4 → Run in another terminal` (or `cd` into the project directory and run `cargo run` in a second terminal while editing in RustLab!).",
+                        en,
+                    )
+                    .to_string(),
                 });
                 self.agent.scroll = u16::MAX;
                 app.set_status(
-                    "Bevy configurado! Alt+Enter aplica template 2D · F4 roda em outro terminal",
+                    crate::i18n::bi(
+                        "Bevy configurado! Alt+Enter aplica template 2D · F4 roda em outro terminal",
+                        "Bevy configured! Alt+Enter applies 2D template · F4 runs in another terminal",
+                        en,
+                    ),
                     StatusKind::Success,
                 );
                 return;
@@ -2659,36 +3196,56 @@ impl CreateState {
                     "/pong" => (
                         "Pong Terminal (D10-P02)",
                         crate::doc_hint::pong_terminal_starter_template(),
-                        "Template `PongState` com colisão, placar, renderização ASCII e `#[cfg(test)]` preparado.",
+                        crate::i18n::bi(
+                            "Template `PongState` com colisão, placar, renderização ASCII e `#[cfg(test)]` preparado.",
+                            "`PongState` template with collision, score, ASCII rendering, and `#[cfg(test)]` prepared.",
+                            en,
+                        ),
                         false,
                     ),
                     "/snake" => (
                         "Snake Terminal (D11-P02)",
                         crate::doc_hint::snake_terminal_starter_template(),
-                        "Template `SnakeGame` com seed determinística, crescimento, colisões e `#[cfg(test)]` preparado.",
+                        crate::i18n::bi(
+                            "Template `SnakeGame` com seed determinística, crescimento, colisões e `#[cfg(test)]` preparado.",
+                            "`SnakeGame` template with deterministic seed, growth, collisions, and `#[cfg(test)]` prepared.",
+                            en,
+                        ),
                         false,
                     ),
                     "/editor" => (
                         "Mini Editor (D12-P02)",
                         crate::doc_hint::mini_editor_starter_template(),
-                        "Template `MiniEditor` multi-linha com `undo`/`redo` e `#[cfg(test)]` preparado.",
+                        crate::i18n::bi(
+                            "Template `MiniEditor` multi-linha com `undo`/`redo` e `#[cfg(test)]` preparado.",
+                            "Multi-line `MiniEditor` template with `undo`/`redo` and `#[cfg(test)]` prepared.",
+                            en,
+                        ),
                         false,
                     ),
                     "/paint" => (
                         "Mini Paint 2D (PAINT-01..12)",
                         crate::doc_hint::mini_paint_starter_template(),
-                        "Template `Canvas2D` com traço contínuo, escala preservada em resize, exportação PPM e `#[cfg(test)]` preparado.",
+                        crate::i18n::bi(
+                            "Template `Canvas2D` com traço contínuo, escala preservada em resize, exportação PPM e `#[cfg(test)]` preparado.",
+                            "`Canvas2D` template with continuous strokes, resize scaling, PPM export, and `#[cfg(test)]` prepared.",
+                            en,
+                        ),
                         false,
                     ),
                     _ => (
                         "CaveGame Voxel + Bevy 0.20 (CAVE-01..18)",
                         crate::doc_hint::cavegame_voxel_starter_template(),
-                        "Dependência `bevy = \"0.20\"` + template `VoxelWorld` 24×24 chunks, culling de faces, persistência e `#[cfg(test)]` preparado.",
+                        crate::i18n::bi(
+                            "Dependência `bevy = \"0.20\"` + template `VoxelWorld` 24×24 chunks, culling de faces, persistência e `#[cfg(test)]` preparado.",
+                            "Dependency `bevy = \"0.20\"` + `VoxelWorld` 24×24 chunks template, face culling, persistence, and `#[cfg(test)]` prepared.",
+                            en,
+                        ),
                         true,
                     ),
                 };
                 if install_bevy
-                    && let Some(bevy_idx) = crate::doc_hint::EXTRA_LIBRARIES
+                    && let Some(bevy_idx) = crate::doc_hint::extra_libraries(en)
                         .iter()
                         .position(|l| l.name == "bevy")
                 {
@@ -2699,14 +3256,24 @@ impl CreateState {
                 self.agent.proposed_code = Some(template.to_string());
                 self.agent.messages.push(AgentChatMessage {
                     role: AgentRole::Agent,
-                    sender: "Capstones V3".to_string(),
-                    text: format!(
-                        "{label} pronto!\n• {summary}\n• Pressione `Alt+Enter` para inserir no editor e `F6` para rodar os testes."
-                    ),
+                    sender: crate::i18n::bi("Capstones V3", "V3 Capstones", en).to_string(),
+                    text: if en {
+                        format!(
+                            "{label} ready!\n• {summary}\n• Press `Alt+Enter` to insert into editor and `F6` to run tests."
+                        )
+                    } else {
+                        format!(
+                            "{label} pronto!\n• {summary}\n• Pressione `Alt+Enter` para inserir no editor e `F6` para rodar os testes."
+                        )
+                    },
                 });
                 self.agent.scroll = u16::MAX;
                 app.set_status(
-                    format!("{label} preparado! Alt+Enter aplica no editor · F6 testa"),
+                    if en {
+                        format!("{label} ready! Alt+Enter applies in editor · F6 tests")
+                    } else {
+                        format!("{label} preparado! Alt+Enter aplica no editor · F6 testa")
+                    },
                     StatusKind::Success,
                 );
                 return;
@@ -2715,7 +3282,7 @@ impl CreateState {
                 self.open_lab_tab(crate::lab_tools::LabToolTab::RaioXMemoria, app);
                 return;
             }
-            "/lente" | "/eli10" => {
+            "/lente" | "/eli10" | "/lens" => {
                 self.lab.eli10_mode = raw == "/eli10";
                 self.open_lab_tab(crate::lab_tools::LabToolTab::LenteCompilador, app);
                 return;
@@ -2732,7 +3299,7 @@ impl CreateState {
                 self.open_lab_tab(crate::lab_tools::LabToolTab::ConserteOCodigo, app);
                 return;
             }
-            "/playground" | "/comunidade" => {
+            "/playground" | "/comunidade" | "/community" => {
                 self.open_lab_tab(crate::lab_tools::LabToolTab::PlaygroundComunidade, app);
                 return;
             }
@@ -2742,22 +3309,34 @@ impl CreateState {
                     "/cli" => 1,
                     _ => 2,
                 };
-                let eco = crate::lab_tools::MODERN_ECOSYSTEMS[idx];
+                let eco = crate::lab_tools::modern_ecosystems(en)[idx];
                 self.lab.ecosystem_sel = idx;
                 self.agent.open = true;
                 self.focus = Focus::Agent;
                 self.agent.proposed_code = Some(eco.template_code.to_string());
                 self.agent.messages.push(AgentChatMessage {
                     role: AgentRole::Agent,
-                    sender: "Ecossistemas V3".to_string(),
+                    sender: crate::i18n::bi("Ecossistemas V3", "V3 Ecosystems", en).to_string(),
                     text: format!(
-                        "{} ({})\n• {}\n• {}\n• Pressione Alt+Enter para inserir no editor e F6 para testar!",
-                        eco.name, eco.ecosystem, eco.summary, eco.run_instructions
+                        "{} ({})\n• {}\n• {}\n• {}",
+                        eco.name,
+                        eco.ecosystem,
+                        eco.summary,
+                        eco.run_instructions,
+                        crate::i18n::bi(
+                            "Pressione Alt+Enter para inserir no editor e F6 para testar!",
+                            "Press Alt+Enter to insert into the editor and F6 to test!",
+                            en
+                        )
                     ),
                 });
                 self.agent.scroll = u16::MAX;
                 app.set_status(
-                    format!("{} pronto! Alt+Enter insere · F6 testa", eco.name),
+                    if en {
+                        format!("{} ready! Alt+Enter inserts · F6 tests", eco.name)
+                    } else {
+                        format!("{} pronto! Alt+Enter insere · F6 testa", eco.name)
+                    },
                     StatusKind::Success,
                 );
                 return;
@@ -2775,7 +3354,7 @@ impl CreateState {
                 self.open_lab_tab(crate::lab_tools::LabToolTab::DesacucararMacros, app);
                 return;
             }
-            "/poliglota" | "/python" | "/js" | "/cpp" => {
+            "/poliglota" | "/polyglot" | "/python" | "/js" | "/cpp" => {
                 self.lab.polyglot_mode_flashcards = false;
                 self.lab.polyglot_lang_filter = match raw.as_str() {
                     "/python" => 1,
@@ -2786,7 +3365,7 @@ impl CreateState {
                 self.open_lab_tab(crate::lab_tools::LabToolTab::PoliglotaIntuicao, app);
                 return;
             }
-            "/treino" | "/flashcard" | "/intuicao" => {
+            "/treino" | "/train" | "/flashcard" | "/intuicao" => {
                 self.lab.polyglot_mode_flashcards = true;
                 self.open_lab_tab(crate::lab_tools::LabToolTab::PoliglotaIntuicao, app);
                 return;
@@ -2798,7 +3377,7 @@ impl CreateState {
             }
             "/limpar" | "/clear" => {
                 let open = self.agent.open;
-                self.agent = CreateAgentState::default();
+                self.agent = CreateAgentState::new_for(en);
                 self.agent.open = open;
                 return;
             }
@@ -2807,25 +3386,33 @@ impl CreateState {
         if self.agent.manager.running {
             self.agent.input = raw;
             app.set_status(
-                "aguarde a resposta do agente ou pressione Ctrl+K",
+                crate::i18n::bi(
+                    "aguarde a resposta do agente ou pressione Ctrl+K",
+                    "wait for the agent response or press Ctrl+K",
+                    en,
+                ),
                 StatusKind::Info,
             );
             return;
         }
         let prompt = match raw.as_str() {
-            "/corrigir" | "/fix" | "/console" | "/erros" => {
-                "Analise a saída recente do Console (stderr/stdout), os diagnósticos do compilador e o código do arquivo aberto; explique a causa real e proponha a correção completa."
-                    .to_string()
-            }
-            "/testes" => {
-                "Escreva testes unitários #[cfg(test)] completos para as funções do arquivo aberto."
-                    .to_string()
-            }
+            "/corrigir" | "/fix" | "/console" | "/erros" | "/errors" => crate::i18n::bi(
+                "Analise a saída recente do Console (stderr/stdout), os diagnósticos do compilador e o código do arquivo aberto; explique a causa real e proponha a correção completa.",
+                "Analyze the recent Console output (stderr/stdout), compiler diagnostics, and the open file code; explain the root cause and propose the complete fix.",
+                en,
+            )
+            .to_string(),
+            "/testes" | "/tests" => crate::i18n::bi(
+                "Escreva testes unitários #[cfg(test)] completos para as funções do arquivo aberto.",
+                "Write complete #[cfg(test)] unit tests for the functions in the open file.",
+                en,
+            )
+            .to_string(),
             _ => raw.clone(),
         };
         self.agent.messages.push(AgentChatMessage {
             role: AgentRole::User,
-            sender: "Você".to_string(),
+            sender: crate::i18n::bi("Você", "You", en).to_string(),
             text: raw,
         });
         self.agent.scroll = u16::MAX;
@@ -2839,6 +3426,7 @@ impl CreateState {
     }
 
     fn dispatch_agent_query(&mut self, app: &mut App, prompt: String) {
+        let en = app.is_english();
         let prior_len = self.agent.messages.len().saturating_sub(1);
         let history: Vec<(String, String)> = self
             .agent
@@ -2851,17 +3439,22 @@ impl CreateState {
                 AgentRole::System => None,
             })
             .collect();
-        let ctx = crate::mentor::create_context_from(self);
+        let ctx = crate::mentor::create_context_from_for(self, en);
         self.agent
             .manager
-            .submit_agent_chat(history, ctx, prompt, app.config.ai.clone());
+            .submit_agent_chat_for(history, ctx, prompt, app.config.ai.clone(), en);
         let _ = self.poll_agent(app);
     }
 
     pub fn apply_agent_code(&mut self, app: &mut App) {
+        let en = app.is_english();
         let Some(code) = self.agent.proposed_code.clone() else {
             app.set_status(
-                "Nenhuma sugestão de código do agente para aplicar.",
+                crate::i18n::bi(
+                    "Nenhuma sugestão de código do agente para aplicar.",
+                    "No code suggestion from the agent to apply.",
+                    en,
+                ),
                 StatusKind::Info,
             );
             return;
@@ -2877,11 +3470,20 @@ impl CreateState {
         self.agent.messages.push(AgentChatMessage {
             role: AgentRole::System,
             sender: "Antigravity".to_string(),
-            text: "Código aplicado no editor (Ctrl+Z para desfazer).".to_string(),
+            text: crate::i18n::bi(
+                "Código aplicado no editor (Ctrl+Z para desfazer).",
+                "Code applied in editor (Ctrl+Z to undo).",
+                en,
+            )
+            .to_string(),
         });
         self.focus = Focus::Editor;
         app.set_status(
-            "Código do agente aplicado no editor (Ctrl+Z desfaz).",
+            crate::i18n::bi(
+                "Código do agente aplicado no editor (Ctrl+Z desfaz).",
+                "Agent code applied in editor (Ctrl+Z undoes).",
+                en,
+            ),
             StatusKind::Success,
         );
     }
@@ -2889,6 +3491,7 @@ impl CreateState {
     /// Executa a revisão periódica (15–30 min ou `/revisar`) avaliando apenas
     /// trechos escritos pelo estudante e evitando premiar código gerado pela IA.
     pub fn trigger_periodic_code_review(&mut self, app: &mut App, manual: bool) {
+        let en = app.is_english();
         self.agent.last_auto_review = std::time::Instant::now();
         self.agent.next_auto_review_interval = next_random_review_interval();
         self.agent.student_modified_since_review = false;
@@ -2901,7 +3504,12 @@ impl CreateState {
                 self.agent.messages.push(AgentChatMessage {
                     role: AgentRole::System,
                     sender: "Mentor".to_string(),
-                    text: "Revisão periódica: todo o código atual veio do agente ou o editor está vazio. Escreva algumas linhas suas para receber dicas e reforço personalizado.".to_string(),
+                    text: crate::i18n::bi(
+                        "Revisão periódica: todo o código atual veio do agente ou o editor está vazio. Escreva algumas linhas suas para receber dicas e reforço personalizado.",
+                        "Periodic review: all current code came from the agent or the editor is empty. Write a few lines of your own to receive tailored tips and feedback.",
+                        en,
+                    )
+                    .to_string(),
                 });
                 self.agent.scroll = u16::MAX;
             }
@@ -2909,16 +3517,21 @@ impl CreateState {
         }
 
         self.agent.open = true;
-        let ctx = crate::mentor::create_context_from(self);
-        self.agent.manager.submit_periodic_review(
+        let ctx = crate::mentor::create_context_from_for(self, en);
+        self.agent.manager.submit_periodic_review_for(
             ctx,
             student_lines,
             ai_lines,
             app.config.ai.clone(),
+            en,
         );
         let _ = self.poll_agent(app);
         app.set_status(
-            "Mentor IA revisando seu código (15–30 min) — dicas em Alt+A",
+            crate::i18n::bi(
+                "Mentor IA revisando seu código (15–30 min) — dicas em Alt+A",
+                "AI Mentor reviewing your code (15–30 min) — tips in Alt+A",
+                en,
+            ),
             StatusKind::Info,
         );
     }
@@ -2992,22 +3605,37 @@ impl CreateState {
     }
 
     pub fn open_lab_tab(&mut self, tab: crate::lab_tools::LabToolTab, app: &mut App) {
+        let en = app.is_english();
         let code = self.editor.buf.to_string_lossy();
         let diags = self.diagnostics_text_summary();
         self.lib_menu_open = false;
         self.build_menu_open = false;
-        self.lab.open_tab(tab, &code, &diags);
+        self.lab.open_tab_for(tab, &code, &diags, en);
         app.set_status(
-            format!("Laboratório: {} (1-6 abas · Esc fecha)", tab.title()),
+            if en {
+                format!("Lab: {} (1-0 tabs · Esc closes)", tab.title_for(true))
+            } else {
+                format!(
+                    "Laboratório: {} (1-0 abas · Esc fecha)",
+                    tab.title_for(false)
+                )
+            },
             StatusKind::Info,
         );
     }
 
     pub fn debugger_toggle_breakpoint_at_cursor(&mut self, app: &mut App) {
+        let en = app.is_english();
         let line = self.editor.cursor.line + 1;
         let active = self.lab.debugger.toggle_breakpoint(line);
         let msg = if active {
-            format!("● Breakpoint marcado na linha {line} (F10 ou Alt+J depura)")
+            if en {
+                format!("● Breakpoint set at line {line} (F10 or Alt+J debugs)")
+            } else {
+                format!("● Breakpoint marcado na linha {line} (F10 ou Alt+J depura)")
+            }
+        } else if en {
+            format!("Breakpoint removed from line {line}")
         } else {
             format!("Breakpoint removido da linha {line}")
         };
@@ -3023,9 +3651,14 @@ impl CreateState {
     }
 
     fn sync_editor_to_debug_step(&mut self, app: &mut App) {
+        let en = app.is_english();
         let Some(step) = self.lab.debugger.current().cloned() else {
             app.set_status(
-                "Debugger sem passos executáveis para este arquivo.",
+                crate::i18n::bi(
+                    "Debugger sem passos executáveis para este arquivo.",
+                    "Debugger has no executable steps for this file.",
+                    en,
+                ),
                 StatusKind::Warning,
             );
             return;
@@ -3036,7 +3669,7 @@ impl CreateState {
         self.editor.cursor.col = 0;
         self.editor.scroll_row = self.editor.cursor.line.saturating_sub(3);
         let vars_preview = if step.locals.is_empty() {
-            "sem locais".to_string()
+            crate::i18n::bi("sem locais", "no locals", en).to_string()
         } else {
             step.locals
                 .iter()
@@ -3079,14 +3712,23 @@ impl CreateState {
     }
 
     pub fn open_native_debugger(&mut self, app: &mut App) {
-        let probe = crate::lab_tools::detect_native_debugger();
+        let en = app.is_english();
+        let probe = crate::lab_tools::detect_native_debugger_for(en);
         let Some(project) = self.project.as_ref().cloned() else {
             self.lab.native_debugger_status = Some(
-                "Abra um projeto Cargo para anexar `rust-gdb` / `lldb` ao binário compilado."
-                    .to_string(),
+                crate::i18n::bi(
+                    "Abra um projeto Cargo para anexar `rust-gdb` / `lldb` ao binário compilado.",
+                    "Open a Cargo project to attach `rust-gdb` / `lldb` to the compiled binary.",
+                    en,
+                )
+                .to_string(),
             );
             app.set_status(
-                "Abra um projeto Cargo antes de iniciar o debugger nativo.",
+                crate::i18n::bi(
+                    "Abra um projeto Cargo antes de iniciar o debugger nativo.",
+                    "Open a Cargo project before starting the native debugger.",
+                    en,
+                ),
                 StatusKind::Warning,
             );
             return;
@@ -3114,16 +3756,30 @@ impl CreateState {
         );
 
         let status_msg = if !probe.available {
-            format!("{} Comando pronto: {cmd_preview}", probe.install_hint)
-        } else if !bin_path.is_file() && !cfg!(test) {
             format!(
-                "Debugger `{}` pronto! Compile primeiro (`F4` / `cargo build`) e rode em outro terminal: {cmd_preview}",
-                probe.binary_name
+                "{} {}: {cmd_preview}",
+                probe.install_hint,
+                crate::i18n::bi("Comando pronto", "Command ready", en)
             )
+        } else if !bin_path.is_file() && !cfg!(test) {
+            if en {
+                format!(
+                    "Debugger `{}` ready! Build first (`F4` / `cargo build`) and run in another terminal: {cmd_preview}",
+                    probe.binary_name
+                )
+            } else {
+                format!(
+                    "Debugger `{}` pronto! Compile primeiro (`F4` / `cargo build`) e rode em outro terminal: {cmd_preview}",
+                    probe.binary_name
+                )
+            }
         } else {
-            match spawn_external_terminal_command(&project.root, probe.binary_name, &args) {
+            match spawn_external_terminal_command(&project.root, probe.binary_name, &args, en) {
                 Ok(ok) => format!("{ok} · {cmd_preview}"),
-                Err(err) => format!("{err} · Comando: {cmd_preview}"),
+                Err(err) => format!(
+                    "{err} · {}: {cmd_preview}",
+                    crate::i18n::bi("Comando", "Command", en)
+                ),
             }
         };
         self.console.system(status_msg.clone());
@@ -3138,6 +3794,7 @@ impl CreateState {
         close_lab: bool,
         app: &mut App,
     ) {
+        let en = app.is_english();
         self.editor.select_all();
         self.editor.insert_text(code);
         self.notify_lsp_change();
@@ -3145,18 +3802,30 @@ impl CreateState {
             self.lab.open = false;
             self.focus = Focus::Editor;
         }
-        self.console
-            .system(format!("★ {label} carregado no editor (Ctrl+Z desfaz)."));
+        self.console.system(if en {
+            format!("★ {label} loaded into editor (Ctrl+Z undoes).")
+        } else {
+            format!("★ {label} carregado no editor (Ctrl+Z desfaz).")
+        });
         app.set_status(
-            format!("{label} carregado no editor (Ctrl+Z desfaz)"),
+            if en {
+                format!("{label} loaded into editor (Ctrl+Z undoes)")
+            } else {
+                format!("{label} carregado no editor (Ctrl+Z desfaz)")
+            },
             StatusKind::Success,
         );
     }
 
     fn add_dependency_to_cargo(&mut self, pkg: &str, version: &str, app: &mut App) {
+        let en = app.is_english();
         let Some(project) = self.project.as_ref().cloned() else {
             app.set_status(
-                "Abra um projeto Cargo para adicionar dependências.",
+                crate::i18n::bi(
+                    "Abra um projeto Cargo para adicionar dependências.",
+                    "Open a Cargo project to add dependencies.",
+                    en,
+                ),
                 StatusKind::Warning,
             );
             return;
@@ -3172,18 +3841,25 @@ impl CreateState {
                 self.editor.insert_text(&updated);
                 self.editor.mark_saved();
             }
-            self.console.system(format!(
-                "✔ `{pkg} = \"{version}\"` adicionado em Cargo.toml."
-            ));
+            self.console.system(if en {
+                format!("✔ `{pkg} = \"{version}\"` added to Cargo.toml.")
+            } else {
+                format!("✔ `{pkg} = \"{version}\"` adicionado em Cargo.toml.")
+            });
             app.set_status(
-                format!("Dependência `{pkg} = \"{version}\"` adicionada ao Cargo.toml"),
+                if en {
+                    format!("Dependency `{pkg} = \"{version}\"` added to Cargo.toml")
+                } else {
+                    format!("Dependência `{pkg} = \"{version}\"` adicionada ao Cargo.toml")
+                },
                 StatusKind::Success,
             );
         }
     }
 
     pub fn validate_active_quest(&mut self, app: &mut App) {
-        let quests = crate::lab_tools::TROUBLESHOOTING_QUESTS;
+        let en = app.is_english();
+        let quests = crate::lab_tools::troubleshooting_quests(en);
         let idx = self
             .lab
             .active_quest_id
@@ -3191,25 +3867,41 @@ impl CreateState {
             .unwrap_or(self.lab.quest_sel.min(quests.len().saturating_sub(1)));
         let quest = quests[idx];
         let code = self.editor.buf.to_string_lossy();
-        match crate::lab_tools::evaluate_quest(&quest, &code) {
+        match crate::lab_tools::evaluate_quest_for(&quest, &code, en) {
             Ok(eval) => {
                 self.lab.completed_quests.insert(quest.id);
                 let _ = app.award_xp(format!("quest:{}", quest.id), eval.xp_awarded, quest.title);
                 let _ = app.persist_progress();
                 let bonus_txt = if eval.golf_bonus {
-                    " · Bônus Golfing + Zero Clones!"
+                    crate::i18n::bi(
+                        " · Bônus Golfing + Zero Clones!",
+                        " · Golfing + Zero Clones Bonus!",
+                        en,
+                    )
                 } else {
                     ""
                 };
-                let msg = format!(
-                    "✔ {} concluída! (+{} XP · {} linhas editadas / par {} · Heap: {}){}",
-                    quest.id,
-                    eval.xp_awarded,
-                    eval.modified_lines,
-                    eval.par_lines,
-                    eval.heap_allocations,
-                    bonus_txt
-                );
+                let msg = if en {
+                    format!(
+                        "✔ {} completed! (+{} XP · {} edited lines / par {} · Heap: {}){}",
+                        quest.id,
+                        eval.xp_awarded,
+                        eval.modified_lines,
+                        eval.par_lines,
+                        eval.heap_allocations,
+                        bonus_txt
+                    )
+                } else {
+                    format!(
+                        "✔ {} concluída! (+{} XP · {} linhas editadas / par {} · Heap: {}){}",
+                        quest.id,
+                        eval.xp_awarded,
+                        eval.modified_lines,
+                        eval.par_lines,
+                        eval.heap_allocations,
+                        bonus_txt
+                    )
+                };
                 self.lab.last_quest_feedback = Some(msg.clone());
                 self.console.system(msg.clone());
                 app.set_status(msg, StatusKind::Success);
@@ -3223,6 +3915,7 @@ impl CreateState {
     }
 
     fn on_lab_modal_key(&mut self, app: &mut App, key: KeyEvent) {
+        let en = app.is_english();
         let alt = key.modifiers.contains(KeyModifiers::ALT);
         match key.code {
             KeyCode::Esc => {
@@ -3265,8 +3958,15 @@ impl CreateState {
         match self.lab.tab {
             crate::lab_tools::LabToolTab::RaioXMemoria => {
                 if matches!(key.code, KeyCode::Char('r' | 'R')) {
-                    self.lab.refresh(&code, &diag_text);
-                    app.set_status("Raio-X de Memória atualizado.", StatusKind::Info);
+                    self.lab.refresh_for(&code, &diag_text, en);
+                    app.set_status(
+                        crate::i18n::bi(
+                            "Raio-X de Memória atualizado.",
+                            "Memory X-Ray updated.",
+                            en,
+                        ),
+                        StatusKind::Info,
+                    );
                 }
             }
             crate::lab_tools::LabToolTab::LenteCompilador => match key.code {
@@ -3275,9 +3975,17 @@ impl CreateState {
                     self.lab.scroll = 0;
                     app.set_status(
                         if self.lab.eli10_mode {
-                            "Modo 'Como se eu tivesse 10 anos' (ELI10) ativado!"
+                            crate::i18n::bi(
+                                "Modo 'Como se eu tivesse 10 anos' (ELI10) ativado!",
+                                "'Explain Like I'm 10' (ELI10) mode enabled!",
+                                en,
+                            )
                         } else {
-                            "Modo técnico socrático ativado."
+                            crate::i18n::bi(
+                                "Modo técnico socrático ativado.",
+                                "Socratic technical mode enabled.",
+                                en,
+                            )
                         },
                         StatusKind::Info,
                     );
@@ -3290,7 +3998,7 @@ impl CreateState {
                 }
                 KeyCode::Enter => {
                     let lens = self.lab.last_lens.clone().unwrap_or_else(|| {
-                        crate::lab_tools::SocraticErrorLens::analyze(&diag_text, &code)
+                        crate::lab_tools::SocraticErrorLens::analyze_for(&diag_text, &code, en)
                     });
                     let fix = lens.fixes[self.lab.selected_fix.min(2)];
                     self.agent.open = true;
@@ -3299,15 +4007,26 @@ impl CreateState {
                     self.focus = Focus::Agent;
                     self.agent.messages.push(AgentChatMessage {
                         role: AgentRole::Agent,
-                        sender: "Lente RustLab".to_string(),
+                        sender: crate::i18n::bi("Lente RustLab", "RustLab Lens", en).to_string(),
                         text: format!(
-                            "{}\n{}\n```rust\n{}\n```\nAlt+Enter aplica no editor (Ctrl+Z desfaz).",
-                            fix.label, fix.explanation, fix.after
+                            "{}\n{}\n```rust\n{}\n```\n{}",
+                            fix.label,
+                            fix.explanation,
+                            fix.after,
+                            crate::i18n::bi(
+                                "Alt+Enter aplica no editor (Ctrl+Z desfaz).",
+                                "Alt+Enter applies in editor (Ctrl+Z undoes).",
+                                en
+                            )
                         ),
                     });
                     self.agent.scroll = u16::MAX;
                     app.set_status(
-                        "Solução idiomática enviada ao painel do Agente.",
+                        crate::i18n::bi(
+                            "Solução idiomática enviada ao painel do Agente.",
+                            "Idiomatic fix sent to Agent panel.",
+                            en,
+                        ),
                         StatusKind::Success,
                     );
                 }
@@ -3325,7 +4044,10 @@ impl CreateState {
                 }
                 KeyCode::Char('x' | 'X') => {
                     self.lab.debugger.stop();
-                    app.set_status("Sessão de debug encerrada.", StatusKind::Info);
+                    app.set_status(
+                        crate::i18n::bi("Sessão de debug encerrada.", "Debug session stopped.", en),
+                        StatusKind::Info,
+                    );
                 }
                 KeyCode::Up | KeyCode::Char('k') => {
                     self.lab.scroll = self.lab.scroll.saturating_sub(2);
@@ -3335,25 +4057,31 @@ impl CreateState {
                 }
                 _ => {}
             },
-            crate::lab_tools::LabToolTab::ConserteOCodigo => match key.code {
-                KeyCode::Up | KeyCode::Char('k') => {
-                    self.lab.quest_sel = self.lab.quest_sel.saturating_sub(1);
+            crate::lab_tools::LabToolTab::ConserteOCodigo => {
+                let quests = crate::lab_tools::troubleshooting_quests(en);
+                match key.code {
+                    KeyCode::Up | KeyCode::Char('k') => {
+                        self.lab.quest_sel = self.lab.quest_sel.saturating_sub(1);
+                    }
+                    KeyCode::Down | KeyCode::Char('j') => {
+                        let max = quests.len().saturating_sub(1);
+                        self.lab.quest_sel = (self.lab.quest_sel + 1).min(max);
+                    }
+                    KeyCode::Enter => {
+                        let quest = quests[self.lab.quest_sel.min(quests.len() - 1)];
+                        self.lab.active_quest_id = Some(quest.id);
+                        self.lab.last_quest_feedback = None;
+                        self.apply_code_template_to_editor(
+                            quest.broken_code,
+                            quest.title,
+                            true,
+                            app,
+                        );
+                    }
+                    KeyCode::Char('v' | 'V') => self.validate_active_quest(app),
+                    _ => {}
                 }
-                KeyCode::Down | KeyCode::Char('j') => {
-                    let max = crate::lab_tools::TROUBLESHOOTING_QUESTS
-                        .len()
-                        .saturating_sub(1);
-                    self.lab.quest_sel = (self.lab.quest_sel + 1).min(max);
-                }
-                KeyCode::Enter => {
-                    let quest = crate::lab_tools::TROUBLESHOOTING_QUESTS[self.lab.quest_sel];
-                    self.lab.active_quest_id = Some(quest.id);
-                    self.lab.last_quest_feedback = None;
-                    self.apply_code_template_to_editor(quest.broken_code, quest.title, true, app);
-                }
-                KeyCode::Char('v' | 'V') => self.validate_active_quest(app),
-                _ => {}
-            },
+            }
             crate::lab_tools::LabToolTab::PlaygroundComunidade => match key.code {
                 KeyCode::Up | KeyCode::Char('k') => {
                     self.lab.community_sel = self.lab.community_sel.saturating_sub(1);
@@ -3363,7 +4091,7 @@ impl CreateState {
                 }
                 KeyCode::Char('o' | 'O') => {
                     let url = crate::lab_tools::build_playground_url(&code);
-                    let msg = open_documentation_url(&url);
+                    let msg = open_documentation_url(&url, en);
                     app.set_status(msg, StatusKind::Info);
                 }
                 KeyCode::Char('e' | 'E') => {
@@ -3373,60 +4101,88 @@ impl CreateState {
                         .map(|p| p.root.clone())
                         .unwrap_or_else(|| app.projects_base_dir());
                     let _ = std::fs::create_dir_all(&dir);
-                    match crate::lab_tools::export_project_share_card(&dir, &code) {
+                    match crate::lab_tools::export_project_share_card_for(&dir, &code, en) {
                         Ok(path) => {
                             self.lab.last_export_path = Some(path.clone());
                             self.refresh_files(app);
                             app.set_status(
-                                format!("Exportado: {}", path.display()),
+                                format!(
+                                    "{}: {}",
+                                    crate::i18n::bi("Exportado", "Exported", en),
+                                    path.display()
+                                ),
                                 StatusKind::Success,
                             );
                         }
                         Err(e) => {
-                            app.set_status(format!("Falha ao exportar: {e}"), StatusKind::Warning);
+                            app.set_status(
+                                format!(
+                                    "{}: {e}",
+                                    crate::i18n::bi("Falha ao exportar", "Export failed", en)
+                                ),
+                                StatusKind::Warning,
+                            );
                         }
                     }
                 }
                 KeyCode::Char('t' | 'T') | KeyCode::Enter => {
-                    let sols = crate::lab_tools::community_solutions_for(&code);
+                    let sols = crate::lab_tools::community_solutions_for_lang(&code, en);
                     let pick = sols[self.lab.community_sel.min(2)];
                     self.apply_code_template_to_editor(pick.code, pick.name, true, app);
                 }
                 _ => {}
             },
-            crate::lab_tools::LabToolTab::EcossistemasModernos => match key.code {
-                KeyCode::Up | KeyCode::Char('k') => {
-                    self.lab.ecosystem_sel = self.lab.ecosystem_sel.saturating_sub(1);
+            crate::lab_tools::LabToolTab::EcossistemasModernos => {
+                let ecos = crate::lab_tools::modern_ecosystems(en);
+                match key.code {
+                    KeyCode::Up | KeyCode::Char('k') => {
+                        self.lab.ecosystem_sel = self.lab.ecosystem_sel.saturating_sub(1);
+                    }
+                    KeyCode::Down | KeyCode::Char('j') => {
+                        let max = ecos.len().saturating_sub(1);
+                        self.lab.ecosystem_sel = (self.lab.ecosystem_sel + 1).min(max);
+                    }
+                    KeyCode::Char('d' | 'D') => {
+                        let eco = ecos[self.lab.ecosystem_sel.min(ecos.len() - 1)];
+                        self.add_dependency_to_cargo(eco.dep_name, eco.dep_version, app);
+                    }
+                    KeyCode::Char('t' | 'T') | KeyCode::Enter => {
+                        let eco = ecos[self.lab.ecosystem_sel.min(ecos.len() - 1)];
+                        self.apply_code_template_to_editor(eco.template_code, eco.name, true, app);
+                    }
+                    _ => {}
                 }
-                KeyCode::Down | KeyCode::Char('j') => {
-                    let max = crate::lab_tools::MODERN_ECOSYSTEMS.len().saturating_sub(1);
-                    self.lab.ecosystem_sel = (self.lab.ecosystem_sel + 1).min(max);
-                }
-                KeyCode::Char('d' | 'D') => {
-                    let eco = crate::lab_tools::MODERN_ECOSYSTEMS[self.lab.ecosystem_sel];
-                    self.add_dependency_to_cargo(eco.dep_name, eco.dep_version, app);
-                }
-                KeyCode::Char('t' | 'T') | KeyCode::Enter => {
-                    let eco = crate::lab_tools::MODERN_ECOSYSTEMS[self.lab.ecosystem_sel];
-                    self.apply_code_template_to_editor(eco.template_code, eco.name, true, app);
-                }
-                _ => {}
-            },
+            }
             crate::lab_tools::LabToolTab::MapaLifetimes => match key.code {
                 KeyCode::Char('l' | 'L') => {
                     self.lab.lifetime_gutter_enabled = !self.lab.lifetime_gutter_enabled;
                     app.set_status(
                         if self.lab.lifetime_gutter_enabled {
-                            "Marcadores de lifetime (┣/┃/✘) ativados na margem do editor."
+                            crate::i18n::bi(
+                                "Marcadores de lifetime (┣/┃/✘) ativados na margem do editor.",
+                                "Lifetime gutter markers (┣/┃/✘) enabled in editor.",
+                                en,
+                            )
                         } else {
-                            "Marcadores de lifetime na margem desativados."
+                            crate::i18n::bi(
+                                "Marcadores de lifetime na margem desativados.",
+                                "Lifetime gutter markers disabled.",
+                                en,
+                            )
                         },
                         StatusKind::Info,
                     );
                 }
                 KeyCode::Char('r' | 'R') => {
-                    self.lab.refresh(&code, &diag_text);
-                    app.set_status("Mapa de Lifetimes recalculado.", StatusKind::Info);
+                    self.lab.refresh_for(&code, &diag_text, en);
+                    app.set_status(
+                        crate::i18n::bi(
+                            "Mapa de Lifetimes recalculado.",
+                            "Lifetime Map recalculated.",
+                            en,
+                        ),
+                        StatusKind::Info,
+                    );
                 }
                 KeyCode::Up | KeyCode::Char('k') => {
                     self.lab.scroll = self.lab.scroll.saturating_sub(2);
@@ -3438,14 +4194,20 @@ impl CreateState {
             },
             crate::lab_tools::LabToolTab::LayoutMemoria => match key.code {
                 KeyCode::Char('r' | 'R') => {
-                    self.lab.refresh(&code, &diag_text);
-                    app.set_status("Layout de Memória recalculado.", StatusKind::Info);
+                    self.lab.refresh_for(&code, &diag_text, en);
+                    app.set_status(
+                        crate::i18n::bi(
+                            "Layout de Memória recalculado.",
+                            "Memory Layout recalculated.",
+                            en,
+                        ),
+                        StatusKind::Info,
+                    );
                 }
                 KeyCode::Char('o' | 'O') | KeyCode::Enter => {
-                    let report =
-                        self.lab.last_layout.clone().unwrap_or_else(|| {
-                            crate::lab_tools::MemoryLayoutReport::analyze(&code)
-                        });
+                    let report = self.lab.last_layout.clone().unwrap_or_else(|| {
+                        crate::lab_tools::MemoryLayoutReport::analyze_for(&code, en)
+                    });
                     if let Some(st) = report.user_types.first() {
                         self.agent.open = true;
                         self.agent.proposed_code = Some(st.reordered_preview.clone());
@@ -3454,19 +4216,34 @@ impl CreateState {
                         self.agent.messages.push(AgentChatMessage {
                             role: AgentRole::Agent,
                             sender: "Layout X-Ray".to_string(),
-                            text: format!(
-                                "Sugestão de ordenação por alinhamento decrescente para `{}` (economiza {} bytes em repr(C)):\n```rust\n{}\n```",
-                                st.name, st.bytes_saved, st.reordered_preview
-                            ),
+                            text: if en {
+                                format!(
+                                    "Descending-alignment field ordering for `{}` (saves {} bytes in repr(C)):\n```rust\n{}\n```",
+                                    st.name, st.bytes_saved, st.reordered_preview
+                                )
+                            } else {
+                                format!(
+                                    "Sugestão de ordenação por alinhamento decrescente para `{}` (economiza {} bytes em repr(C)):\n```rust\n{}\n```",
+                                    st.name, st.bytes_saved, st.reordered_preview
+                                )
+                            },
                         });
                         self.agent.scroll = u16::MAX;
                         app.set_status(
-                            "Ordem otimizada da struct enviada ao painel do Agente.",
+                            crate::i18n::bi(
+                                "Ordem otimizada da struct enviada ao painel do Agente.",
+                                "Optimized struct field order sent to Agent panel.",
+                                en,
+                            ),
                             StatusKind::Success,
                         );
                     } else {
                         app.set_status(
-                            "Defina uma `struct Nome { ... }` no editor para sugerir reordenação.",
+                            crate::i18n::bi(
+                                "Defina uma `struct Nome { ... }` no editor para sugerir reordenação.",
+                                "Define a `struct Name { ... }` in the editor to suggest reordering.",
+                                en,
+                            ),
                             StatusKind::Info,
                         );
                     }
@@ -3484,7 +4261,7 @@ impl CreateState {
                     .lab
                     .last_desugar
                     .clone()
-                    .unwrap_or_else(|| crate::lab_tools::DesugarReport::analyze(&code));
+                    .unwrap_or_else(|| crate::lab_tools::DesugarReport::analyze_for(&code, en));
                 let max = report.items.len().saturating_sub(1);
                 match key.code {
                     KeyCode::Up | KeyCode::Char('k') => {
@@ -3500,15 +4277,37 @@ impl CreateState {
                             self.focus = Focus::Agent;
                             self.agent.messages.push(AgentChatMessage {
                                 role: AgentRole::Agent,
-                                sender: "Desaçucarador RustLab".to_string(),
-                                text: format!(
-                                    "{}\nOriginal: `{}`\nExpansão do compilador:\n```rust\n{}\n```\n{}",
-                                    item.title, item.sugar_snippet, item.expanded_rust, item.explanation
-                                ),
+                                sender: crate::i18n::bi(
+                                    "Desaçucarador RustLab",
+                                    "RustLab Desugar",
+                                    en,
+                                )
+                                .to_string(),
+                                text: if en {
+                                    format!(
+                                        "{}\nOriginal: `{}`\nCompiler expansion:\n```rust\n{}\n```\n{}",
+                                        item.title,
+                                        item.sugar_snippet,
+                                        item.expanded_rust,
+                                        item.explanation
+                                    )
+                                } else {
+                                    format!(
+                                        "{}\nOriginal: `{}`\nExpansão do compilador:\n```rust\n{}\n```\n{}",
+                                        item.title,
+                                        item.sugar_snippet,
+                                        item.expanded_rust,
+                                        item.explanation
+                                    )
+                                },
                             });
                             self.agent.scroll = u16::MAX;
                             app.set_status(
-                                "Expansão da macro enviada ao Agente.",
+                                crate::i18n::bi(
+                                    "Expansão da macro enviada ao Agente.",
+                                    "Macro expansion sent to Agent.",
+                                    en,
+                                ),
                                 StatusKind::Info,
                             );
                         }
@@ -3522,9 +4321,17 @@ impl CreateState {
                     self.lab.scroll = 0;
                     app.set_status(
                         if self.lab.polyglot_mode_flashcards {
-                            "Modo Micro-Treino Flashcards ativado (C = Compila · E = Erro)."
+                            crate::i18n::bi(
+                                "Modo Micro-Treino Flashcards ativado (C = Compila · E = Erro).",
+                                "Micro-Drill Flashcards mode enabled (C = Compiles · E = Error).",
+                                en,
+                            )
                         } else {
-                            "Modo Dicionário Poliglota ativado (Python/JS/C++ -> Rust)."
+                            crate::i18n::bi(
+                                "Modo Dicionário Poliglota ativado (Python/JS/C++ -> Rust).",
+                                "Polyglot Dictionary mode enabled (Python/JS/C++ -> Rust).",
+                                en,
+                            )
                         },
                         StatusKind::Info,
                     );
@@ -3548,27 +4355,21 @@ impl CreateState {
                         self.lab.flashcard_sel = (self.lab.flashcard_sel + 1).min(max);
                         self.lab.flashcard_feedback = None;
                     } else {
-                        let max = crate::lab_tools::POLYGLOT_DICTIONARY
-                            .len()
-                            .saturating_sub(1);
+                        let dict = crate::lab_tools::polyglot_dictionary(en);
+                        let max = dict.len().saturating_sub(1);
                         self.lab.polyglot_sel = (self.lab.polyglot_sel + 1).min(max);
                     }
                 }
                 KeyCode::Enter if !self.lab.polyglot_mode_flashcards => {
-                    let entry = crate::lab_tools::POLYGLOT_DICTIONARY[self
-                        .lab
-                        .polyglot_sel
-                        .min(crate::lab_tools::POLYGLOT_DICTIONARY.len() - 1)];
+                    let dict = crate::lab_tools::polyglot_dictionary(en);
+                    let entry = dict[self.lab.polyglot_sel.min(dict.len() - 1)];
                     self.apply_code_template_to_editor(entry.rust_code, entry.concept, true, app);
                 }
                 KeyCode::Char('c' | 'C' | 'e' | 'E') if self.lab.polyglot_mode_flashcards => {
                     let user_compiles = matches!(key.code, KeyCode::Char('c' | 'C'));
-                    let card = crate::lab_tools::INTUITION_FLASHCARDS[self
-                        .lab
-                        .flashcard_sel
-                        .min(crate::lab_tools::INTUITION_FLASHCARDS.len() - 1)];
+                    let card = crate::lab_tools::intuition_flashcard(self.lab.flashcard_sel, en);
                     let (ok, msg) =
-                        crate::lab_tools::evaluate_flashcard_answer(&card, user_compiles);
+                        crate::lab_tools::evaluate_flashcard_answer_for(&card, user_compiles, en);
                     if ok {
                         self.lab.completed_flashcards.insert(card.id);
                         let _ = app.award_xp(format!("flashcard:{}", card.id), 25, card.title);
@@ -3620,11 +4421,12 @@ fn maybe_award_independent_capstone(app: &mut App, changed: &mut bool, awarded: 
         {
             *changed = true;
         }
-        if app.award_xp(
-            "project:independent-complete".into(),
-            50,
+        let label = crate::i18n::bi(
             "Projeto independente (Etapa 10) concluído",
-        ) {
+            "Independent project (Stage 10) completed",
+            app.is_english(),
+        );
+        if app.award_xp("project:independent-complete".into(), 50, label) {
             *awarded = true;
         }
     }
@@ -3684,25 +4486,44 @@ fn package_binary_name(project: &Project) -> String {
 fn spawn_external_app(
     bin_path: &std::path::Path,
     workdir: &std::path::Path,
+    en: bool,
 ) -> Result<String, String> {
     if cfg!(test) || std::env::var_os("RUSTLAB_DISABLE_EXTERNAL").is_some() {
-        return Ok(format!(
-            "Janela externa pronta para executar: {}",
-            bin_path.display()
-        ));
+        return Ok(if en {
+            format!("External window ready to launch: {}", bin_path.display())
+        } else {
+            format!(
+                "Janela externa pronta para executar: {}",
+                bin_path.display()
+            )
+        });
     }
     if !bin_path.is_file() {
-        return Err(format!(
-            "Binário não encontrado em {} (verifique se o projeto gera executável)",
-            bin_path.display()
-        ));
+        return Err(if en {
+            format!(
+                "Binary not found at {} (verify the project produces an executable)",
+                bin_path.display()
+            )
+        } else {
+            format!(
+                "Binário não encontrado em {} (verifique se o projeto gera executável)",
+                bin_path.display()
+            )
+        });
     }
     #[cfg(all(unix, not(target_os = "macos")))]
     if std::env::var_os("DISPLAY").is_none() && std::env::var_os("WAYLAND_DISPLAY").is_none() {
-        return Err(format!(
-            "Sem servidor gráfico (DISPLAY/WAYLAND) ativo. Execute no terminal: {}",
-            bin_path.display()
-        ));
+        return Err(if en {
+            format!(
+                "No active graphical server (DISPLAY/WAYLAND). Run in terminal: {}",
+                bin_path.display()
+            )
+        } else {
+            format!(
+                "Sem servidor gráfico (DISPLAY/WAYLAND) ativo. Execute no terminal: {}",
+                bin_path.display()
+            )
+        });
     }
     std::process::Command::new(bin_path)
         .current_dir(workdir)
@@ -3710,18 +4531,31 @@ fn spawn_external_app(
         .stdout(std::process::Stdio::null())
         .stderr(std::process::Stdio::null())
         .spawn()
-        .map(|_| format!("App aberto em janela separada: {}", bin_path.display()))
-        .map_err(|e| format!("Falha ao abrir janela externa: {e}"))
+        .map(|_| {
+            if en {
+                format!("App opened in separate window: {}", bin_path.display())
+            } else {
+                format!("App aberto em janela separada: {}", bin_path.display())
+            }
+        })
+        .map_err(|e| {
+            if en {
+                format!("Failed to open external window: {e}")
+            } else {
+                format!("Falha ao abrir janela externa: {e}")
+            }
+        })
 }
 
-fn spawn_external_cargo_terminal(workdir: &std::path::Path) -> Result<String, String> {
-    spawn_external_terminal_command(workdir, "cargo", &["run".to_string()])
+fn spawn_external_cargo_terminal(workdir: &std::path::Path, en: bool) -> Result<String, String> {
+    spawn_external_terminal_command(workdir, "cargo", &["run".to_string()], en)
 }
 
 fn spawn_external_terminal_command(
     workdir: &std::path::Path,
     program: &str,
     cmd_args: &[String],
+    en: bool,
 ) -> Result<String, String> {
     let preview = if cmd_args.is_empty() {
         program.to_string()
@@ -3729,10 +4563,17 @@ fn spawn_external_terminal_command(
         format!("{program} {}", cmd_args.join(" "))
     };
     if cfg!(test) || std::env::var_os("RUSTLAB_DISABLE_EXTERNAL").is_some() {
-        return Ok(format!(
-            "Terminal externo pronto para `{preview}` em {}",
-            workdir.display()
-        ));
+        return Ok(if en {
+            format!(
+                "External terminal ready for `{preview}` in {}",
+                workdir.display()
+            )
+        } else {
+            format!(
+                "Terminal externo pronto para `{preview}` em {}",
+                workdir.display()
+            )
+        });
     }
     #[cfg(target_os = "windows")]
     {
@@ -3745,16 +4586,30 @@ fn spawn_external_terminal_command(
             .stderr(std::process::Stdio::null())
             .spawn()
             .map(|_| {
-                format!(
-                    "Terminal externo iniciado com `{preview}` em {}",
-                    workdir.display()
-                )
+                if en {
+                    format!(
+                        "External terminal started with `{preview}` in {}",
+                        workdir.display()
+                    )
+                } else {
+                    format!(
+                        "Terminal externo iniciado com `{preview}` em {}",
+                        workdir.display()
+                    )
+                }
             })
             .map_err(|_| {
-                format!(
-                    "Abra outro terminal e execute: cd \"{}\" && {preview}",
-                    workdir.display()
-                )
+                if en {
+                    format!(
+                        "Open another terminal and run: cd \"{}\" && {preview}",
+                        workdir.display()
+                    )
+                } else {
+                    format!(
+                        "Abra outro terminal e execute: cd \"{}\" && {preview}",
+                        workdir.display()
+                    )
+                }
             });
     }
     #[cfg(target_os = "macos")]
@@ -3771,25 +4626,46 @@ fn spawn_external_terminal_command(
             .stderr(std::process::Stdio::null())
             .spawn()
             .map(|_| {
-                format!(
-                    "Terminal.app iniciado com `{preview}` em {}",
-                    workdir.display()
-                )
+                if en {
+                    format!(
+                        "Terminal.app started with `{preview}` in {}",
+                        workdir.display()
+                    )
+                } else {
+                    format!(
+                        "Terminal.app iniciado com `{preview}` em {}",
+                        workdir.display()
+                    )
+                }
             })
             .map_err(|_| {
-                format!(
-                    "Abra outro terminal e execute: cd \"{}\" && {preview}",
-                    workdir.display()
-                )
+                if en {
+                    format!(
+                        "Open another terminal and run: cd \"{}\" && {preview}",
+                        workdir.display()
+                    )
+                } else {
+                    format!(
+                        "Abra outro terminal e execute: cd \"{}\" && {preview}",
+                        workdir.display()
+                    )
+                }
             });
     }
     #[cfg(all(unix, not(target_os = "macos")))]
     {
         if std::env::var_os("DISPLAY").is_none() && std::env::var_os("WAYLAND_DISPLAY").is_none() {
-            return Err(format!(
-                "Sem servidor gráfico ativo. Abra outro terminal paralelo e rode: cd \"{}\" && {preview}",
-                workdir.display()
-            ));
+            return Err(if en {
+                format!(
+                    "No active graphical server. Open another terminal and run: cd \"{}\" && {preview}",
+                    workdir.display()
+                )
+            } else {
+                format!(
+                    "Sem servidor gráfico ativo. Abra outro terminal paralelo e rode: cd \"{}\" && {preview}",
+                    workdir.display()
+                )
+            });
         }
         const TERMINALS: &[(&str, &[&str])] = &[
             ("x-terminal-emulator", &["-e"]),
@@ -3814,25 +4690,47 @@ fn spawn_external_terminal_command(
                 .spawn()
                 .is_ok()
             {
-                return Ok(format!(
-                    "`{preview}` iniciado no terminal `{term}` em {}",
-                    workdir.display()
-                ));
+                return Ok(if en {
+                    format!(
+                        "`{preview}` launched in terminal `{term}` at {}",
+                        workdir.display()
+                    )
+                } else {
+                    format!(
+                        "`{preview}` iniciado no terminal `{term}` em {}",
+                        workdir.display()
+                    )
+                });
             }
         }
-        Err(format!(
-            "Nenhum emulador gráfico encontrado. Abra outro terminal e execute: cd \"{}\" && {preview}",
-            workdir.display()
-        ))
+        Err(if en {
+            format!(
+                "No terminal emulator found. Open another terminal and run: cd \"{}\" && {preview}",
+                workdir.display()
+            )
+        } else {
+            format!(
+                "Nenhum emulador gráfico encontrado. Abra outro terminal e execute: cd \"{}\" && {preview}",
+                workdir.display()
+            )
+        })
     }
 }
 
-fn open_documentation_url(url: &str) -> String {
+fn open_documentation_url(url: &str, en: bool) -> String {
     if !url.starts_with("https://") && !url.starts_with("http://") {
-        return format!("URL de documentação inválida: {url}");
+        return if en {
+            format!("Invalid documentation URL: {url}")
+        } else {
+            format!("URL de documentação inválida: {url}")
+        };
     }
     if cfg!(test) || std::env::var_os("RUSTLAB_DISABLE_BROWSER").is_some() {
-        return format!("Documentação pronta: {url}");
+        return if en {
+            format!("Documentation ready: {url}")
+        } else {
+            format!("Documentação pronta: {url}")
+        };
     }
     #[cfg(target_os = "macos")]
     let res = std::process::Command::new("open")
@@ -3857,8 +4755,20 @@ fn open_documentation_url(url: &str) -> String {
         .spawn();
 
     match res {
-        Ok(_) => format!("Documentação aberta no navegador: {url}"),
-        Err(_) => format!("Abra no navegador: {url}"),
+        Ok(_) => {
+            if en {
+                format!("Documentation opened in browser: {url}")
+            } else {
+                format!("Documentação aberta no navegador: {url}")
+            }
+        }
+        Err(_) => {
+            if en {
+                format!("Open in browser: {url}")
+            } else {
+                format!("Abra no navegador: {url}")
+            }
+        }
     }
 }
 

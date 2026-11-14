@@ -11,11 +11,16 @@ use crate::mentor::{MentorAction, MentorState, ModelPickerState};
 use crate::ui::titled_block;
 
 pub fn draw(frame: &mut Frame, app: &App, area: Rect) {
+    let en = app.is_english();
     let theme = &app.theme;
     let Some(state) = &app.mentor else {
         frame.render_widget(
-            Paragraph::new("Mentor não inicializado. Pressione Ctrl+T para abrir.")
-                .block(titled_block("Mentor", theme, true)),
+            Paragraph::new(if en {
+                "Mentor not initialized. Press Ctrl+T to open."
+            } else {
+                "Mentor não inicializado. Pressione Ctrl+T para abrir."
+            })
+            .block(titled_block("Mentor", theme, true)),
             area,
         );
         return;
@@ -25,18 +30,30 @@ pub fn draw(frame: &mut Frame, app: &App, area: Rect) {
 
     let ctx_lines = vec![
         Line::from(vec![
-            Span::styled("Contexto: ", theme.title()),
+            Span::styled(if en { "Context: " } else { "Contexto: " }, theme.title()),
             Span::styled(state.context.origin.as_str(), theme.base()),
         ]),
         Line::from(Span::styled(
-            "O mentor explica conceitos e dá pistas, mas nunca substitui `cargo check` / `cargo test`.",
+            if en {
+                "The mentor explains concepts and gives hints, but never replaces `cargo check` / `cargo test`."
+            } else {
+                "O mentor explica conceitos e dá pistas, mas nunca substitui `cargo check` / `cargo test`."
+            },
             theme.dim(),
         )),
     ];
     frame.render_widget(
         Paragraph::new(ctx_lines)
             .wrap(Wrap { trim: true })
-            .block(titled_block("Mentor RustLab", theme, false)),
+            .block(titled_block(
+                if en {
+                    "RustLab Mentor"
+                } else {
+                    "Mentor RustLab"
+                },
+                theme,
+                false,
+            )),
         rows[0],
     );
 
@@ -53,7 +70,7 @@ pub fn draw(frame: &mut Frame, app: &App, area: Rect) {
             } else {
                 theme.base()
             };
-            ListItem::new(format!("[{}] {}", act.shortcut_digit(), act.label())).style(style)
+            ListItem::new(format!("[{}] {}", act.shortcut_digit(), act.label_for(en))).style(style)
         })
         .collect();
     let mut list_state = ListState::default().with_selected(Some(state.selected_action));
@@ -62,28 +79,41 @@ pub fn draw(frame: &mut Frame, app: &App, area: Rect) {
     frame.render_stateful_widget(
         List::new(items)
             .highlight_symbol(if app.unicode { "▶ " } else { "> " })
-            .block(titled_block("Ações (1–6 · Enter)", theme, true)),
+            .block(titled_block(
+                if en {
+                    "Actions (1–6 · Enter)"
+                } else {
+                    "Ações (1–6 · Enter)"
+                },
+                theme,
+                true,
+            )),
         actions_panel[0],
         &mut list_state,
     );
-    let current_desc = MentorAction::ALL[state.selected_action].description();
+    let current_desc = MentorAction::ALL[state.selected_action].description_for(en);
     frame.render_widget(
         Paragraph::new(current_desc)
             .style(theme.dim())
             .wrap(Wrap { trim: true })
-            .block(titled_block("Sobre a ação", theme, false)),
+            .block(titled_block(
+                if en { "About action" } else { "Sobre a ação" },
+                theme,
+                false,
+            )),
         actions_panel[1],
     );
 
     draw_response(frame, app, state, cols[1]);
 
     if state.model_picker.open {
-        draw_model_picker(
+        draw_model_picker_for(
             frame,
             &app.theme,
             &state.model_picker,
             &app.config.ai.ollama_model,
             area,
+            en,
         );
     } else if state.asking_custom {
         draw_custom_question(frame, state, area, app);
@@ -93,6 +123,7 @@ pub fn draw(frame: &mut Frame, app: &App, area: Rect) {
 }
 
 fn draw_response(frame: &mut Frame, app: &App, state: &MentorState, area: Rect) {
+    let en = app.is_english();
     let theme = &app.theme;
     let mut lines = vec![
         Line::from(vec![
@@ -102,13 +133,28 @@ fn draw_response(frame: &mut Frame, app: &App, state: &MentorState, area: Rect) 
         Line::from(""),
     ];
     if let Some(err) = &state.last_error {
-        lines.push(Line::styled(format!("Aviso: {err}"), theme.warning()));
+        lines.push(Line::styled(
+            if en {
+                format!("Warning: {err}")
+            } else {
+                format!("Aviso: {err}")
+            },
+            theme.warning(),
+        ));
         lines.push(Line::from(""));
     }
     for line in &state.response_lines {
         lines.push(Line::styled(line.as_str(), theme.base()));
     }
-    let block = titled_block("Resposta do Mentor", theme, !state.manager.running);
+    let block = titled_block(
+        if en {
+            "Mentor Response"
+        } else {
+            "Resposta do Mentor"
+        },
+        theme,
+        !state.manager.running,
+    );
     frame.render_widget(
         Paragraph::new(lines)
             .wrap(Wrap { trim: false })
@@ -119,17 +165,29 @@ fn draw_response(frame: &mut Frame, app: &App, state: &MentorState, area: Rect) 
 }
 
 fn draw_custom_question(frame: &mut Frame, state: &MentorState, area: Rect, app: &App) {
+    let en = app.is_english();
     let theme = &app.theme;
     let popup = centered(area, 72, 7);
     frame.render_widget(Clear, popup);
-    let msg = format!(
-        "Digite sua dúvida sobre Rust ou sobre o contexto atual:\n> {}_\nEnter envia · Esc cancela",
-        state.custom_input
-    );
+    let msg = if en {
+        format!(
+            "Type your question about Rust or the current context:\n> {}_\nEnter sends · Esc cancels",
+            state.custom_input
+        )
+    } else {
+        format!(
+            "Digite sua dúvida sobre Rust ou sobre o contexto atual:\n> {}_\nEnter envia · Esc cancela",
+            state.custom_input
+        )
+    };
     frame.render_widget(
         Paragraph::new(msg).wrap(Wrap { trim: true }).block(
             Block::bordered()
-                .title(" Pergunta ao Mentor ")
+                .title(if en {
+                    " Ask the Mentor "
+                } else {
+                    " Pergunta ao Mentor "
+                })
                 .border_style(theme.border_style(true)),
         ),
         popup,
@@ -137,20 +195,32 @@ fn draw_custom_question(frame: &mut Frame, state: &MentorState, area: Rect, app:
 }
 
 fn draw_remote_consent(frame: &mut Frame, app: &App, area: Rect) {
+    let en = app.is_english();
     let theme = &app.theme;
     let popup = centered(area, 74, 11);
     frame.render_widget(Clear, popup);
-    let msg = format!(
-        "Consentimento para API remota ({})\n\nCódigo e mensagens de erro do contexto atual serão enviados para:\n{}\n\nNenhum dado foi enviado ainda.\nEnter / s autoriza envio remoto · Esc / n recusa e mantém guia local",
-        app.config.ai.remote_model, app.config.ai.remote_url
-    );
+    let msg = if en {
+        format!(
+            "Consent for remote API ({})\n\nCode and error messages from the current context will be sent to:\n{}\n\nNothing has been sent yet.\nEnter / y authorizes remote send · Esc / n declines and stays offline",
+            app.config.ai.remote_model, app.config.ai.remote_url
+        )
+    } else {
+        format!(
+            "Consentimento para API remota ({})\n\nCódigo e mensagens de erro do contexto atual serão enviados para:\n{}\n\nNenhum dado foi enviado ainda.\nEnter / s autoriza envio remoto · Esc / n recusa e mantém guia local",
+            app.config.ai.remote_model, app.config.ai.remote_url
+        )
+    };
     frame.render_widget(
         Paragraph::new(msg)
             .style(theme.warning())
             .wrap(Wrap { trim: true })
             .block(
                 Block::bordered()
-                    .title(" Consentimento de IA Remota ")
+                    .title(if en {
+                        " Remote AI Consent "
+                    } else {
+                        " Consentimento de IA Remota "
+                    })
                     .border_style(theme.border_style(true)),
             ),
         popup,
@@ -158,6 +228,7 @@ fn draw_remote_consent(frame: &mut Frame, app: &App, area: Rect) {
 }
 
 /// Overlay compartilhado de seleção de modelo Ollama (usado pelo Mentor e pelo Agente no Modo Criar).
+#[allow(dead_code)]
 pub fn draw_model_picker(
     frame: &mut Frame,
     theme: &crate::theme::Theme,
@@ -165,33 +236,53 @@ pub fn draw_model_picker(
     active_model: &str,
     area: Rect,
 ) {
+    draw_model_picker_for(frame, theme, picker, active_model, area, false);
+}
+
+pub fn draw_model_picker_for(
+    frame: &mut Frame,
+    theme: &crate::theme::Theme,
+    picker: &ModelPickerState,
+    active_model: &str,
+    area: Rect,
+    english: bool,
+) {
     let list_len = picker.candidates.len().min(10) as u16;
     let popup = centered(area, 64, (list_len + 8).max(11));
     frame.render_widget(Clear, popup);
 
     let mut lines: Vec<Line> = Vec::new();
-    let source = if picker.online {
-        "Ollama local conectado (/api/tags)"
-    } else {
-        "Ollama offline — sugestões rápidas ou digite manualmente"
+    let source = match (picker.online, english) {
+        (true, true) => "Local Ollama connected (/api/tags)",
+        (true, false) => "Ollama local conectado (/api/tags)",
+        (false, true) => "Ollama offline — quick suggestions or type manually",
+        (false, false) => "Ollama offline — sugestões rápidas ou digite manualmente",
     };
     lines.push(Line::styled(source, theme.dim()));
     if picker.typing_custom {
         lines.push(Line::from(""));
         lines.push(Line::styled(
-            format!("Nome do modelo: > {}_", picker.custom_input),
+            if english {
+                format!("Model name: > {}_", picker.custom_input)
+            } else {
+                format!("Nome do modelo: > {}_", picker.custom_input)
+            },
             theme.title(),
         ));
         lines.push(Line::from(""));
         lines.push(Line::styled(
-            "Enter confirma e ativa Ollama · Esc volta para a lista",
+            if english {
+                "Enter confirms and activates Ollama · Esc returns to list"
+            } else {
+                "Enter confirma e ativa Ollama · Esc volta para a lista"
+            },
             theme.dim(),
         ));
     } else {
         for (idx, model) in picker.candidates.iter().enumerate() {
             let selected = idx == picker.selected;
             let active_mark = if model == active_model {
-                " (ativo)"
+                if english { " (active)" } else { " (ativo)" }
             } else {
                 ""
             };
@@ -206,7 +297,11 @@ pub fn draw_model_picker(
         }
         lines.push(Line::from(""));
         lines.push(Line::styled(
-            "↑↓ escolher · Enter ativar · t digitar outro · r atualizar · Esc fechar",
+            if english {
+                "↑↓ choose · Enter activate · t type another · r refresh · Esc close"
+            } else {
+                "↑↓ escolher · Enter ativar · t digitar outro · r atualizar · Esc fechar"
+            },
             theme.dim(),
         ));
     }
@@ -214,7 +309,11 @@ pub fn draw_model_picker(
     frame.render_widget(
         Paragraph::new(lines).wrap(Wrap { trim: true }).block(
             Block::bordered()
-                .title(" Escolher modelo local (Ollama) ")
+                .title(if english {
+                    " Choose local model (Ollama) "
+                } else {
+                    " Escolher modelo local (Ollama) "
+                })
                 .border_style(theme.border_style(true)),
         ),
         popup,

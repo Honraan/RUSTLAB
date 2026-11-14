@@ -153,6 +153,7 @@ fn draw_v3_browser(frame: &mut Frame, app: &App, area: Rect) {
         is_v3_stage_unlocked,
     };
 
+    let en = app.is_english();
     let theme = &app.theme;
     let preview = app.browser.v3_preview_unlocked;
     let cols = Layout::horizontal([Constraint::Length(38), Constraint::Min(24)]).split(area);
@@ -176,7 +177,7 @@ fn draw_v3_browser(frame: &mut Frame, app: &App, area: Rect) {
             };
             ListItem::new(Line::from(vec![
                 Span::styled(format!(" {icon} "), icon_style),
-                Span::styled(stage.label(), theme.base()),
+                Span::styled(stage.label_for(en), theme.base()),
                 Span::styled(format!("  {done}/{total}"), theme.dim()),
             ]))
         })
@@ -185,10 +186,11 @@ fn draw_v3_browser(frame: &mut Frame, app: &App, area: Rect) {
     let stage_idx = app.browser.chapter_idx.min(V3Stage::ALL.len() - 1);
     let stage = V3Stage::ALL[stage_idx];
     let focused = app.browser.focus == BrowserPane::Chapters;
-    let stage_title = if preview {
-        "Trilha V3 (213) · Prévia Livre"
-    } else {
-        "Trilha V3 (213 lições)"
+    let stage_title = match (en, preview) {
+        (true, true) => "V3 Track (213) · Free Preview",
+        (true, false) => "V3 Track (213 lessons)",
+        (false, true) => "Trilha V3 (213) · Prévia Livre",
+        (false, false) => "Trilha V3 (213 lições)",
     };
     let sblock = titled_block(stage_title, theme, focused);
     let sinner = sblock.inner(cols[0]);
@@ -220,13 +222,25 @@ fn draw_v3_browser(frame: &mut Frame, app: &App, area: Rect) {
                 Span::styled(format!("{:>2} ", i + 1), theme.dim())
             };
             let badge = match e.kind {
-                V3EntryKind::Theory => "[Teoria]",
-                V3EntryKind::Practice => "[Prática Cargo]",
+                V3EntryKind::Theory => {
+                    if en {
+                        "[Theory]"
+                    } else {
+                        "[Teoria]"
+                    }
+                }
+                V3EntryKind::Practice => {
+                    if en {
+                        "[Cargo Practice]"
+                    } else {
+                        "[Prática Cargo]"
+                    }
+                }
                 V3EntryKind::CapstoneMilestone => "[Capstone]",
             };
             ListItem::new(Line::from(vec![
                 mark,
-                Span::styled(format!("[{}] {}", e.id, e.title), theme.base()),
+                Span::styled(format!("[{}] {}", e.id, e.title_for(en)), theme.base()),
                 Span::styled(format!("  {badge}"), theme.dim()),
             ]))
         })
@@ -234,7 +248,12 @@ fn draw_v3_browser(frame: &mut Frame, app: &App, area: Rect) {
 
     let lfocused = app.browser.focus == BrowserPane::Lessons;
     let selected_li = app.browser.lesson_idx.min(entries.len().saturating_sub(1));
-    let lblock = titled_block(&format!("{} — v clássica", stage.label()), theme, lfocused);
+    let lblock_title = if en {
+        format!("{} — V classic", stage.label_for(en))
+    } else {
+        format!("{} — v clássica", stage.label_for(en))
+    };
+    let lblock = titled_block(&lblock_title, theme, lfocused);
     let linner = lblock.inner(cols[1]);
     frame.render_widget(lblock, cols[1]);
     let mut lstate =
@@ -249,8 +268,8 @@ fn draw_v3_browser(frame: &mut Frame, app: &App, area: Rect) {
     if linner.height > 0 {
         let summary_text = entries
             .get(selected_li)
-            .map(|e| format!("{}: {}", e.id, e.learning_goal))
-            .unwrap_or_else(|| stage.subtitle().to_string());
+            .map(|e| format!("{}: {}", e.id, e.learning_goal_for(en)))
+            .unwrap_or_else(|| stage.subtitle_for(en).to_string());
         let summary_area = Rect {
             x: linner.x,
             y: linner.bottom().saturating_sub(1),

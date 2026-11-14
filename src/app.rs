@@ -175,10 +175,15 @@ impl App {
         // Currículo embutido: validado na compilação dos dados. Um erro
         // aqui é bug de desenvolvimento, não do usuário — avisamos e
         // seguimos sem lições, em vez de derrubar o app.
-        match crate::curriculum::Curriculum::embedded() {
+        let en = app.is_english();
+        match crate::curriculum::Curriculum::embedded_for(en) {
             Ok(c) => app.curriculum = Some(c),
             Err(err) => {
-                let msg = format!("currículo embutido inválido: {err}");
+                let msg = if en {
+                    format!("invalid embedded curriculum: {err}")
+                } else {
+                    format!("currículo embutido inválido: {err}")
+                };
                 app.load_warning = Some(match app.load_warning.take() {
                     Some(prev) => format!("{prev} · {msg}"),
                     None => msg,
@@ -311,13 +316,30 @@ impl App {
         let milestone = self.unlocked_by_event(&event);
         self.progress.xp_events.insert(event, amount);
         let new_level = self.level();
+        let en = self.is_english();
         let message =
             if self.config.ui.gamification == crate::config::GamificationVisibility::Visible {
                 if new_level > old_level {
+                    if en {
+                        format!(
+                            "{label}! +{amount} XP · level {new_level} reached{}",
+                            milestone
+                                .map(|m| format!(" · milestone: {m}"))
+                                .unwrap_or_default()
+                        )
+                    } else {
+                        format!(
+                            "{label}! +{amount} XP · nível {new_level} alcançado{}",
+                            milestone
+                                .map(|m| format!(" · marco: {m}"))
+                                .unwrap_or_default()
+                        )
+                    }
+                } else if en {
                     format!(
-                        "{label}! +{amount} XP · nível {new_level} alcançado{}",
+                        "{label}! +{amount} XP{}",
                         milestone
-                            .map(|m| format!(" · marco: {m}"))
+                            .map(|m| format!(" · milestone: {m}"))
                             .unwrap_or_default()
                     )
                 } else {
@@ -339,7 +361,11 @@ impl App {
         }
         if let Err(err) = self.persist_progress() {
             self.set_status(
-                format!("XP contabilizado nesta sessão, mas não salvo: {err}"),
+                if en {
+                    format!("XP recorded for this session, but failed to save: {err}")
+                } else {
+                    format!("XP contabilizado nesta sessão, mas não salvo: {err}")
+                },
                 StatusKind::Warning,
             );
         }
@@ -390,10 +416,13 @@ impl App {
     }
 
     fn unlocked_by_event(&self, event: &str) -> Option<&'static str> {
+        let en = self.is_english();
         if event == "project:independent-complete" {
-            return self
-                .has_independent_project_complete()
-                .then_some("Projeto independente concluído");
+            return self.has_independent_project_complete().then_some(if en {
+                "Independent project completed"
+            } else {
+                "Projeto independente concluído"
+            });
         }
         if event.starts_with("project:") {
             return None;
@@ -413,20 +442,44 @@ impl App {
         let total_exercises = all_ex.len();
         if event.starts_with("lesson:") {
             match lesson_count {
-                1 => Some("Primeiros passos"),
-                5 => Some("Cinco lições"),
-                count if total_lessons > 0 && count == total_lessons => Some("Trilha completa"),
-                _ if lesson_count + exercise_count == 10 => Some("Prática constante"),
+                1 => Some(if en {
+                    "First steps"
+                } else {
+                    "Primeiros passos"
+                }),
+                5 => Some(if en { "Five lessons" } else { "Cinco lições" }),
+                count if total_lessons > 0 && count == total_lessons => {
+                    Some(if en { "Full track" } else { "Trilha completa" })
+                }
+                _ if lesson_count + exercise_count == 10 => Some(if en {
+                    "Steady practice"
+                } else {
+                    "Prática constante"
+                }),
                 _ => None,
             }
         } else if event.starts_with("exercise:") {
             match exercise_count {
-                1 => Some("Primeiro desafio"),
-                6 => Some("Seis desafios"),
-                count if total_exercises > 0 && count == total_exercises => {
-                    Some("Todos os desafios")
-                }
-                _ if lesson_count + exercise_count == 10 => Some("Prática constante"),
+                1 => Some(if en {
+                    "First challenge"
+                } else {
+                    "Primeiro desafio"
+                }),
+                6 => Some(if en {
+                    "Six challenges"
+                } else {
+                    "Seis desafios"
+                }),
+                count if total_exercises > 0 && count == total_exercises => Some(if en {
+                    "All challenges"
+                } else {
+                    "Todos os desafios"
+                }),
+                _ if lesson_count + exercise_count == 10 => Some(if en {
+                    "Steady practice"
+                } else {
+                    "Prática constante"
+                }),
                 _ => None,
             }
         } else {
@@ -758,7 +811,8 @@ impl App {
 
     pub fn refresh_ollama_models(&mut self) -> Result<usize, String> {
         self.ollama_models_fetched = true;
-        match crate::mentor::fetch_ollama_models(&self.config.ai.ollama_url) {
+        match crate::mentor::fetch_ollama_models_for(&self.config.ai.ollama_url, self.is_english())
+        {
             Ok(models) => {
                 let count = models.len();
                 self.ollama_models = models;
@@ -785,10 +839,13 @@ impl App {
             return;
         }
         let return_screen = self.screen;
+        let en = self.is_english();
         let ctx = crate::mentor::build_context(self);
         match self.mentor.as_mut() {
-            Some(mentor) => mentor.refresh_context(return_screen, ctx),
-            None => self.mentor = Some(crate::mentor::MentorState::open(return_screen, ctx)),
+            Some(mentor) => mentor.refresh_context_for(return_screen, ctx, en),
+            None => {
+                self.mentor = Some(crate::mentor::MentorState::open_for(return_screen, ctx, en))
+            }
         }
         self.screen = Screen::Mentor;
     }
@@ -951,6 +1008,7 @@ impl App {
                 let cur = usize::from(!self.config.is_english());
                 let next = step(cur, direction, config::SUPPORTED_LANGUAGES.len());
                 self.config.language = config::SUPPORTED_LANGUAGES[next].to_string();
+                self.reload_curriculum_language();
             }
             SettingRow::Ai => {
                 use crate::config::AiProvider as P;
@@ -996,6 +1054,14 @@ impl App {
 
     pub fn set_status(&mut self, message: impl Into<String>, kind: StatusKind) {
         self.status = Some(Status::new(message, kind));
+    }
+
+    pub fn reload_curriculum_language(&mut self) {
+        crate::learn::save_active_practice_draft(self);
+        if let Ok(cur) = crate::curriculum::Curriculum::embedded_for(self.is_english()) {
+            self.curriculum = Some(cur);
+        }
+        crate::learn::reload_active_lesson_view(self);
     }
 
     pub fn menu_action(&self) -> MenuAction {
@@ -1261,8 +1327,8 @@ mod tests {
             .collect::<Vec<_>>()
             .join("\n");
         assert!(!text.contains("XP"));
-        assert!(!text.contains("Nível"));
-        assert!(!text.contains("Marcos conquistados"));
+        assert!(!text.contains("Nível") && !text.contains("Level"));
+        assert!(!text.contains("Marcos conquistados") && !text.contains("Achievements"));
     }
 
     #[test]
@@ -1296,5 +1362,70 @@ mod tests {
         app.handle_input(key(KeyCode::Left));
         assert_eq!(app.config.language, "en-US");
         assert!(app.is_english());
+    }
+
+    #[test]
+    fn alternar_idioma_recarrega_curriculo_e_licao_aberta_imediatamente() {
+        let mut app = test_app();
+        let cur_en = crate::curriculum::Curriculum::embedded_for(true).unwrap();
+        let b_t01 = crate::curriculum::v3_blueprint::find_v3_entry("B-T01").unwrap();
+        let v3_en = crate::curriculum::v3_blueprint::build_v3_lesson_for(b_t01, &cur_en, true);
+        let mut lv = crate::learn::LessonView::new_for(0, 0, &v3_en, true);
+        lv.v3_entry_id = Some("B-T01");
+        lv.custom_lesson = Some(v3_en.clone());
+        let title_en = v3_en.title.clone();
+        let classic_en = cur_en.lesson("hello-world").unwrap().title.clone();
+        app.curriculum = Some(cur_en);
+        app.lesson_view = Some(lv);
+
+        app.screen = Screen::Settings;
+        app.settings_row = SETTING_ROWS
+            .iter()
+            .position(|r| *r == SettingRow::Language)
+            .expect("language row");
+        app.handle_input(key(KeyCode::Right));
+
+        assert!(!app.is_english());
+        let title_pt = app
+            .lesson_view
+            .as_ref()
+            .unwrap()
+            .custom_lesson
+            .as_ref()
+            .unwrap()
+            .title
+            .clone();
+        assert_ne!(title_en, title_pt);
+        assert_ne!(
+            app.curriculum
+                .as_ref()
+                .unwrap()
+                .lesson("hello-world")
+                .unwrap()
+                .title,
+            classic_en
+        );
+
+        app.handle_input(key(KeyCode::Left));
+        assert!(app.is_english());
+        assert_eq!(
+            app.lesson_view
+                .as_ref()
+                .unwrap()
+                .custom_lesson
+                .as_ref()
+                .unwrap()
+                .title,
+            title_en
+        );
+        assert_eq!(
+            app.curriculum
+                .as_ref()
+                .unwrap()
+                .lesson("hello-world")
+                .unwrap()
+                .title,
+            classic_en
+        );
     }
 }
