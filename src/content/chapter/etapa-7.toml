@@ -1,0 +1,6 @@
+id = "etapa-7"
+title = "Etapa 7 — Rust intermediário"
+summary = "Genéricos, closures, iteradores preguiçosos e manipulação segura de arquivos."
+order = 7
+status = "available"
+lessons = ["genericos-e-closures", "iteradores-e-arquivos"]

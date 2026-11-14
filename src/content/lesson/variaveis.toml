@@ -1,0 +1,63 @@
+id = "variaveis"
+title = "Variáveis: caixas com nome"
+estimated_minutes = 8
+
+[[blocks]]
+type = "text"
+text = """Variável é um valor guardado com um nome, para usar depois. Pense numa
+caixa com uma etiqueta: dentro vai UM valor; a etiqueta é o nome que você
+usa para consultar a caixa.
+
+Em Rust, cria-se uma variável com let:"""
+
+[[blocks]]
+type = "code"
+file = "src/main.rs"
+code = '''
+fn main() {
+    let idade = 25;
+    let cidade = "Curitiba";
+    println!("{cidade} tem alguém com {idade} anos!");
+}
+'''
+explain = """let idade = 25;   → caixa "idade" segurando 25
+let cidade = "..."; → caixa "cidade" segurando o texto
+
+{cidade} dentro das aspas é interpolação: o valor da variável aparece
+no lugar do nome. É a forma mais comum de montar textos em Rust."""
+
+[[blocks]]
+type = "demo"
+demo = "variables"
+name = "idade"
+steps = ["25", "26", "30", "42"]
+caption = "A caixa 'idade', com o valor que ela guarda hoje (d avança)"
+
+[[blocks]]
+type = "text"
+text = """A caixa tem UMA etiqueta só, e ela nunca muda:
+
+  · nomes começam com letra ou _, e usam letras, números e _
+  · por convenção da comunidade: snake_case — idade_do_cliente, nao IdadeDoCliente
+  · o = significa "recebe", não "é igual" (matemáticos, nos perdoem):
+    let idade = 25;  lê-se  "idade agora guarda 25" """
+
+[[blocks]]
+type = "callout"
+kind = "note"
+text = """Você não declarou o tipo das variáveis nos exemplos. Rust INFERE o
+tipo (25 parece número inteiro, "Curitiba" parece texto) — e trava o
+resultado. Isso é o melhor dos dois mundos: conforto de escrita,
+rigor de compilador."""
+
+[[blocks]]
+type = "quiz"
+question = "Qual destas declarações cria uma variável válida em Rust?"
+options = [
+    "var altura = 1.80;",
+    "let altura = 1.80;",
+    "altura := 1.80;",
+    "define altura 1.80;",
+]
+correct = 1
+why = "A palavra-chave para criar variáveis em Rust é let. var é JavaScript antigo, := vai a outra língua."

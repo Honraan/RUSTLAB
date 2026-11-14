@@ -1,0 +1,68 @@
+id = "mutabilidade"
+title = "Mutabilidade: caixas que podem ser recheadas de novo"
+estimated_minutes = 7
+
+[[blocks]]
+type = "text"
+text = """Sorpresa: as variáveis que você criou até agora NÃO PODEM ser
+mudadas. let idade = 25; trava a caixa. Tentar idade = 26; depois é
+erro de compilação — não de execução.
+
+Parece implicância. Não é: 80% dos bugs da história aconteceram porque
+qualquer parte do programa podia mudar qualquer variável, a qualquer
+momento, inclusive sem querer. Rust obriga você a anunciar:
+"esta caixa vai mudar". Anuncia-se com mut:"""
+
+[[blocks]]
+type = "code"
+file = "src/main.rs"
+code = '''
+fn main() {
+    let mut contador = 0;
+    contador = contador + 1;
+    contador = contador + 1;
+    println!("Contador: {contador}");
+}
+'''
+explain = """let mut contador = 0;  → caixa aberta a mudanças
+contador = contador + 1; → reescreve o conteúdo
+
+O programa conta até 2 e imprime Contador: 2."""
+
+[[blocks]]
+type = "demo"
+demo = "variables"
+name = "contador (mut)"
+steps = ["0", "1", "2"]
+caption = "Uma caixa mutável recebendo novos valores — observe a etiqueta (d avança)"
+
+[[blocks]]
+type = "text"
+text = """A regra prática: escreva let simples; quando o compilador reclamar
+("cannot assign twice"), adicione mut. Você só paga o preço da
+mutabilidade quando realmente precisa dela — por valor padrão, seus
+dados ficam congelados."""
+
+[[blocks]]
+type = "callout"
+kind = "warning"
+text = """Erro comum ao começar: mudar uma variável esquecendo o mut.
+A mensagem diz quase sempre a solução na mesma linha:
+"cannot assign to `contador` ... consider marking it as mutable: `mut contador`".
+Leia até o fim e faça o que ela sugere."""
+
+[[blocks]]
+type = "quiz"
+question = """O que este código faz?
+
+    let x = 1;
+    x = 2;"""
+options = [
+    "Roda e imprime 2.",
+    "Falha em tempo de execução.",
+    "Não compila: x não foi declarado mutável.",
+    "Roda, mas x continua valendo 1.",
+]
+correct = 2
+why = """Variáveis sem mut são congeladas, e a tentativa de mudança é pega na
+COMPILAÇÃO — é o erro nunca chegando a acontecer para o usuário final."""

@@ -1,0 +1,6 @@
+id = "etapa-4"
+title = "Etapa 4 — Entendendo o Rust"
+summary = "Ownership, empréstimos (& e &mut) e tempo de vida: segurança de memória sem coletor de lixo."
+order = 4
+status = "available"
+lessons = ["ownership-na-pratica", "borrowing-e-referencias", "tempo-de-vida-introducao"]

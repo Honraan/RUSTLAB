@@ -1,0 +1,4222 @@
+//! Estado e lógica do Modo Criar (Fases 3 e 6): tela inicial, prompts,
+//! consentimento de execução, workspace com editor/console/diagnósticos.
+//!
+//! Toda a lógica é pura e testável; o desenho vive em `ui/create.rs`.
+//! Fluxo de execução (requisito 10):
+//!
+//! ```text
+//! tecla F5 ──> consentimento? ──não──> overlay explicando riscos
+//!                   │sim
+//!                   v
+//!        salva arquivos sujos ──> ExecutionManager.submit(cargo run)
+//!                   │
+//!                   v
+//!        eventos -> console + diagnóstico + status
+//! ```
+
+use std::collections::{HashSet, VecDeque};
+use std::path::{Path, PathBuf};
+use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
+
+use ratatui::crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
+
+use crate::app::{App, Screen, StatusKind};
+use crate::config::{AiProvider, ExecConsent, RemoteAiConsent};
+use crate::editor::Editor;
+use crate::execution::{
+    DiagLevel, Diagnostic, ExecEvent, StreamKind, ToolCommand, parse_diagnostics,
+};
+use crate::lsp::{
+    LspClient, LspEvent, SearchMatch, WorkspaceIndex, search_project_text, word_at_cursor,
+};
+use crate::mentor::{MentorEvent, MentorManager, ModelPickerState};
+use crate::projects::{Project, expand_home, resolve_new_project_target};
+
+/// Limite de linhas no console (ring buffer).
+pub const MAX_CONSOLE_LINES: usize = 4_000;
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum CreateView {
+    Start,
+    Workspace,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Focus {
+    Files,
+    Editor,
+    Console,
+    Agent,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum AgentRole {
+    User,
+    Agent,
+    System,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct AgentChatMessage {
+    pub role: AgentRole,
+    pub sender: String,
+    pub text: String,
+}
+
+#[derive(Debug)]
+pub struct CreateAgentState {
+    pub open: bool,
+    pub messages: Vec<AgentChatMessage>,
+    pub input: String,
+    pub scroll: u16,
+    pub proposed_code: Option<String>,
+    pub manager: MentorManager,
+    pub model_picker: ModelPickerState,
+    pub consent_pending: Option<String>,
+    pub ai_authored_lines: HashSet<String>,
+    pub student_modified_since_review: bool,
+    pub last_auto_review: Instant,
+    pub next_auto_review_interval: Duration,
+}
+
+impl Default for CreateAgentState {
+    fn default() -> Self {
+        Self {
+            open: false,
+            messages: vec![AgentChatMessage {
+                role: AgentRole::System,
+                sender: "Antigravity".to_string(),
+                text: "Chat lateral pronto! Peça funções, correções ou testes.\nAtalhos: /modelo (Alt+O) · /corrigir · /testes · /revisar · /aplicar (Alt+Enter) · /limpar.".to_string(),
+            }],
+            input: String::new(),
+            scroll: 0,
+            proposed_code: None,
+            manager: MentorManager::new(),
+            model_picker: ModelPickerState::default(),
+            consent_pending: None,
+            ai_authored_lines: HashSet::new(),
+            student_modified_since_review: false,
+            last_auto_review: Instant::now(),
+            next_auto_review_interval: next_random_review_interval(),
+        }
+    }
+}
+
+fn next_random_review_interval() -> Duration {
+    let nanos = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map(|d| d.subsec_nanos() as u64)
+        .unwrap_or(0);
+    let mix = nanos ^ u64::from(std::process::id()).wrapping_mul(2_654_435_761);
+    Duration::from_secs(900 + (mix % 901))
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum PromptKind {
+    #[default]
+    NewProject,
+    OpenPath,
+    NewFile,
+    AddDependency,
+    RemoveDependency,
+    ProjectSearch,
+    SetProjectsDir,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct DocPopup {
+    pub title: String,
+    pub body: String,
+    pub url: Option<String>,
+}
+
+#[derive(Debug, Clone, Default)]
+pub struct PromptState {
+    pub kind: PromptKind,
+    pub text: String,
+    pub error: Option<String>,
+}
+
+#[derive(Debug, Clone)]
+pub struct ConsoleLine {
+    pub kind: StreamKind,
+    pub text: String,
+}
+
+#[derive(Debug, Default)]
+pub struct Console {
+    pub lines: VecDeque<ConsoleLine>,
+    /// quantas linhas do fim o usuário rolou para cima (0 = colado no fim)
+    pub scroll_back: usize,
+    pub width: u16,
+    pub page_rows: usize,
+}
+
+impl Console {
+    pub fn push(&mut self, kind: StreamKind, text: impl Into<String>) {
+        let text: String = text
+            .into()
+            .chars()
+            .map(|ch| if ch.is_control() { ' ' } else { ch })
+            .collect();
+        if self.scroll_back > 0 {
+            self.scroll_back = self.scroll_back.saturating_add(
+                ratatui::widgets::Paragraph::new(text.as_str())
+                    .wrap(ratatui::widgets::Wrap { trim: false })
+                    .line_count(self.width.max(1)),
+            );
+        }
+        self.lines.push_back(ConsoleLine { kind, text });
+        while self.lines.len() > MAX_CONSOLE_LINES {
+            self.lines.pop_front();
+        }
+    }
+    pub fn system(&mut self, text: impl Into<String>) {
+        self.push(StreamKind::System, text);
+    }
+    pub fn max_scroll(&self) -> usize {
+        ratatui::widgets::Paragraph::new(
+            self.lines
+                .iter()
+                .map(|line| line.text.as_str())
+                .collect::<Vec<_>>()
+                .join("\n"),
+        )
+        .wrap(ratatui::widgets::Wrap { trim: false })
+        .line_count(self.width.max(1))
+        .saturating_sub(self.page_rows.max(1))
+    }
+}
+
+/// O que fazer quando um comando assíncrono terminar.
+#[derive(Debug, Clone, PartialEq, Eq)]
+enum AfterExec {
+    None,
+    /// `cargo new` terminou: abrir o projeto criado.
+    OpenNewProject(PathBuf),
+    /// Compilou e deve lançar o binário em janela/processo externo.
+    LaunchExternalWindow,
+}
+
+#[derive(Debug)]
+pub struct CreateState {
+    pub view: CreateView,
+    pub start_sel: usize,
+    pub project: Option<Project>,
+    pub files: Vec<PathBuf>,
+    pub open_idx: usize,
+    pub editor: Editor,
+    pub focus: Focus,
+    pub console: Console,
+    pub diags: Vec<Diagnostic>,
+    /// stderr acumulado do comando atual (para parsear diagnósticos)
+    stderr_buf: String,
+    after_exec: AfterExec,
+    pub prompt: Option<PromptState>,
+    pub consent_request: Option<ToolCommand>,
+    pub spinner_tick: u64,
+    pub last_exit_success: Option<bool>,
+    pub last_failure: Option<String>,
+    pub after_exec_reload: bool,
+    pub editor_text_area: ratatui::layout::Rect,
+    pub hovered_doc: Option<(String, u16, u16)>,
+    pub completion: crate::completion::Completion,
+    pub console_input: String,
+    pub selected_file: usize,
+    pub diagnostic_index: usize,
+    pub workspace_index: WorkspaceIndex,
+    pub lsp: Option<LspClient>,
+    pub lsp_status: String,
+    editor_doc_version: i64,
+    lsp_pending_hover: Option<u64>,
+    lsp_pending_def: Option<u64>,
+    lsp_pending_comp: Option<u64>,
+    pub project_matches: Vec<SearchMatch>,
+    pub project_match_idx: usize,
+    pub doc_popup: Option<DocPopup>,
+    pub pending_new_project_dir: Option<PathBuf>,
+    pub agent: CreateAgentState,
+    pub lib_menu_open: bool,
+    pub lib_menu_sel: usize,
+    pub build_menu_open: bool,
+    pub build_menu_sel: usize,
+    pub top_lib_btn_area: ratatui::layout::Rect,
+    pub top_build_btn_area: ratatui::layout::Rect,
+    pub lib_modal_area: ratatui::layout::Rect,
+    pub build_modal_area: ratatui::layout::Rect,
+    pub lab_modal_area: ratatui::layout::Rect,
+    pub lab: crate::lab_tools::LabState,
+}
+
+impl Default for CreateState {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+impl CreateState {
+    pub fn new() -> Self {
+        Self {
+            view: CreateView::Start,
+            start_sel: 0,
+            project: None,
+            files: Vec::new(),
+            open_idx: 0,
+            editor: Editor::new("", None),
+            focus: Focus::Editor,
+            console: Console::default(),
+            diags: Vec::new(),
+            stderr_buf: String::new(),
+            after_exec: AfterExec::None,
+            prompt: None,
+            consent_request: None,
+            spinner_tick: 0,
+            last_exit_success: None,
+            last_failure: None,
+            after_exec_reload: false,
+            editor_text_area: ratatui::layout::Rect::default(),
+            hovered_doc: None,
+            completion: crate::completion::Completion::default(),
+            console_input: String::new(),
+            selected_file: 0,
+            diagnostic_index: 0,
+            workspace_index: WorkspaceIndex::default(),
+            lsp: None,
+            lsp_status: "índice local".to_string(),
+            editor_doc_version: 1,
+            lsp_pending_hover: None,
+            lsp_pending_def: None,
+            lsp_pending_comp: None,
+            project_matches: Vec::new(),
+            project_match_idx: 0,
+            doc_popup: None,
+            pending_new_project_dir: None,
+            agent: CreateAgentState::default(),
+            lib_menu_open: false,
+            lib_menu_sel: 0,
+            build_menu_open: false,
+            build_menu_sel: 0,
+            top_lib_btn_area: ratatui::layout::Rect::default(),
+            top_build_btn_area: ratatui::layout::Rect::default(),
+            lib_modal_area: ratatui::layout::Rect::default(),
+            build_modal_area: ratatui::layout::Rect::default(),
+            lab_modal_area: ratatui::layout::Rect::default(),
+            lab: crate::lab_tools::LabState::default(),
+        }
+    }
+
+    // ------------------------------------------------------------------
+    // Projetos
+    // ------------------------------------------------------------------
+
+    /// Fecha o projeto aberto (salvando alterações pendentes) e retorna à
+    /// tela inicial do Modo Criar.
+    pub fn close_project(&mut self, app: &mut App) {
+        if app.exec.running {
+            app.set_status(
+                "aguarde ou cancele antes de fechar o projeto",
+                StatusKind::Warning,
+            );
+            return;
+        }
+        if !self.save_ok(app) {
+            return;
+        }
+        if let Some(mut lsp) = self.lsp.take() {
+            lsp.shutdown();
+        }
+        self.agent.manager.cancel();
+        self.agent.ai_authored_lines.clear();
+        self.agent.student_modified_since_review = false;
+        self.agent.last_auto_review = Instant::now();
+        self.project = None;
+        self.files.clear();
+        self.open_idx = 0;
+        self.selected_file = 0;
+        self.editor = Editor::new("", None);
+        self.console.lines.clear();
+        self.console_input.clear();
+        self.diags.clear();
+        self.diagnostic_index = 0;
+        self.workspace_index = WorkspaceIndex::default();
+        self.lsp_status = "índice local".to_string();
+        self.lsp_pending_hover = None;
+        self.lsp_pending_def = None;
+        self.lsp_pending_comp = None;
+        self.project_matches.clear();
+        self.project_match_idx = 0;
+        self.doc_popup = None;
+        self.hovered_doc = None;
+        self.completion = Default::default();
+        self.lib_menu_open = false;
+        self.build_menu_open = false;
+        self.lab.open = false;
+        self.lab.debugger.stop();
+        self.lab.debugger.breakpoints.clear();
+        self.lab.active_quest_id = None;
+        self.last_exit_success = None;
+        self.last_failure = None;
+        self.focus = Focus::Editor;
+        self.view = CreateView::Start;
+        self.start_sel = 0;
+        app.set_status("projeto fechado", StatusKind::Info);
+    }
+
+    pub fn open_project(&mut self, root: &Path, app: &mut App) {
+        if app.exec.running {
+            app.set_status(
+                "aguarde ou cancele o processo antes de trocar projeto",
+                StatusKind::Warning,
+            );
+            return;
+        }
+        if !self.save_ok(app) {
+            return;
+        }
+        self.completion = Default::default();
+        let Some(project) = Project::detect(root) else {
+            app.set_status("não achei Cargo.toml nesse caminho", StatusKind::Warning);
+            return;
+        };
+        let files = project.source_files();
+        // prefere src/main.rs; senão o primeiro .rs; senão Cargo.toml
+        let open_idx = files
+            .iter()
+            .position(|f| f.ends_with("src/main.rs"))
+            .or_else(|| {
+                files
+                    .iter()
+                    .position(|f| f.extension().is_some_and(|e| e == "rs"))
+            })
+            .unwrap_or(0);
+        let text = match files.get(open_idx).map(|f| project.read(f)) {
+            Some(Ok(text)) => text,
+            Some(Err(err)) => {
+                app.set_status(
+                    format!("não consegui ler arquivo: {err}"),
+                    StatusKind::Warning,
+                );
+                return;
+            }
+            None => {
+                app.set_status("projeto sem arquivo legível", StatusKind::Warning);
+                return;
+            }
+        };
+        let path = files.get(open_idx).cloned();
+        if let Some(old_lsp) = self.lsp.as_mut() {
+            old_lsp.shutdown();
+        }
+        self.lsp = None;
+        self.workspace_index = WorkspaceIndex::reindex(&project, &files);
+        self.project_matches.clear();
+        self.project_match_idx = 0;
+        self.doc_popup = None;
+        self.editor_doc_version = 1;
+        self.lsp_pending_hover = None;
+        self.lsp_pending_def = None;
+        self.lsp_pending_comp = None;
+        match LspClient::start(&project.root) {
+            Ok(client) => {
+                self.lsp = Some(client);
+                self.lsp_status = "iniciando rust-analyzer".to_string();
+            }
+            Err(_) => {
+                self.lsp_status = "índice local".to_string();
+            }
+        }
+        self.project = Some(project);
+        self.last_exit_success = None;
+        self.console.lines.clear();
+        self.files = files;
+        self.open_idx = open_idx;
+        self.selected_file = open_idx;
+        self.console_input.clear();
+        self.editor = Editor::new(&text, path);
+        self.view = CreateView::Workspace;
+        self.focus = Focus::Editor;
+        self.lib_menu_open = false;
+        self.build_menu_open = false;
+        self.lab.open = false;
+        self.lab.debugger.stop();
+        self.lab.debugger.breakpoints.clear();
+        self.lab.active_quest_id = None;
+        self.agent.ai_authored_lines.clear();
+        self.agent.student_modified_since_review = false;
+        self.agent.last_auto_review = Instant::now();
+        self.diags.clear();
+        self.console.system(format!(
+            "projeto '{}' aberto — {} arquivo(s)",
+            self.project.as_ref().map(|p| p.name()).unwrap_or_default(),
+            self.files.len()
+        ));
+        app.config.workspace.last_project = Some(
+            self.project
+                .as_ref()
+                .unwrap()
+                .root
+                .to_string_lossy()
+                .to_string(),
+        );
+        app.set_status("projeto aberto", StatusKind::Success);
+        let recent = app.config.workspace.last_project.clone().unwrap();
+        app.config
+            .workspace
+            .recent_projects
+            .retain(|p| p != &recent);
+        app.config.workspace.recent_projects.insert(0, recent);
+        app.config.workspace.recent_projects.truncate(8);
+        if let Err(err) = app.save_config() {
+            app.set_status(
+                format!("projeto aberto, mas recentes não salvos: {err}"),
+                StatusKind::Warning,
+            );
+        }
+    }
+
+    pub fn switch_file(&mut self, idx: usize, app: &mut App) {
+        self.completion = Default::default();
+        if idx >= self.files.len() {
+            return;
+        }
+        if !self.save_ok(app) {
+            return;
+        }
+        let path = self.files[idx].clone();
+        let text = self.project.as_ref().map(|p| p.read(&path));
+        let text = match text {
+            Some(Ok(text)) => text,
+            _ => {
+                app.set_status(
+                    "não consegui ler arquivo; editor preservado",
+                    StatusKind::Warning,
+                );
+                return;
+            }
+        };
+        self.open_idx = idx;
+        self.selected_file = idx;
+        self.doc_popup = None;
+        self.editor_doc_version = 1;
+        self.lab.debugger.stop();
+        self.editor = Editor::new(&text, Some(path.clone()));
+        if let Some(lsp) = self.lsp.as_mut()
+            && lsp.is_ready()
+            && path.extension().is_some_and(|e| e == "rs")
+        {
+            lsp.did_open(&path, &text);
+        }
+    }
+
+    pub fn save_current(&mut self, app: &mut App) {
+        if !self.editor.dirty {
+            return;
+        }
+        let (Some(project), Some(path)) = (&self.project, self.editor.path.clone()) else {
+            return;
+        };
+        let content = self.editor.buf.to_string_lossy();
+        match project.save(&path, &content) {
+            Ok(()) => {
+                self.editor.mark_saved();
+                self.workspace_index = WorkspaceIndex::reindex(project, &self.files);
+                self.console.system(format!("salvo: {}", path.display()));
+            }
+            Err(e) => {
+                app.set_status(format!("erro ao salvar: {e}"), StatusKind::Warning);
+            }
+        }
+    }
+
+    fn save_ok(&mut self, app: &mut App) -> bool {
+        self.save_current(app);
+        !self.editor.dirty
+    }
+
+    pub fn save_before_exit(&mut self, app: &mut App) -> bool {
+        self.save_ok(app)
+    }
+
+    fn begin_prompt(&mut self, kind: PromptKind, app: &mut App) {
+        if app.exec.running {
+            app.set_status(
+                "aguarde ou cancele o comando antes desta ação",
+                StatusKind::Warning,
+            );
+            return;
+        }
+        if !self.save_ok(app) {
+            return;
+        }
+        self.completion = Default::default();
+        self.prompt = Some(PromptState {
+            kind,
+            ..Default::default()
+        });
+    }
+
+    pub fn refresh_files(&mut self, app: &mut App) {
+        if !self.save_ok(app) {
+            return;
+        }
+        let Some(project) = &self.project else {
+            return;
+        };
+        self.files = project.source_files();
+        self.workspace_index = WorkspaceIndex::reindex(project, &self.files);
+        self.open_idx = self
+            .editor
+            .path
+            .as_ref()
+            .and_then(|path| self.files.iter().position(|p| p == path))
+            .unwrap_or(0);
+        self.selected_file = self.open_idx;
+        app.set_status("lista de arquivos atualizada", StatusKind::Info);
+    }
+
+    fn jump_diagnostic(&mut self, app: &mut App) {
+        if self.diags.is_empty() {
+            app.set_status("sem diagnósticos para navegar", StatusKind::Info);
+            return;
+        }
+        let diag = self.diags[self.diagnostic_index % self.diags.len()].clone();
+        self.diagnostic_index = (self.diagnostic_index + 1) % self.diags.len();
+        let (Some(project), Some(file)) = (&self.project, diag.file) else {
+            return;
+        };
+        let candidate = PathBuf::from(&file);
+        let path = if candidate.is_absolute() {
+            candidate
+        } else {
+            project.root.join(file)
+        };
+        let line0 = diag.line.unwrap_or(1).saturating_sub(1) as usize;
+        let col0 = diag.col.unwrap_or(1).saturating_sub(1) as usize;
+        self.jump_to_location(&path, line0, col0, app);
+    }
+
+    pub fn jump_to_location(&mut self, path: &Path, line0: usize, col0: usize, app: &mut App) {
+        if let Some(index) = self.files.iter().position(|p| p == path) {
+            if self.editor.path.as_deref() != Some(path) {
+                self.switch_file(index, app);
+            }
+            if self.editor.path.as_deref() != Some(path) {
+                return;
+            }
+            self.editor.cursor.line = line0.min(self.editor.buf.line_count().saturating_sub(1));
+            self.editor.cursor.col = col0.min(
+                self.editor
+                    .buf
+                    .line_str(self.editor.cursor.line)
+                    .chars()
+                    .count(),
+            );
+            self.editor.scroll_row = self.editor.cursor.line;
+            self.focus = Focus::Editor;
+        } else {
+            app.set_status(
+                "arquivo fora da lista indexada; Ctrl+R atualiza",
+                StatusKind::Info,
+            );
+        }
+    }
+
+    pub fn cursor_symbol(&self) -> Option<String> {
+        let line = self.editor.buf.line_str(self.editor.cursor.line);
+        word_at_cursor(&line, self.editor.cursor.col)
+    }
+
+    pub fn go_to_definition(&mut self, app: &mut App) {
+        let Some(symbol) = self.cursor_symbol() else {
+            app.set_status(
+                "posicione o cursor sobre um identificador",
+                StatusKind::Info,
+            );
+            return;
+        };
+        if let Some(project) = &self.project
+            && self.editor.dirty
+        {
+            self.workspace_index = WorkspaceIndex::reindex(project, &self.files);
+        }
+        let current_file = self.editor.path.as_deref();
+        if let Some(sym) = self
+            .workspace_index
+            .find_definition(&symbol, current_file)
+            .cloned()
+        {
+            self.jump_to_location(&sym.file, sym.line, sym.column, app);
+            app.set_status(
+                format!(
+                    "definição de `{}` ({}:{})",
+                    sym.name,
+                    sym.file
+                        .file_name()
+                        .and_then(|n| n.to_str())
+                        .unwrap_or("src"),
+                    sym.line + 1
+                ),
+                StatusKind::Info,
+            );
+            return;
+        }
+        if let (Some(lsp), Some(path)) = (self.lsp.as_mut(), self.editor.path.clone())
+            && let Some(id) =
+                lsp.request_definition(&path, self.editor.cursor.line, self.editor.cursor.col)
+        {
+            self.lsp_pending_def = Some(id);
+            app.set_status(
+                format!("consultando definição de `{symbol}` no rust-analyzer…"),
+                StatusKind::Info,
+            );
+            return;
+        }
+        app.set_status(
+            format!("definição local de `{symbol}` não encontrada"),
+            StatusKind::Info,
+        );
+    }
+
+    pub fn show_doc_at_cursor(&mut self, app: &mut App) {
+        let Some(symbol) = self.cursor_symbol() else {
+            app.set_status("posicione o cursor sobre um símbolo Rust", StatusKind::Info);
+            return;
+        };
+        if let Some(project) = &self.project
+            && self.editor.dirty
+        {
+            self.workspace_index = WorkspaceIndex::reindex(project, &self.files);
+        }
+        let local_doc = self.workspace_index.find_doc(&symbol);
+        let resolved =
+            crate::doc_hint::resolve_symbol_doc(&symbol, &self.editor.buf.to_string_lossy());
+        if let Some(doc) = local_doc {
+            self.doc_popup = Some(DocPopup {
+                title: symbol.clone(),
+                body: doc,
+                url: resolved.map(|r| r.best_url().to_string()),
+            });
+        } else if let Some(r) = resolved {
+            self.doc_popup = Some(DocPopup {
+                title: r.title.clone(),
+                body: r.summary.clone(),
+                url: Some(r.best_url().to_string()),
+            });
+        }
+        if let (Some(lsp), Some(path)) = (self.lsp.as_mut(), self.editor.path.clone())
+            && let Some(id) =
+                lsp.request_hover(&path, self.editor.cursor.line, self.editor.cursor.col)
+        {
+            self.lsp_pending_hover = Some(id);
+            if self.doc_popup.is_none() {
+                app.set_status(
+                    format!("consultando `{symbol}` no rust-analyzer…"),
+                    StatusKind::Info,
+                );
+            }
+            return;
+        }
+        if self.doc_popup.is_none() {
+            app.set_status(
+                format!("sem documentação local para `{symbol}`"),
+                StatusKind::Info,
+            );
+        }
+    }
+
+    pub fn jump_next_project_match(&mut self, app: &mut App) {
+        if self.project_matches.is_empty() {
+            app.set_status("nenhuma busca de projeto ativa (Ctrl+G)", StatusKind::Info);
+            return;
+        }
+        let idx = self.project_match_idx % self.project_matches.len();
+        self.project_match_idx = (idx + 1) % self.project_matches.len();
+        let hit = self.project_matches[idx].clone();
+        self.jump_to_location(&hit.file, hit.line, hit.column, app);
+        app.set_status(
+            format!(
+                "busca no projeto ({}/{}) — {}:{}",
+                idx + 1,
+                self.project_matches.len(),
+                hit.file
+                    .file_name()
+                    .and_then(|n| n.to_str())
+                    .unwrap_or("arquivo"),
+                hit.line + 1
+            ),
+            StatusKind::Info,
+        );
+    }
+
+    pub fn lsp_pending(&self) -> bool {
+        self.lsp_pending_hover.is_some()
+            || self.lsp_pending_def.is_some()
+            || self.lsp_pending_comp.is_some()
+    }
+
+    pub fn diagnostic_level_for_open_line(&self, line_1based: u32) -> Option<DiagLevel> {
+        let open_path = self.editor.path.as_ref()?;
+        let root = self.project.as_ref().map(|p| p.root.as_path());
+        let mut best: Option<DiagLevel> = None;
+        for diag in &self.diags {
+            if diag.line != Some(line_1based) {
+                continue;
+            }
+            let Some(file_str) = diag.file.as_deref() else {
+                continue;
+            };
+            let diag_path = Path::new(file_str);
+            let matches_open =
+                diag_path == open_path || root.is_some_and(|r| r.join(diag_path) == *open_path);
+            if !matches_open {
+                continue;
+            }
+            best = match (best, diag.level) {
+                (_, DiagLevel::Error) | (Some(DiagLevel::Error), _) => Some(DiagLevel::Error),
+                (_, DiagLevel::Warning) | (Some(DiagLevel::Warning), _) => Some(DiagLevel::Warning),
+                _ => Some(DiagLevel::Note),
+            };
+        }
+        best
+    }
+
+    pub fn poll_lsp(&mut self, app: &mut App) -> bool {
+        let Some(events) = self.lsp.as_mut().map(LspClient::poll_events) else {
+            return false;
+        };
+        if events.is_empty() {
+            return false;
+        }
+        for ev in events {
+            match ev {
+                LspEvent::Initialized => {
+                    self.lsp_status = "rust-analyzer pronto".to_string();
+                    if let (Some(lsp), Some(path)) = (self.lsp.as_mut(), self.editor.path.as_ref())
+                        && path.extension().is_some_and(|e| e == "rs")
+                    {
+                        let text = self.editor.buf.to_string_lossy();
+                        lsp.did_open(path, &text);
+                    }
+                }
+                LspEvent::Diagnostics { file, mut items } => {
+                    let root = self.project.as_ref().map(|p| p.root.clone());
+                    self.diags.retain(|d| {
+                        let Some(df) = d.file.as_deref() else {
+                            return true;
+                        };
+                        let p = Path::new(df);
+                        p != file && root.as_ref().is_none_or(|r| r.join(p) != file)
+                    });
+                    self.diags.append(&mut items);
+                }
+                LspEvent::Hover {
+                    request_id,
+                    summary,
+                } => {
+                    if self.lsp_pending_hover == Some(request_id) {
+                        self.lsp_pending_hover = None;
+                        if let Some(body) = summary {
+                            let title = self
+                                .cursor_symbol()
+                                .unwrap_or_else(|| "rust-analyzer".to_string());
+                            let url = crate::doc_hint::lookup(&title).map(|h| h.url.to_string());
+                            self.doc_popup = Some(DocPopup { title, body, url });
+                        }
+                    }
+                }
+                LspEvent::Definition {
+                    request_id,
+                    location,
+                } => {
+                    if self.lsp_pending_def == Some(request_id) {
+                        self.lsp_pending_def = None;
+                        if let Some((path, line, col)) = location {
+                            self.jump_to_location(&path, line, col, app);
+                        } else {
+                            app.set_status("definição não encontrada", StatusKind::Info);
+                        }
+                    }
+                }
+                LspEvent::Completion { request_id, labels } => {
+                    if self.lsp_pending_comp == Some(request_id) {
+                        self.lsp_pending_comp = None;
+                        if !labels.is_empty() && self.focus == Focus::Editor {
+                            let mut extras = self.workspace_index.symbol_names();
+                            extras.extend(labels);
+                            self.completion
+                                .refresh_with_extras(&self.editor, true, &extras);
+                        }
+                    }
+                }
+                LspEvent::Closed { reason } => {
+                    self.lsp_status = reason;
+                    self.lsp = None;
+                    self.lsp_pending_hover = None;
+                    self.lsp_pending_def = None;
+                    self.lsp_pending_comp = None;
+                }
+            }
+        }
+        true
+    }
+
+    fn notify_lsp_change(&mut self) {
+        if let (Some(lsp), Some(path)) = (self.lsp.as_mut(), self.editor.path.as_ref())
+            && lsp.is_ready()
+            && path.extension().is_some_and(|e| e == "rs")
+        {
+            self.editor_doc_version += 1;
+            let text = self.editor.buf.to_string_lossy();
+            lsp.did_change(path, self.editor_doc_version, &text);
+        }
+    }
+
+    // ------------------------------------------------------------------
+    // Execução
+    // ------------------------------------------------------------------
+
+    /// Ponto de entrada de qualquer comando: aplica o gate de
+    /// consentimento e depois delega.
+    pub fn request_exec(&mut self, cmd: ToolCommand, app: &mut App) {
+        if app.config.execution.consent != ExecConsent::Granted {
+            self.consent_request = Some(cmd);
+            return;
+        }
+        self.submit_exec(cmd, app);
+    }
+
+    fn submit_exec(&mut self, cmd: ToolCommand, app: &mut App) {
+        if app.exec.running {
+            app.set_status(
+                "já há um comando Cargo rodando; aguarde ou use Ctrl+K",
+                StatusKind::Warning,
+            );
+            return;
+        }
+        self.stderr_buf.clear();
+        self.diags.clear();
+        self.diagnostic_index = 0;
+        self.last_exit_success = None;
+        self.last_failure = None;
+        if let ToolCommand::NewProject { ref name } = cmd {
+            if !self.save_ok(app) {
+                return;
+            }
+            let dir = self
+                .pending_new_project_dir
+                .take()
+                .unwrap_or_else(|| app.projects_base_dir());
+            let project_path = dir.join(name);
+            if let Err(e) = std::fs::create_dir_all(&dir) {
+                app.set_status(
+                    format!("não consegui criar {}: {e}", dir.display()),
+                    StatusKind::Warning,
+                );
+                return;
+            }
+            match app.exec.submit(cmd, dir) {
+                Ok(()) => {
+                    self.after_exec = AfterExec::OpenNewProject(project_path);
+                    self.console.system("▶ cargo new (criando projeto…)");
+                }
+                Err(e) => {
+                    self.after_exec = AfterExec::None;
+                    app.set_status(e, StatusKind::Warning);
+                }
+            }
+            return;
+        }
+        let Some(project) = self.project.clone() else {
+            app.set_status("nenhum projeto aberto", StatusKind::Warning);
+            return;
+        };
+        // salvar antes de executar: rodar código velho confunde qualquer um
+        if !self.save_ok(app) {
+            app.set_status(
+                "execução cancelada: não consegui salvar o arquivo",
+                StatusKind::Warning,
+            );
+            return;
+        }
+        self.stderr_buf.clear();
+        self.last_exit_success = None;
+        self.last_failure = None;
+        let label = cmd.label().to_string();
+        let interactive = cmd == ToolCommand::RunInteractive;
+        self.after_exec_reload = matches!(
+            cmd,
+            ToolCommand::Fmt
+                | ToolCommand::AddDependency { .. }
+                | ToolCommand::RemoveDependency { .. }
+        );
+        match app.exec.submit(cmd, project.root.clone()) {
+            Ok(()) => {
+                let timeout = secs_of(&label);
+                self.console.system(format!(
+                    "▶ {label} — timeout {}s · Ctrl+K cancela · {}",
+                    if interactive { 300 } else { timeout },
+                    if interactive {
+                        "entrada por linhas · Enter envia · Ctrl+D EOF"
+                    } else {
+                        "stdin fechado"
+                    }
+                ));
+                self.console_input.clear();
+                self.focus = Focus::Console;
+            }
+            Err(e) => app.set_status(e, StatusKind::Warning),
+        }
+    }
+
+    /// Consome eventos do executor (chamado pelo loop principal).
+    pub fn handle_exec_event(&mut self, ev: ExecEvent, app: &mut App) {
+        match ev {
+            ExecEvent::Started { label } => {
+                self.console.system(format!("… {label} iniciado"));
+            }
+            ExecEvent::Chunk { kind, text } => {
+                if kind == StreamKind::Stderr {
+                    // captura para diagnóstico (com teto próprio, além do
+                    // limite do executor)
+                    if self.stderr_buf.len() < 128 * 1024 {
+                        self.stderr_buf.push_str(&text);
+                        self.stderr_buf.push('\n');
+                    }
+                }
+                self.console.push(kind, text);
+            }
+            ExecEvent::Finished {
+                label,
+                code,
+                success,
+            } => {
+                self.last_exit_success = Some(success);
+                let after = std::mem::replace(&mut self.after_exec, AfterExec::None);
+                if success {
+                    self.console
+                        .system(format!("✔ {label} terminou (código {})", code.unwrap_or(0)));
+                    if matches!(after, AfterExec::None | AfterExec::LaunchExternalWindow) {
+                        self.record_project_milestones(&label, app);
+                    }
+                    if let Some(project) = &self.project {
+                        let bin_name = package_binary_name(project);
+                        if label == "cargo build (Linux)" {
+                            let path = project.root.join("target/release").join(&bin_name);
+                            self.console
+                                .system(format!("✔ Binário Linux pronto: {}", path.display()));
+                        } else if label == "cargo build (Windows)" {
+                            let path = project
+                                .root
+                                .join("target/x86_64-pc-windows-gnu/release")
+                                .join(format!("{bin_name}.exe"));
+                            self.console
+                                .system(format!("✔ Executável Windows pronto: {}", path.display()));
+                        } else if after == AfterExec::LaunchExternalWindow {
+                            let path = project.root.join("target/debug").join(&bin_name);
+                            match spawn_external_app(&path, &project.root) {
+                                Ok(msg) => {
+                                    self.console.system(msg.clone());
+                                    app.set_status(msg, StatusKind::Success);
+                                }
+                                Err(err) => {
+                                    self.console.system(format!("Aviso janela externa: {err}"));
+                                    app.set_status(err, StatusKind::Warning);
+                                }
+                            }
+                        }
+                    }
+                    if after != AfterExec::LaunchExternalWindow {
+                        app.set_status(format!("{label}: sucesso"), StatusKind::Success);
+                    }
+                } else {
+                    let exit = code.map(|c| c.to_string()).unwrap_or_else(|| "?".into());
+                    let generic_detail = self
+                        .stderr_buf
+                        .lines()
+                        .map(str::trim)
+                        .rfind(|line| !line.is_empty() && !line.starts_with("note:"))
+                        .map(|line| format!("{label} falhou (código {exit}): {line}"))
+                        .unwrap_or_else(|| format!("{label} falhou (código {exit})"));
+                    self.console
+                        .system(format!("✘ {label} terminou com erro (código {exit})"));
+                    if label == "cargo build (Windows)" {
+                        self.console.system(
+                            "Dica Windows: instale `rustup target add x86_64-pc-windows-gnu` e `mingw-w64` no Linux para gerar .exe.",
+                        );
+                    } else if [
+                        "alsa",
+                        "asound",
+                        "libudev",
+                        "wayland",
+                        "xkbcommon",
+                        "pkg-config",
+                    ]
+                    .iter()
+                    .any(|needle| self.stderr_buf.contains(needle))
+                    {
+                        self.console.system(
+                            "Dica Bevy/GUI Linux: se faltarem bibliotecas do sistema, instale ex. (Ubuntu/Debian): `sudo apt install pkg-config libx11-dev libasound2-dev libudev-dev libxkbcommon-x11-0 libwayland-dev`.",
+                        );
+                    }
+                    self.last_failure = Some(generic_detail.clone());
+                    app.set_status(generic_detail, StatusKind::Warning);
+                }
+                // diagnósticos só fazem sentido para check/build/test
+                if matches!(after, AfterExec::None | AfterExec::LaunchExternalWindow)
+                    && !self.stderr_buf.is_empty()
+                {
+                    self.diags = parse_diagnostics(&self.stderr_buf);
+                    if !self.diags.is_empty() {
+                        let (e, w) = count_diags(&self.diags);
+                        self.console
+                            .system(format!("diagnóstico: {e} erro(s), {w} aviso(s)"));
+                    }
+                }
+                if let AfterExec::OpenNewProject(path) = after {
+                    if success {
+                        self.open_project(&path, app);
+                    } else {
+                        let exit = code.map(|c| c.to_string()).unwrap_or_else(|| "?".into());
+                        let detail = self
+                            .stderr_buf
+                            .lines()
+                            .map(str::trim)
+                            .rfind(|line| !line.is_empty() && !line.starts_with("note:"))
+                            .map(|line| format!("cargo new falhou (código {exit}): {line}"))
+                            .unwrap_or_else(|| {
+                                format!(
+                                    "cargo new falhou (código {exit}); o Cargo não produziu uma mensagem de erro"
+                                )
+                            });
+                        self.last_failure = Some(detail.clone());
+                        app.set_status(detail, StatusKind::Warning);
+                    }
+                }
+                if self.after_exec_reload {
+                    self.after_exec_reload = false;
+                    if success
+                        && !self.editor.dirty
+                        && let (Some(project), Some(path)) =
+                            (&self.project, self.editor.path.clone())
+                        && let Ok(text) = project.read(&path)
+                    {
+                        self.editor = Editor::new(&text, Some(path));
+                    }
+                }
+            }
+            ExecEvent::TimedOut { label } => {
+                self.console.system(format!(
+                    "⏱ {label} estourou o tempo limite e foi finalizado (loop infinito?)"
+                ));
+                let reason = format!("{label} atingiu o tempo limite");
+                self.last_failure = Some(reason.clone());
+                app.set_status(reason, StatusKind::Warning);
+                self.last_exit_success = Some(false);
+                self.after_exec = AfterExec::None;
+                self.after_exec_reload = false;
+            }
+            ExecEvent::Cancelled { label } => {
+                self.console.system(format!("■ {label} cancelado"));
+                app.set_status("comando cancelado", StatusKind::Info);
+                self.after_exec = AfterExec::None;
+                self.after_exec_reload = false;
+            }
+            ExecEvent::SpawnFailed { label, reason } => {
+                self.console
+                    .system(format!("✘ {label} não pôde iniciar: {reason}"));
+                let reason = format!("{label} não pôde iniciar: {reason}");
+                self.last_failure = Some(reason.clone());
+                app.set_status(reason, StatusKind::Warning);
+                self.last_exit_success = Some(false);
+                self.after_exec = AfterExec::None;
+                self.after_exec_reload = false;
+            }
+        }
+    }
+
+    pub fn cancel_exec(&mut self, app: &mut App) {
+        if app.exec.running {
+            app.exec.cancel();
+        }
+    }
+
+    // ------------------------------------------------------------------
+    // Teclado
+    // ------------------------------------------------------------------
+
+    pub fn on_key(&mut self, app: &mut App, key: KeyEvent) {
+        // overlays primeiro: consentimento > prompt > resto
+        if self.consent_request.is_some() {
+            self.on_consent_key(app, key);
+            return;
+        }
+        if self.prompt.is_some() {
+            self.on_prompt_key(app, key);
+            return;
+        }
+        match self.view {
+            CreateView::Start => self.on_start_key(app, key),
+            CreateView::Workspace => self.on_workspace_key(app, key),
+        }
+    }
+
+    fn on_consent_key(&mut self, app: &mut App, key: KeyEvent) {
+        match key.code {
+            KeyCode::Enter | KeyCode::Char('y') | KeyCode::Char('s') => {
+                app.config.execution.consent = ExecConsent::Granted;
+                if let Err(err) = app.save_config() {
+                    app.set_status(
+                        format!("não consegui salvar consentimento: {err}"),
+                        StatusKind::Warning,
+                    );
+                }
+                let cmd = self.consent_request.take();
+                self.consent_request = None;
+                if let Some(cmd) = cmd {
+                    self.submit_exec(cmd, app);
+                }
+            }
+            KeyCode::Esc | KeyCode::Char('n') => {
+                self.consent_request = None;
+                self.pending_new_project_dir = None;
+                self.after_exec_reload = false;
+                app.set_status(
+                    "execução não autorizada — nada foi rodado",
+                    StatusKind::Info,
+                );
+            }
+            _ => {}
+        }
+    }
+
+    fn on_prompt_key(&mut self, app: &mut App, key: KeyEvent) {
+        let Some(prompt) = self.prompt.as_mut() else {
+            return;
+        };
+        match key.code {
+            KeyCode::Esc => {
+                self.prompt = None;
+            }
+            KeyCode::Tab if prompt.kind == PromptKind::NewProject && prompt.text.is_empty() => {
+                prompt.text = format!("{}/", app.projects_base_dir().display());
+                prompt.error = None;
+            }
+            KeyCode::Char(c) if !key.modifiers.contains(KeyModifiers::CONTROL) => {
+                if prompt.text.chars().count() < 200 {
+                    prompt.text.push(c);
+                }
+                prompt.error = None;
+            }
+            KeyCode::Backspace => {
+                prompt.text.pop();
+                prompt.error = None;
+            }
+            KeyCode::Enter => {
+                let kind = prompt.kind;
+                let text = prompt.text.clone();
+                match kind {
+                    PromptKind::NewProject => {
+                        match resolve_new_project_target(&text, &app.projects_base_dir()) {
+                            Ok((parent_dir, name)) => {
+                                let target = parent_dir.join(&name);
+                                if target.exists() {
+                                    if let Some(p) = self.prompt.as_mut() {
+                                        p.error = Some(format!(
+                                            "{} já existe — escolha outro nome",
+                                            target.display()
+                                        ));
+                                    }
+                                    return;
+                                }
+                                self.pending_new_project_dir = Some(parent_dir);
+                                self.prompt = None;
+                                self.request_exec(ToolCommand::NewProject { name }, app);
+                            }
+                            Err(msg) => {
+                                if let Some(p) = self.prompt.as_mut() {
+                                    p.error = Some(msg);
+                                }
+                            }
+                        }
+                    }
+                    PromptKind::SetProjectsDir => {
+                        let trimmed = text.trim();
+                        if trimmed.is_empty() {
+                            app.config.workspace.projects_dir = None;
+                            let _ = app.save_config();
+                            self.prompt = None;
+                            app.set_status(
+                                format!(
+                                    "Pasta padrão restaurada: {}",
+                                    app.projects_base_dir().display()
+                                ),
+                                StatusKind::Info,
+                            );
+                            return;
+                        }
+                        let dir = expand_home(Path::new(trimmed));
+                        if dir
+                            .components()
+                            .any(|c| matches!(c, std::path::Component::ParentDir))
+                        {
+                            if let Some(p) = self.prompt.as_mut() {
+                                p.error = Some("caminho inválido: não use '..'".into());
+                            }
+                            return;
+                        }
+                        if let Err(err) = std::fs::create_dir_all(&dir) {
+                            if let Some(p) = self.prompt.as_mut() {
+                                p.error = Some(format!("não consegui criar/abrir a pasta: {err}"));
+                            }
+                            return;
+                        }
+                        app.config.workspace.projects_dir = Some(dir.to_string_lossy().to_string());
+                        if let Err(err) = app.save_config() {
+                            app.set_status(
+                                format!("pasta definida, mas config não salva: {err}"),
+                                StatusKind::Warning,
+                            );
+                        } else {
+                            app.set_status(
+                                format!("Pasta para novos projetos: {}", dir.display()),
+                                StatusKind::Success,
+                            );
+                        }
+                        self.prompt = None;
+                    }
+                    PromptKind::OpenPath => {
+                        let path = expand_home(Path::new(text.trim()));
+                        if Project::detect(&path).is_some() {
+                            self.prompt = None;
+                            let p = path.clone();
+                            self.open_project(&p, app);
+                        } else if let Some(p) = self.prompt.as_mut() {
+                            p.error = Some(format!("não achei Cargo.toml em {}", path.display()));
+                        }
+                    }
+                    PromptKind::NewFile => {
+                        if !self.save_ok(app) {
+                            return;
+                        }
+                        let result = self
+                            .project
+                            .as_ref()
+                            .ok_or_else(|| std::io::Error::other("nenhum projeto aberto"))
+                            .and_then(|p| p.create_file(text.trim()));
+                        match result {
+                            Ok(path) => {
+                                self.prompt = None;
+                                self.refresh_files(app);
+                                if let Some(idx) = self.files.iter().position(|p| p == &path) {
+                                    self.switch_file(idx, app);
+                                    self.focus = Focus::Editor;
+                                }
+                                app.set_status(
+                                    "arquivo criado; declare mod no pai quando necessário",
+                                    StatusKind::Success,
+                                );
+                            }
+                            Err(err) => {
+                                if let Some(prompt) = &mut self.prompt {
+                                    prompt.error = Some(err.to_string());
+                                }
+                            }
+                        }
+                    }
+                    PromptKind::AddDependency | PromptKind::RemoveDependency => {
+                        let name = text.trim().to_string();
+                        if !crate::execution::valid_dependency(&name)
+                            || kind == PromptKind::RemoveDependency && name.contains('@')
+                        {
+                            if let Some(prompt) = &mut self.prompt {
+                                prompt.error =
+                                    Some("use nome ou nome@versão; remoção aceita só nome".into());
+                            }
+                            return;
+                        }
+                        self.prompt = None;
+                        let cmd = if kind == PromptKind::AddDependency {
+                            ToolCommand::AddDependency { name }
+                        } else {
+                            ToolCommand::RemoveDependency { name }
+                        };
+                        self.request_exec(cmd, app);
+                    }
+                    PromptKind::ProjectSearch => {
+                        let query = text.trim().to_string();
+                        if query.is_empty() {
+                            if let Some(prompt) = &mut self.prompt {
+                                prompt.error =
+                                    Some("digite um símbolo ou trecho para buscar".into());
+                            }
+                            return;
+                        }
+                        self.prompt = None;
+                        self.run_project_search(&query, app);
+                    }
+                }
+            }
+            _ => {}
+        }
+    }
+
+    pub fn run_project_search(&mut self, query: &str, app: &mut App) {
+        let Some(project) = &self.project else {
+            return;
+        };
+        let hits = search_project_text(project, &self.files, query, 100);
+        self.project_matches = hits;
+        self.project_match_idx = 0;
+        if self.project_matches.is_empty() {
+            app.set_status(
+                format!("nenhuma ocorrência de \"{query}\" no projeto"),
+                StatusKind::Info,
+            );
+        } else {
+            self.jump_next_project_match(app);
+        }
+    }
+
+    fn on_start_key(&mut self, app: &mut App, key: KeyEvent) {
+        match key.code {
+            KeyCode::Esc | KeyCode::Char('q') => {
+                app.screen = Screen::Menu;
+            }
+            KeyCode::Char('d') | KeyCode::Char('D') => {
+                self.open_projects_dir_prompt(app);
+            }
+            KeyCode::Up | KeyCode::Char('k') => self.start_sel = self.start_sel.saturating_sub(1),
+            KeyCode::Down | KeyCode::Char('j') => {
+                self.start_sel =
+                    (self.start_sel + 1).min(2 + app.config.workspace.recent_projects.len().min(8))
+            }
+            KeyCode::Enter => {
+                // 0 = novo; 1 = abrir; 2 = reabrir último (se existir)
+                match self.start_sel {
+                    0 => {
+                        self.prompt = Some(PromptState {
+                            kind: PromptKind::NewProject,
+                            text: String::new(),
+                            error: None,
+                        });
+                    }
+                    1 => {
+                        self.prompt = Some(PromptState {
+                            kind: PromptKind::OpenPath,
+                            text: String::new(),
+                            error: None,
+                        });
+                    }
+                    2 => {
+                        if let Some(path) = app.config.workspace.last_project.clone() {
+                            self.open_project(Path::new(&path), app);
+                        } else {
+                            app.set_status("nenhum projeto anterior salvo", StatusKind::Info);
+                        }
+                    }
+                    index => {
+                        if let Some(path) =
+                            app.config.workspace.recent_projects.get(index - 3).cloned()
+                        {
+                            self.open_project(Path::new(&path), app);
+                        }
+                    }
+                }
+            }
+            _ => {}
+        }
+    }
+
+    fn on_workspace_key(&mut self, app: &mut App, key: KeyEvent) {
+        let ctrl = key.modifiers.contains(KeyModifiers::CONTROL);
+        let alt = key.modifiers.contains(KeyModifiers::ALT);
+        let shift = key.modifiers.contains(KeyModifiers::SHIFT);
+        self.hovered_doc = None;
+        if self.agent.model_picker.handle_key(app, key) {
+            return;
+        }
+        if self.agent.consent_pending.is_some() {
+            match key.code {
+                KeyCode::Enter | KeyCode::Char('s') | KeyCode::Char('y') => {
+                    app.config.ai.remote_consent = RemoteAiConsent::Granted;
+                    let _ = app.save_config();
+                    if let Some(q) = self.agent.consent_pending.take() {
+                        self.dispatch_agent_query(app, q);
+                    }
+                }
+                KeyCode::Esc | KeyCode::Char('n') => {
+                    app.config.ai.remote_consent = RemoteAiConsent::Denied;
+                    let _ = app.save_config();
+                    self.agent.consent_pending = None;
+                    app.set_status(
+                        "envio remoto recusado para o agente; usando guia local",
+                        StatusKind::Info,
+                    );
+                }
+                _ => {}
+            }
+            return;
+        }
+        if self.lab.open {
+            self.on_lab_modal_key(app, key);
+            return;
+        }
+        if self.lib_menu_open {
+            self.on_lib_menu_key(app, key);
+            return;
+        }
+        if self.build_menu_open {
+            self.on_build_menu_key(app, key);
+            return;
+        }
+        if self.doc_popup.is_some() {
+            let dismiss_only = matches!(key.code, KeyCode::Esc | KeyCode::F(1));
+            self.doc_popup = None;
+            if dismiss_only {
+                return;
+            }
+        }
+        if self.focus == Focus::Editor && self.editor.search.is_none() {
+            if ctrl && matches!(key.code, KeyCode::Char(' ') | KeyCode::Char('\0')) {
+                let extras = self.workspace_index.symbol_names();
+                self.completion
+                    .refresh_with_extras(&self.editor, true, &extras);
+                if let (Some(lsp), Some(path)) = (self.lsp.as_mut(), self.editor.path.as_ref()) {
+                    self.lsp_pending_comp = lsp.request_completion(
+                        path,
+                        self.editor.cursor.line,
+                        self.editor.cursor.col,
+                    );
+                }
+                return;
+            }
+            if !self.completion.items.is_empty() {
+                match key.code {
+                    KeyCode::Down => {
+                        self.completion.selected =
+                            (self.completion.selected + 1) % self.completion.items.len();
+                        return;
+                    }
+                    KeyCode::Up => {
+                        self.completion.selected =
+                            (self.completion.selected + self.completion.items.len() - 1)
+                                % self.completion.items.len();
+                        return;
+                    }
+                    KeyCode::Enter | KeyCode::Tab => {
+                        self.completion.accept(&mut self.editor);
+                        self.notify_lsp_change();
+                        return;
+                    }
+                    KeyCode::Esc => {
+                        self.completion = Default::default();
+                        return;
+                    }
+                    _ => self.completion = Default::default(),
+                }
+            }
+        }
+
+        // busca ativa captura o teclado do editor
+        if let Some(search) = self.editor.search.as_ref()
+            && search.editing
+            && self.focus == Focus::Editor
+        {
+            match key.code {
+                KeyCode::Esc => self.editor.search_cancel(),
+                KeyCode::Enter => self.editor.search_commit(),
+                KeyCode::Backspace => self.editor.search_backspace(),
+                KeyCode::Char(c) if !ctrl && !alt => self.editor.search_input(c),
+                _ => {}
+            }
+            return;
+        }
+
+        // atalhos globais do workspace
+        match key.code {
+            KeyCode::BackTab => {
+                self.cycle_focus(false);
+                return;
+            }
+            KeyCode::Char('a') if alt => {
+                self.toggle_agent_panel(app);
+                return;
+            }
+            KeyCode::Char('x') if alt => {
+                self.open_lab_tab(crate::lab_tools::LabToolTab::RaioXMemoria, app);
+                return;
+            }
+            KeyCode::Char('e') if alt => {
+                self.open_lab_tab(crate::lab_tools::LabToolTab::LenteCompilador, app);
+                return;
+            }
+            KeyCode::Char('b') if alt => {
+                self.debugger_toggle_breakpoint_at_cursor(app);
+                return;
+            }
+            KeyCode::Char('j') if alt => {
+                self.open_lab_tab(crate::lab_tools::LabToolTab::DebuggerVisual, app);
+                return;
+            }
+            KeyCode::Char('p') if alt => {
+                self.open_lab_tab(crate::lab_tools::LabToolTab::PlaygroundComunidade, app);
+                return;
+            }
+            KeyCode::Char('y') if ctrl && self.focus != Focus::Editor => {
+                self.toggle_agent_panel(app);
+                return;
+            }
+            KeyCode::Char('o') if alt => {
+                self.agent.open = true;
+                self.focus = Focus::Agent;
+                self.agent.model_picker.open_picker(app);
+                return;
+            }
+            KeyCode::Char('d') if alt => {
+                self.open_projects_dir_prompt(app);
+                return;
+            }
+            KeyCode::Char('p') if ctrl => {
+                self.close_project(app);
+                return;
+            }
+            KeyCode::Char('o') if ctrl => {
+                if self.focus == Focus::Agent {
+                    self.agent.model_picker.open_picker(app);
+                } else {
+                    self.begin_prompt(PromptKind::OpenPath, app);
+                }
+                return;
+            }
+            KeyCode::Char('n') if ctrl => {
+                self.begin_prompt(PromptKind::NewProject, app);
+                return;
+            }
+            KeyCode::Char('g') if ctrl => {
+                self.begin_prompt(PromptKind::ProjectSearch, app);
+                return;
+            }
+            KeyCode::Char('g') if alt => {
+                self.jump_next_project_match(app);
+                return;
+            }
+            KeyCode::Char('c') if alt => {
+                self.request_exec(ToolCommand::Clippy, app);
+                return;
+            }
+            KeyCode::Char('m') if alt => {
+                self.create_project_plan(app);
+                return;
+            }
+            KeyCode::Char('l') if ctrl => {
+                self.request_exec(ToolCommand::Clippy, app);
+                return;
+            }
+            KeyCode::Char('r') if ctrl => {
+                self.refresh_files(app);
+                return;
+            }
+            KeyCode::F(1) => {
+                self.show_doc_at_cursor(app);
+                return;
+            }
+            KeyCode::F(2) => {
+                self.begin_prompt(PromptKind::NewFile, app);
+                return;
+            }
+            KeyCode::F(3) if self.editor.search.is_none() && !self.project_matches.is_empty() => {
+                self.jump_next_project_match(app);
+                return;
+            }
+            KeyCode::F(4) => {
+                self.build_menu_open = !self.build_menu_open;
+                self.lib_menu_open = false;
+                return;
+            }
+            KeyCode::F(9) => {
+                self.lib_menu_open = !self.lib_menu_open;
+                self.build_menu_open = false;
+                return;
+            }
+            KeyCode::F(10) => {
+                if self.lab.debugger.active || !self.lab.debugger.breakpoints.is_empty() {
+                    self.debugger_step_over(app);
+                } else {
+                    self.begin_prompt(PromptKind::RemoveDependency, app);
+                }
+                return;
+            }
+            KeyCode::F(11) => {
+                self.go_to_definition(app);
+                return;
+            }
+            KeyCode::F(12) => {
+                self.jump_diagnostic(app);
+                return;
+            }
+            KeyCode::Esc => {
+                self.close_project(app);
+                return;
+            }
+            KeyCode::Char('k') if ctrl && self.agent.manager.running => {
+                self.agent.manager.cancel();
+                app.set_status("consulta ao agente cancelada", StatusKind::Info);
+                return;
+            }
+            KeyCode::Char('k') if ctrl && app.exec.running => {
+                self.cancel_exec(app);
+                return;
+            }
+            KeyCode::Tab if self.focus != Focus::Editor => {
+                self.cycle_focus(true);
+                return;
+            }
+            KeyCode::Char('s') if ctrl => {
+                self.save_current(app);
+                if !self.editor.dirty {
+                    app.set_status("arquivo salvo", StatusKind::Success);
+                }
+                return;
+            }
+            KeyCode::Tab if self.focus == Focus::Editor => {
+                self.editor.insert_text("    ");
+                self.notify_lsp_change();
+                return;
+            }
+            KeyCode::Tab => {
+                self.cycle_focus(true);
+                return;
+            }
+            KeyCode::Char('k') if ctrl => {
+                self.cancel_exec(app);
+                return;
+            }
+            KeyCode::F(5) => {
+                self.request_exec(ToolCommand::RunInteractive, app);
+                return;
+            }
+            KeyCode::F(6) => {
+                self.request_exec(ToolCommand::Test, app);
+                return;
+            }
+            KeyCode::F(7) => {
+                self.request_exec(ToolCommand::Check, app);
+                return;
+            }
+            KeyCode::F(8) => {
+                self.request_exec(ToolCommand::Fmt, app);
+                return;
+            }
+            _ => {}
+        }
+
+        match self.focus {
+            Focus::Files => self.on_files_key(app, key),
+            Focus::Editor => {
+                self.on_editor_key(app, key, ctrl, alt, shift);
+                if matches!(
+                    key.code,
+                    KeyCode::Char(_) | KeyCode::Enter | KeyCode::Backspace | KeyCode::Delete
+                ) {
+                    self.notify_lsp_change();
+                }
+            }
+            Focus::Console => self.on_console_key(app, key),
+            Focus::Agent => self.on_agent_key(app, key),
+        }
+        if self.focus == Focus::Editor
+            && self.editor.search.is_none()
+            && !ctrl
+            && !alt
+            && matches!(key.code, KeyCode::Char(c) if c.is_alphanumeric() || c == '_')
+        {
+            let extras = self.workspace_index.symbol_names();
+            self.completion
+                .refresh_with_extras(&self.editor, false, &extras);
+        }
+    }
+
+    fn on_files_key(&mut self, app: &mut App, key: KeyEvent) {
+        match key.code {
+            KeyCode::Up | KeyCode::Char('k') => {
+                self.selected_file = self.selected_file.saturating_sub(1)
+            }
+            KeyCode::Down | KeyCode::Char('j') => {
+                self.selected_file =
+                    (self.selected_file + 1).min(self.files.len().saturating_sub(1))
+            }
+            KeyCode::Enter | KeyCode::Right | KeyCode::Char('l') => {
+                let idx = self.selected_file;
+                self.switch_file(idx, app);
+                self.focus = Focus::Editor;
+            }
+            _ => {}
+        }
+    }
+
+    fn on_editor_key(&mut self, _app: &mut App, key: KeyEvent, ctrl: bool, alt: bool, shift: bool) {
+        let ed = &mut self.editor;
+        let mut modified = false;
+        match key.code {
+            KeyCode::Char(c) if !ctrl && !alt => {
+                if c == ' ' && shift {
+                    ed.insert_char(' ');
+                } else {
+                    ed.insert_char(c);
+                }
+                modified = true;
+            }
+            KeyCode::Enter => {
+                ed.newline();
+                modified = true;
+            }
+            KeyCode::Backspace => {
+                ed.backspace();
+                modified = true;
+            }
+            KeyCode::Delete => {
+                ed.delete();
+                modified = true;
+            }
+            KeyCode::Tab => {
+                ed.insert_text("    ");
+                modified = true;
+            }
+            KeyCode::Left => ed.move_cursor(-1, 0, shift, ctrl),
+            KeyCode::Right => ed.move_cursor(1, 0, shift, ctrl),
+            KeyCode::Up => ed.move_cursor(0, -1, shift, false),
+            KeyCode::Down => ed.move_cursor(0, 1, shift, false),
+            KeyCode::Home if ctrl => ed.move_doc(false, shift),
+            KeyCode::End if ctrl => ed.move_doc(true, shift),
+            KeyCode::Home => ed.move_home(shift),
+            KeyCode::End => ed.move_end(shift),
+            KeyCode::PageUp => ed.move_cursor(0, -10, shift, false),
+            KeyCode::PageDown => ed.move_cursor(0, 10, shift, false),
+            KeyCode::Char('a') if ctrl => ed.select_all(),
+            KeyCode::Char('c') if ctrl => {
+                ed.copy();
+            }
+            KeyCode::Char('x') if ctrl => {
+                ed.cut();
+                modified = true;
+            }
+            KeyCode::Char('v') if ctrl => {
+                ed.paste();
+                modified = true;
+            }
+            KeyCode::Char('z') if ctrl && shift => ed.redo(),
+            KeyCode::Char('y') if ctrl => ed.redo(),
+            KeyCode::Char('z') if ctrl => ed.undo(),
+            KeyCode::Char('f') if ctrl => ed.begin_search(),
+            KeyCode::F(3) => ed.search_next(),
+            _ => {}
+        }
+        if modified {
+            self.agent.student_modified_since_review = true;
+        }
+    }
+
+    fn on_console_key(&mut self, app: &mut App, key: KeyEvent) {
+        let ctrl = key.modifiers.contains(KeyModifiers::CONTROL);
+        if app.exec.accepts_input() {
+            match key.code {
+                KeyCode::Char('d') if ctrl => {
+                    match app.exec.close_input() {
+                        Ok(()) => self.console.system("stdin: EOF enviado"),
+                        Err(err) => app.set_status(err, StatusKind::Warning),
+                    };
+                    return;
+                }
+                KeyCode::Enter => {
+                    match app.exec.send_line(&self.console_input) {
+                        Ok(()) => {
+                            self.console.system(format!("> {}", self.console_input));
+                            self.console_input.clear();
+                            self.console.scroll_back = 0;
+                        }
+                        Err(err) => app.set_status(err, StatusKind::Warning),
+                    }
+                    return;
+                }
+                KeyCode::Backspace => {
+                    self.console_input.pop();
+                    return;
+                }
+                KeyCode::Char(c) if !ctrl => {
+                    if self.console_input.len() + c.len_utf8() <= 4096 {
+                        self.console_input.push(c);
+                    }
+                    return;
+                }
+                _ => {}
+            }
+        }
+        let max = self.console.max_scroll();
+        match key.code {
+            KeyCode::Up | KeyCode::Char('k') | KeyCode::PageUp => {
+                self.console.scroll_back = (self.console.scroll_back + 5).min(max)
+            }
+            KeyCode::Down | KeyCode::Char('j') | KeyCode::PageDown => {
+                self.console.scroll_back = self.console.scroll_back.saturating_sub(5)
+            }
+            KeyCode::Home => self.console.scroll_back = max,
+            KeyCode::End => self.console.scroll_back = 0,
+            _ => {}
+        }
+    }
+
+    /// Colar multilinha do terminal (bracketed paste).
+    pub fn on_paste(&mut self, text: &str) {
+        self.completion = Default::default();
+        if self.consent_request.is_some() {
+            return;
+        }
+        if let Some(prompt) = &mut self.prompt {
+            for ch in text.chars().filter(|c| !c.is_control()) {
+                if prompt.text.len() + ch.len_utf8() <= 4096 {
+                    prompt.text.push(ch);
+                }
+            }
+            return;
+        }
+        if self.view == CreateView::Workspace && self.focus == Focus::Console {
+            for ch in text.chars().filter(|c| !c.is_control()) {
+                if self.console_input.len() + ch.len_utf8() <= 4096 {
+                    self.console_input.push(ch);
+                }
+            }
+            return;
+        }
+        if self.view == CreateView::Workspace && self.focus == Focus::Agent {
+            for ch in text.chars().filter(|c| !c.is_control()) {
+                if self.agent.input.chars().count() < 400 {
+                    self.agent.input.push(ch);
+                }
+            }
+            return;
+        }
+        if self.view == CreateView::Workspace && self.focus == Focus::Editor {
+            self.editor.insert_text(text);
+            self.agent.student_modified_since_review = true;
+            self.notify_lsp_change();
+        }
+    }
+
+    pub fn file_label(&self, idx: usize) -> String {
+        self.files
+            .get(idx)
+            .map(|p| {
+                p.file_name()
+                    .map(|n| n.to_string_lossy().to_string())
+                    .unwrap_or_else(|| "?".into())
+            })
+            .unwrap_or_default()
+    }
+
+    pub fn cursor_line_col(&self) -> (usize, usize) {
+        (self.editor.cursor.line + 1, self.editor.cursor.col + 1)
+    }
+
+    fn symbol_at_screen(&self, x: u16, y: u16) -> Option<String> {
+        let area = self.editor_text_area;
+        if !rect_contains(area, x, y) {
+            return None;
+        }
+        let line = self.editor.scroll_row + usize::from(y - area.y);
+        let gutter = self.editor.buf.line_count().to_string().len().max(2) + 1;
+        let column = self.editor.scroll_col + usize::from(x - area.x).saturating_sub(gutter);
+        let chars = self.editor.buf.line(line)?;
+        if column >= chars.len() || !(chars[column].is_ascii_alphanumeric() || chars[column] == '_')
+        {
+            return None;
+        }
+        let mut start = column;
+        let mut end = column + 1;
+        while start > 0 && (chars[start - 1].is_ascii_alphanumeric() || chars[start - 1] == '_') {
+            start -= 1;
+        }
+        while end < chars.len() && (chars[end].is_ascii_alphanumeric() || chars[end] == '_') {
+            end += 1;
+        }
+        Some(chars[start..end].iter().collect())
+    }
+
+    pub fn on_mouse_move(&mut self, x: u16, y: u16) {
+        if self.view != CreateView::Workspace
+            || self.lib_menu_open
+            || self.build_menu_open
+            || self.lab.open
+            || self.agent.model_picker.open
+            || self.prompt.is_some()
+            || self.consent_request.is_some()
+        {
+            self.hovered_doc = None;
+            return;
+        }
+        let Some(symbol) = self.symbol_at_screen(x, y) else {
+            self.hovered_doc = None;
+            return;
+        };
+        let code = self.editor.buf.to_string_lossy();
+        if crate::doc_hint::resolve_symbol_doc(&symbol, &code).is_some()
+            || self.workspace_index.find_doc(&symbol).is_some()
+        {
+            self.hovered_doc = Some((symbol, x, y));
+        } else {
+            self.hovered_doc = None;
+        }
+    }
+
+    /// Trata clique esquerdo na barra superior (▼ Bibliotecas / Compilar),
+    /// nos modais centrais ou em símbolos do editor (abre documentação PT/EN).
+    pub fn on_mouse_down(&mut self, x: u16, y: u16, app: &mut App) {
+        if self.view != CreateView::Workspace
+            || self.consent_request.is_some()
+            || self.prompt.is_some()
+            || self.agent.model_picker.open
+        {
+            return;
+        }
+        if self.lab.open {
+            if !rect_contains(self.lab_modal_area, x, y) {
+                self.lab.open = false;
+            }
+            return;
+        }
+        if self.lib_menu_open {
+            if !rect_contains(self.lib_modal_area, x, y) {
+                self.lib_menu_open = false;
+                return;
+            }
+            let list_top = self.lib_modal_area.y.saturating_add(2);
+            if y >= list_top && x < self.lib_modal_area.x.saturating_add(30) {
+                let idx = usize::from(y - list_top);
+                if idx < crate::doc_hint::EXTRA_LIBRARIES.len() {
+                    self.lib_menu_sel = idx;
+                    self.install_library_into_code(idx, app);
+                }
+                return;
+            }
+            let footer_y = self
+                .lib_modal_area
+                .y
+                .saturating_add(self.lib_modal_area.height.saturating_sub(2));
+            if y == footer_y
+                && let Some(lib) = crate::doc_hint::EXTRA_LIBRARIES.get(self.lib_menu_sel)
+            {
+                let msg = open_documentation_url(lib.doc_url);
+                app.set_status(msg, StatusKind::Info);
+            }
+            return;
+        }
+        if self.build_menu_open {
+            if !rect_contains(self.build_modal_area, x, y) {
+                self.build_menu_open = false;
+                return;
+            }
+            let list_top = self.build_modal_area.y.saturating_add(2);
+            if y >= list_top {
+                let idx = usize::from(y - list_top);
+                if idx < 5 {
+                    self.build_menu_sel = idx;
+                    self.execute_build_menu_option(idx, app);
+                }
+            }
+            return;
+        }
+        if rect_contains(self.top_lib_btn_area, x, y) {
+            self.lib_menu_open = true;
+            self.build_menu_open = false;
+            self.doc_popup = None;
+            self.hovered_doc = None;
+            return;
+        }
+        if rect_contains(self.top_build_btn_area, x, y) {
+            self.build_menu_open = true;
+            self.lib_menu_open = false;
+            self.doc_popup = None;
+            self.hovered_doc = None;
+            return;
+        }
+        if rect_contains(self.editor_text_area, x, y) {
+            self.focus = Focus::Editor;
+            let Some(symbol) = self.symbol_at_screen(x, y) else {
+                return;
+            };
+            let code = self.editor.buf.to_string_lossy();
+            let resolved = crate::doc_hint::resolve_symbol_doc(&symbol, &code);
+            let local_doc = self.workspace_index.find_doc(&symbol);
+            let doc_url = resolved
+                .as_ref()
+                .map(|r| r.best_url().to_string())
+                .or_else(|| {
+                    local_doc
+                        .as_ref()
+                        .map(|_| "https://rust-br.github.io/rust-book-pt-br/".to_string())
+                });
+            if let Some(url) = doc_url.clone() {
+                if let Some(doc) = local_doc {
+                    self.doc_popup = Some(DocPopup {
+                        title: symbol,
+                        body: doc,
+                        url: Some(url.clone()),
+                    });
+                } else if let Some(r) = resolved {
+                    self.doc_popup = Some(DocPopup {
+                        title: r.title,
+                        body: r.summary,
+                        url: Some(url.clone()),
+                    });
+                }
+                let msg = open_documentation_url(&url);
+                app.set_status(msg, StatusKind::Info);
+            }
+        }
+    }
+
+    fn on_lib_menu_key(&mut self, app: &mut App, key: KeyEvent) {
+        let len = crate::doc_hint::EXTRA_LIBRARIES.len();
+        match key.code {
+            KeyCode::Esc | KeyCode::F(9) => self.lib_menu_open = false,
+            KeyCode::Up | KeyCode::Char('k') => {
+                self.lib_menu_sel = self.lib_menu_sel.saturating_sub(1);
+            }
+            KeyCode::Down | KeyCode::Char('j') => {
+                if self.lib_menu_sel + 1 < len {
+                    self.lib_menu_sel += 1;
+                }
+            }
+            KeyCode::Char('d') | KeyCode::Char('D') => {
+                if let Some(lib) = crate::doc_hint::EXTRA_LIBRARIES.get(self.lib_menu_sel) {
+                    let msg = open_documentation_url(lib.doc_url);
+                    app.set_status(msg, StatusKind::Info);
+                }
+            }
+            KeyCode::Char('t') | KeyCode::Char('T') => {
+                self.install_library_template(self.lib_menu_sel, app);
+            }
+            KeyCode::Char('m') | KeyCode::Char('M') => {
+                self.lib_menu_open = false;
+                self.open_lab_tab(crate::lab_tools::LabToolTab::EcossistemasModernos, app);
+            }
+            KeyCode::Enter => self.install_library_into_code(self.lib_menu_sel, app),
+            _ => {}
+        }
+    }
+
+    /// Adiciona a dependência escolhida ao `Cargo.toml` e insere `use ...;`
+    /// no topo do arquivo `.rs` ativo (ou em `src/main.rs`).
+    pub fn install_library_into_code(&mut self, idx: usize, app: &mut App) {
+        let Some(lib) = crate::doc_hint::EXTRA_LIBRARIES.get(idx) else {
+            return;
+        };
+        let Some(project) = self.project.as_ref().cloned() else {
+            return;
+        };
+        let cargo_path = project.root.join("Cargo.toml");
+        let viewing_cargo = self.editor.path.as_deref() == Some(cargo_path.as_path());
+        let cargo_raw = if viewing_cargo {
+            self.editor.buf.to_string_lossy()
+        } else {
+            match project.read(&cargo_path) {
+                Ok(text) => text,
+                Err(e) => {
+                    app.set_status(format!("erro ao ler Cargo.toml: {e}"), StatusKind::Warning);
+                    return;
+                }
+            }
+        };
+        let mut updated_cargo =
+            crate::doc_hint::ensure_dependency_in_cargo_toml(&cargo_raw, lib.name, lib.version);
+        if lib.name == "bevy" {
+            updated_cargo =
+                crate::doc_hint::ensure_bevy_fast_dev_profile_in_cargo_toml(&updated_cargo);
+        }
+        if updated_cargo != cargo_raw {
+            if let Err(e) = project.save(&cargo_path, &updated_cargo) {
+                app.set_status(
+                    format!("erro ao salvar Cargo.toml: {e}"),
+                    StatusKind::Warning,
+                );
+                return;
+            }
+            if viewing_cargo {
+                self.editor.select_all();
+                self.editor.insert_text(&updated_cargo);
+                self.editor.mark_saved();
+            }
+        }
+
+        let viewing_rs = self
+            .editor
+            .path
+            .as_ref()
+            .is_some_and(|p| p.extension().is_some_and(|ext| ext == "rs"));
+        let target_name = if viewing_rs {
+            let cur = self.editor.buf.to_string_lossy();
+            let updated_rs = crate::doc_hint::insert_use_line_in_rust_code(&cur, lib.use_line);
+            if updated_rs != cur {
+                self.editor.select_all();
+                self.editor.insert_text(&updated_rs);
+                self.notify_lsp_change();
+            }
+            self.editor
+                .path
+                .as_ref()
+                .and_then(|p| p.strip_prefix(&project.root).ok().or(Some(p.as_path())))
+                .map(|p| p.display().to_string())
+                .unwrap_or_else(|| "editor".into())
+        } else {
+            let main_path = project.root.join("src/main.rs");
+            if let Ok(main_raw) = project.read(&main_path) {
+                let updated_rs =
+                    crate::doc_hint::insert_use_line_in_rust_code(&main_raw, lib.use_line);
+                if updated_rs != main_raw {
+                    let _ = project.save(&main_path, &updated_rs);
+                }
+            }
+            "src/main.rs".to_string()
+        };
+
+        self.workspace_index = WorkspaceIndex::reindex(&project, &self.files);
+        self.lib_menu_open = false;
+        self.focus = Focus::Editor;
+        self.console.system(format!(
+            "✔ Biblioteca `{}` ({}) pronta em Cargo.toml + `{}` em {}",
+            lib.name, lib.category, lib.use_line, target_name
+        ));
+        if lib.name == "bevy" {
+            self.console.system(
+                "Dica Bevy: pressione `T` no menu F9 (ou `/bevy` no agente) para inserir template 2D e use `F4 → Rodar em outro terminal` se preferir rodar fora da IDE.",
+            );
+        }
+        app.set_status(
+            format!(
+                "Biblioteca `{}` adicionada ao projeto e importada em {}",
+                lib.name, target_name
+            ),
+            StatusKind::Success,
+        );
+    }
+
+    /// Instala a biblioteca escolhida e insere um template inicial funcional no editor.
+    pub fn install_library_template(&mut self, idx: usize, app: &mut App) {
+        let Some(lib) = crate::doc_hint::EXTRA_LIBRARIES.get(idx) else {
+            return;
+        };
+        self.install_library_into_code(idx, app);
+        let template = if lib.name == "bevy" {
+            crate::doc_hint::bevy_starter_template().to_string()
+        } else if lib.example.contains("fn main(") {
+            format!("{}\n\n{}\n", lib.use_line, lib.example)
+        } else {
+            let indented = lib
+                .example
+                .lines()
+                .map(|l| format!("    {l}"))
+                .collect::<Vec<_>>()
+                .join("\n");
+            format!("{}\n\nfn main() {{\n{indented}\n}}\n", lib.use_line)
+        };
+        let viewing_rs = self
+            .editor
+            .path
+            .as_ref()
+            .is_some_and(|p| p.extension().is_some_and(|ext| ext == "rs"));
+        if viewing_rs {
+            self.editor.select_all();
+            self.editor.insert_text(&template);
+            self.notify_lsp_change();
+        } else if let Some(project) = &self.project {
+            let main_path = project.root.join("src/main.rs");
+            let _ = project.save(&main_path, &template);
+        }
+        self.console.system(format!(
+            "★ Template inicial de `{}` aplicado (Ctrl+Z desfaz · F4 abre/roda em outro terminal).",
+            lib.name
+        ));
+        app.set_status(
+            format!(
+                "Template inicial de `{}` inserido (Ctrl+Z desfaz)",
+                lib.name
+            ),
+            StatusKind::Success,
+        );
+    }
+
+    fn on_build_menu_key(&mut self, app: &mut App, key: KeyEvent) {
+        match key.code {
+            KeyCode::Esc | KeyCode::F(4) => self.build_menu_open = false,
+            KeyCode::Up | KeyCode::Char('k') => {
+                self.build_menu_sel = self.build_menu_sel.saturating_sub(1);
+            }
+            KeyCode::Down | KeyCode::Char('j') => {
+                if self.build_menu_sel < 4 {
+                    self.build_menu_sel += 1;
+                }
+            }
+            KeyCode::Enter => self.execute_build_menu_option(self.build_menu_sel, app),
+            _ => {}
+        }
+    }
+
+    pub fn execute_build_menu_option(&mut self, idx: usize, app: &mut App) {
+        self.build_menu_open = false;
+        match idx {
+            0 => {
+                if !app.exec.running {
+                    self.after_exec = AfterExec::LaunchExternalWindow;
+                }
+                self.request_exec(ToolCommand::Build, app);
+            }
+            1 => {
+                let Some(project) = self.project.as_ref().cloned() else {
+                    app.set_status("nenhum projeto aberto", StatusKind::Warning);
+                    return;
+                };
+                self.save_current(app);
+                match spawn_external_cargo_terminal(&project.root) {
+                    Ok(msg) => {
+                        self.console.system(format!("✔ {msg}"));
+                        self.console.system(format!(
+                            "Comando equivalente caso queira abrir outro terminal manualmente: cd \"{}\" && cargo run",
+                            project.root.display()
+                        ));
+                        app.set_status(msg, StatusKind::Success);
+                    }
+                    Err(msg) => {
+                        self.console.system(format!("ℹ {msg}"));
+                        app.set_status(msg, StatusKind::Warning);
+                    }
+                }
+            }
+            2 => {
+                self.after_exec = AfterExec::None;
+                self.request_exec(ToolCommand::BuildLinuxRelease, app);
+            }
+            3 => {
+                self.after_exec = AfterExec::None;
+                self.request_exec(ToolCommand::BuildWindowsRelease, app);
+            }
+            4 => {
+                self.after_exec = AfterExec::None;
+                self.request_exec(ToolCommand::Build, app);
+            }
+            _ => {}
+        }
+    }
+
+    /// Cria `PLANO.md` para o projeto independente da Etapa 10 (sem sobrescrever)
+    /// e abre o arquivo no editor quando não houver alterações não salvas.
+    pub fn create_project_plan(&mut self, app: &mut App) {
+        let Some(project) = &self.project else {
+            app.set_status(
+                "Abra um projeto antes de criar PLANO.md.",
+                StatusKind::Warning,
+            );
+            return;
+        };
+        let (plan_path, created) = match project.write_project_plan_template() {
+            Ok(path) => (path, true),
+            Err(err) if err.kind() == std::io::ErrorKind::AlreadyExists => {
+                (project.root.join("PLANO.md"), false)
+            }
+            Err(err) => {
+                app.set_status(
+                    format!("Erro ao criar PLANO.md: {err}"),
+                    StatusKind::Warning,
+                );
+                return;
+            }
+        };
+        self.files = project.source_files();
+        self.workspace_index = WorkspaceIndex::reindex(project, &self.files);
+        if let Some(idx) = self.files.iter().position(|p| p == &plan_path) {
+            self.switch_file(idx, app);
+        }
+        let mut changed = false;
+        let mut awarded = false;
+        grant_project_milestone(
+            app,
+            "plan",
+            25,
+            "Plano Etapa 10 (PLANO.md)",
+            &mut changed,
+            &mut awarded,
+        );
+        maybe_award_independent_capstone(app, &mut changed, &mut awarded);
+        if changed && !awarded {
+            let _ = app.persist_progress();
+        }
+        if !awarded {
+            let msg = if created {
+                "PLANO.md criado para guiar seu projeto independente (Etapa 10)."
+            } else {
+                "PLANO.md já existe; arquivo aberto no editor."
+            };
+            app.set_status(msg, StatusKind::Success);
+        }
+    }
+
+    fn record_project_milestones(&self, label: &str, app: &mut App) {
+        if !matches!(
+            label,
+            "cargo check"
+                | "cargo build"
+                | "cargo build (Linux)"
+                | "cargo build (Windows)"
+                | "cargo clippy"
+                | "cargo test"
+                | "cargo run"
+        ) {
+            return;
+        }
+        let Some(project) = &self.project else {
+            return;
+        };
+        let caps = project.inspect_capabilities();
+        let mut changed = false;
+        let mut awarded = false;
+
+        let checks = [
+            (caps.has_plan_md, "plan", 25, "Plano Etapa 10 (PLANO.md)"),
+            (
+                caps.source_file_count >= 2,
+                "multi-module",
+                25,
+                "Projeto organizado em múltiplos arquivos",
+            ),
+            (
+                caps.has_structs_or_enums,
+                "types",
+                20,
+                "Tipos próprios (struct/enum) no projeto",
+            ),
+            (
+                caps.has_error_handling,
+                "error-handling",
+                25,
+                "Tratamento explícito com Option/Result",
+            ),
+            (
+                caps.has_doc_comments,
+                "docs",
+                20,
+                "Documentação de código com ///",
+            ),
+        ];
+        for (ok, key, xp, desc) in checks {
+            if ok {
+                grant_project_milestone(app, key, xp, desc, &mut changed, &mut awarded);
+            }
+        }
+        match label {
+            "cargo check" | "cargo build" | "cargo build (Linux)" | "cargo build (Windows)" => {
+                grant_project_milestone(
+                    app,
+                    "build",
+                    20,
+                    "Build limpo no projeto",
+                    &mut changed,
+                    &mut awarded,
+                );
+            }
+            "cargo clippy" => {
+                grant_project_milestone(
+                    app,
+                    "clippy",
+                    25,
+                    "Clippy aprovado no projeto",
+                    &mut changed,
+                    &mut awarded,
+                );
+            }
+            "cargo test" if caps.has_unit_tests => {
+                grant_project_milestone(
+                    app,
+                    "tests",
+                    35,
+                    "Testes unitários aprovados no projeto",
+                    &mut changed,
+                    &mut awarded,
+                );
+            }
+            "cargo run" => {
+                grant_project_milestone(
+                    app,
+                    "run",
+                    20,
+                    "Aplicação executada no projeto",
+                    &mut changed,
+                    &mut awarded,
+                );
+            }
+            _ => {}
+        }
+        maybe_award_independent_capstone(app, &mut changed, &mut awarded);
+        if changed && !awarded {
+            let _ = app.persist_progress();
+        }
+    }
+
+    pub fn open_projects_dir_prompt(&mut self, app: &App) {
+        self.completion = Default::default();
+        self.prompt = Some(PromptState {
+            kind: PromptKind::SetProjectsDir,
+            text: app.projects_base_dir().display().to_string(),
+            error: None,
+        });
+    }
+
+    fn cycle_focus(&mut self, forward: bool) {
+        self.focus = match (forward, self.agent.open, self.focus) {
+            (true, false, Focus::Files) => Focus::Editor,
+            (true, false, Focus::Editor) => Focus::Console,
+            (true, false, Focus::Console | Focus::Agent) => Focus::Files,
+            (true, true, Focus::Files) => Focus::Editor,
+            (true, true, Focus::Editor) => Focus::Console,
+            (true, true, Focus::Console) => Focus::Agent,
+            (true, true, Focus::Agent) => Focus::Files,
+            (false, false, Focus::Editor) => Focus::Files,
+            (false, false, Focus::Files) => Focus::Console,
+            (false, false, Focus::Console | Focus::Agent) => Focus::Editor,
+            (false, true, Focus::Editor) => Focus::Files,
+            (false, true, Focus::Files) => Focus::Console,
+            (false, true, Focus::Console) => Focus::Agent,
+            (false, true, Focus::Agent) => Focus::Editor,
+        };
+    }
+
+    pub fn toggle_agent_panel(&mut self, app: &mut App) {
+        if !self.agent.open {
+            self.agent.open = true;
+            self.focus = Focus::Agent;
+            app.set_status(
+                "Agente Antigravity aberto à direita (Alt+O modelo · Alt+Enter aplicar)",
+                StatusKind::Info,
+            );
+        } else if self.focus != Focus::Agent {
+            self.focus = Focus::Agent;
+            app.set_status(
+                "Foco no Agente Antigravity (Esc volta ao editor)",
+                StatusKind::Info,
+            );
+        } else {
+            self.agent.open = false;
+            self.focus = Focus::Editor;
+            app.set_status("Painel do Agente fechado", StatusKind::Info);
+        }
+    }
+
+    pub fn agent_running(&self) -> bool {
+        self.agent.manager.running
+    }
+
+    pub fn poll_agent(&mut self, app: &mut App) -> bool {
+        let mut changed = false;
+        let events = self.agent.manager.poll_events();
+        for ev in events {
+            changed = true;
+            match ev {
+                MentorEvent::Completed { source, body, .. } => {
+                    self.agent.proposed_code = crate::mentor::extract_rust_code_block(&body);
+                    let has_code = self.agent.proposed_code.is_some();
+                    self.agent.messages.push(AgentChatMessage {
+                        role: AgentRole::Agent,
+                        sender: source,
+                        text: body,
+                    });
+                    self.agent.scroll = u16::MAX;
+                    if has_code {
+                        app.set_status(
+                            "Agente sugeriu código — Alt+Enter (ou /aplicar) aplica no editor",
+                            StatusKind::Success,
+                        );
+                    }
+                }
+                MentorEvent::Failed { message, .. } => {
+                    self.agent.messages.push(AgentChatMessage {
+                        role: AgentRole::System,
+                        sender: "Aviso".to_string(),
+                        text: format!(
+                            "{message}\nSua mensagem continua no histórico: reenvie ou use Alt+O para trocar de modelo."
+                        ),
+                    });
+                    self.agent.scroll = u16::MAX;
+                    app.set_status(format!("Agente: {message}"), StatusKind::Warning);
+                }
+            }
+        }
+        if self.agent.student_modified_since_review
+            && !self.agent.manager.running
+            && self.view == CreateView::Workspace
+            && self.project.is_some()
+            && self.agent.last_auto_review.elapsed() >= self.agent.next_auto_review_interval
+        {
+            self.trigger_periodic_code_review(app, false);
+            changed = true;
+        }
+        changed
+    }
+
+    fn on_agent_key(&mut self, app: &mut App, key: KeyEvent) {
+        let ctrl = key.modifiers.contains(KeyModifiers::CONTROL);
+        let alt = key.modifiers.contains(KeyModifiers::ALT);
+        match key.code {
+            KeyCode::Enter if alt => self.apply_agent_code(app),
+            KeyCode::Char('e') if ctrl => self.apply_agent_code(app),
+            KeyCode::Enter => self.submit_agent_input(app),
+            KeyCode::Backspace => {
+                self.agent.input.pop();
+            }
+            KeyCode::PageUp => {
+                self.agent.scroll = self.agent.scroll.saturating_sub(4);
+            }
+            KeyCode::PageDown => {
+                self.agent.scroll = self.agent.scroll.saturating_add(4);
+            }
+            KeyCode::Home => self.agent.scroll = 0,
+            KeyCode::End => self.agent.scroll = u16::MAX,
+            KeyCode::Up if self.agent.input.is_empty() => {
+                self.agent.scroll = self.agent.scroll.saturating_sub(3);
+            }
+            KeyCode::Down if self.agent.input.is_empty() => {
+                self.agent.scroll = self.agent.scroll.saturating_add(3);
+            }
+            KeyCode::Char(c) if !ctrl && !alt && self.agent.input.chars().count() < 400 => {
+                self.agent.input.push(c);
+            }
+            _ => {}
+        }
+    }
+
+    fn submit_agent_input(&mut self, app: &mut App) {
+        let raw = self.agent.input.trim().to_string();
+        if raw.is_empty() {
+            return;
+        }
+        self.agent.input.clear();
+        match raw.as_str() {
+            "/modelo" | "/model" => {
+                self.agent.model_picker.open_picker(app);
+                return;
+            }
+            "/aplicar" | "/apply" => {
+                self.apply_agent_code(app);
+                return;
+            }
+            "/revisar" | "/review" => {
+                self.trigger_periodic_code_review(app, true);
+                return;
+            }
+            "/bevy" => {
+                if let Some(bevy_idx) = crate::doc_hint::EXTRA_LIBRARIES
+                    .iter()
+                    .position(|l| l.name == "bevy")
+                {
+                    self.install_library_into_code(bevy_idx, app);
+                }
+                self.agent.open = true;
+                self.focus = Focus::Agent;
+                self.agent.proposed_code =
+                    Some(crate::doc_hint::bevy_starter_template().to_string());
+                self.agent.messages.push(AgentChatMessage {
+                    role: AgentRole::Agent,
+                    sender: "Bevy Guia".to_string(),
+                    text: "Bevy (ECS) pronto!\n\
+• Dependência `bevy = \"0.20\"` + `[profile.dev]` adicionados ao Cargo.toml.\n\
+• Um template 2D completo (`Camera2d`, `Sprite` e movimento WASD/setas com `Transform`) foi preparado abaixo — pressione `Alt+Enter` para colar no editor.\n\
+• Para rodar: pressione `F4 → Rodar em outro terminal` (ou `cd` na pasta do projeto e `cargo run` em um segundo terminal enquanto você edita no RustLab!)."
+                        .to_string(),
+                });
+                self.agent.scroll = u16::MAX;
+                app.set_status(
+                    "Bevy configurado! Alt+Enter aplica template 2D · F4 roda em outro terminal",
+                    StatusKind::Success,
+                );
+                return;
+            }
+            "/pong" | "/snake" | "/editor" | "/paint" | "/cavegame" => {
+                let (label, template, summary, install_bevy) = match raw.as_str() {
+                    "/pong" => (
+                        "Pong Terminal (D10-P02)",
+                        crate::doc_hint::pong_terminal_starter_template(),
+                        "Template `PongState` com colisão, placar, renderização ASCII e `#[cfg(test)]` preparado.",
+                        false,
+                    ),
+                    "/snake" => (
+                        "Snake Terminal (D11-P02)",
+                        crate::doc_hint::snake_terminal_starter_template(),
+                        "Template `SnakeGame` com seed determinística, crescimento, colisões e `#[cfg(test)]` preparado.",
+                        false,
+                    ),
+                    "/editor" => (
+                        "Mini Editor (D12-P02)",
+                        crate::doc_hint::mini_editor_starter_template(),
+                        "Template `MiniEditor` multi-linha com `undo`/`redo` e `#[cfg(test)]` preparado.",
+                        false,
+                    ),
+                    "/paint" => (
+                        "Mini Paint 2D (PAINT-01..12)",
+                        crate::doc_hint::mini_paint_starter_template(),
+                        "Template `Canvas2D` com traço contínuo, escala preservada em resize, exportação PPM e `#[cfg(test)]` preparado.",
+                        false,
+                    ),
+                    _ => (
+                        "CaveGame Voxel + Bevy 0.20 (CAVE-01..18)",
+                        crate::doc_hint::cavegame_voxel_starter_template(),
+                        "Dependência `bevy = \"0.20\"` + template `VoxelWorld` 24×24 chunks, culling de faces, persistência e `#[cfg(test)]` preparado.",
+                        true,
+                    ),
+                };
+                if install_bevy
+                    && let Some(bevy_idx) = crate::doc_hint::EXTRA_LIBRARIES
+                        .iter()
+                        .position(|l| l.name == "bevy")
+                {
+                    self.install_library_into_code(bevy_idx, app);
+                }
+                self.agent.open = true;
+                self.focus = Focus::Agent;
+                self.agent.proposed_code = Some(template.to_string());
+                self.agent.messages.push(AgentChatMessage {
+                    role: AgentRole::Agent,
+                    sender: "Capstones V3".to_string(),
+                    text: format!(
+                        "{label} pronto!\n• {summary}\n• Pressione `Alt+Enter` para inserir no editor e `F6` para rodar os testes."
+                    ),
+                });
+                self.agent.scroll = u16::MAX;
+                app.set_status(
+                    format!("{label} preparado! Alt+Enter aplica no editor · F6 testa"),
+                    StatusKind::Success,
+                );
+                return;
+            }
+            "/raiox" | "/memoria" | "/xray" => {
+                self.open_lab_tab(crate::lab_tools::LabToolTab::RaioXMemoria, app);
+                return;
+            }
+            "/lente" | "/eli10" => {
+                self.lab.eli10_mode = raw == "/eli10";
+                self.open_lab_tab(crate::lab_tools::LabToolTab::LenteCompilador, app);
+                return;
+            }
+            "/debug" | "/depurar" => {
+                self.open_lab_tab(crate::lab_tools::LabToolTab::DebuggerVisual, app);
+                return;
+            }
+            "/bp" | "/breakpoint" => {
+                self.debugger_toggle_breakpoint_at_cursor(app);
+                return;
+            }
+            "/consertar" | "/quest" | "/golf" => {
+                self.open_lab_tab(crate::lab_tools::LabToolTab::ConserteOCodigo, app);
+                return;
+            }
+            "/playground" | "/comunidade" => {
+                self.open_lab_tab(crate::lab_tools::LabToolTab::PlaygroundComunidade, app);
+                return;
+            }
+            "/wasm" | "/cli" | "/axum" => {
+                let idx = match raw.as_str() {
+                    "/wasm" => 0,
+                    "/cli" => 1,
+                    _ => 2,
+                };
+                let eco = crate::lab_tools::MODERN_ECOSYSTEMS[idx];
+                self.lab.ecosystem_sel = idx;
+                self.agent.open = true;
+                self.focus = Focus::Agent;
+                self.agent.proposed_code = Some(eco.template_code.to_string());
+                self.agent.messages.push(AgentChatMessage {
+                    role: AgentRole::Agent,
+                    sender: "Ecossistemas V3".to_string(),
+                    text: format!(
+                        "{} ({})\n• {}\n• {}\n• Pressione Alt+Enter para inserir no editor e F6 para testar!",
+                        eco.name, eco.ecosystem, eco.summary, eco.run_instructions
+                    ),
+                });
+                self.agent.scroll = u16::MAX;
+                app.set_status(
+                    format!("{} pronto! Alt+Enter insere · F6 testa", eco.name),
+                    StatusKind::Success,
+                );
+                return;
+            }
+            "/limpar" | "/clear" => {
+                let open = self.agent.open;
+                self.agent = CreateAgentState::default();
+                self.agent.open = open;
+                return;
+            }
+            _ => {}
+        }
+        if self.agent.manager.running {
+            self.agent.input = raw;
+            app.set_status(
+                "aguarde a resposta do agente ou pressione Ctrl+K",
+                StatusKind::Info,
+            );
+            return;
+        }
+        let prompt = match raw.as_str() {
+            "/corrigir" => {
+                "Analise os diagnósticos e erros do compilador no arquivo aberto e proponha a correção completa."
+                    .to_string()
+            }
+            "/testes" => {
+                "Escreva testes unitários #[cfg(test)] completos para as funções do arquivo aberto."
+                    .to_string()
+            }
+            _ => raw.clone(),
+        };
+        self.agent.messages.push(AgentChatMessage {
+            role: AgentRole::User,
+            sender: "Você".to_string(),
+            text: raw,
+        });
+        self.agent.scroll = u16::MAX;
+        if app.config.ai.provider == AiProvider::Remote
+            && app.config.ai.remote_consent == RemoteAiConsent::Ask
+        {
+            self.agent.consent_pending = Some(prompt);
+            return;
+        }
+        self.dispatch_agent_query(app, prompt);
+    }
+
+    fn dispatch_agent_query(&mut self, app: &mut App, prompt: String) {
+        let history: Vec<(String, String)> = self
+            .agent
+            .messages
+            .iter()
+            .filter_map(|m| match m.role {
+                AgentRole::User => Some(("user".to_string(), m.text.clone())),
+                AgentRole::Agent => Some(("assistant".to_string(), m.text.clone())),
+                AgentRole::System => None,
+            })
+            .collect();
+        let ctx = crate::mentor::create_context_from(self);
+        self.agent
+            .manager
+            .submit_agent_chat(history, ctx, prompt, app.config.ai.clone());
+        let _ = self.poll_agent(app);
+    }
+
+    pub fn apply_agent_code(&mut self, app: &mut App) {
+        let Some(code) = self.agent.proposed_code.clone() else {
+            app.set_status(
+                "Nenhuma sugestão de código do agente para aplicar.",
+                StatusKind::Info,
+            );
+            return;
+        };
+        if self.editor.selection().is_none() {
+            self.editor.select_all();
+        }
+        self.editor.insert_text(&code);
+        for line in code.lines().map(str::trim).filter(|l| !l.is_empty()) {
+            self.agent.ai_authored_lines.insert(line.to_string());
+        }
+        self.notify_lsp_change();
+        self.agent.messages.push(AgentChatMessage {
+            role: AgentRole::System,
+            sender: "Antigravity".to_string(),
+            text: "Código aplicado no editor (Ctrl+Z para desfazer).".to_string(),
+        });
+        self.focus = Focus::Editor;
+        app.set_status(
+            "Código do agente aplicado no editor (Ctrl+Z desfaz).",
+            StatusKind::Success,
+        );
+    }
+
+    /// Executa a revisão periódica (15–30 min ou `/revisar`) avaliando apenas
+    /// trechos escritos pelo estudante e evitando premiar código gerado pela IA.
+    pub fn trigger_periodic_code_review(&mut self, app: &mut App, manual: bool) {
+        self.agent.last_auto_review = std::time::Instant::now();
+        self.agent.next_auto_review_interval = next_random_review_interval();
+        self.agent.student_modified_since_review = false;
+
+        let code = self.editor.buf.to_string_lossy();
+        let (student_lines, ai_lines) =
+            crate::mentor::classify_code_authorship(&code, &self.agent.ai_authored_lines);
+        if student_lines.is_empty() {
+            if manual {
+                self.agent.messages.push(AgentChatMessage {
+                    role: AgentRole::System,
+                    sender: "Mentor".to_string(),
+                    text: "Revisão periódica: todo o código atual veio do agente ou o editor está vazio. Escreva algumas linhas suas para receber dicas e reforço personalizado.".to_string(),
+                });
+                self.agent.scroll = u16::MAX;
+            }
+            return;
+        }
+
+        self.agent.open = true;
+        let ctx = crate::mentor::create_context_from(self);
+        self.agent.manager.submit_periodic_review(
+            ctx,
+            student_lines,
+            ai_lines,
+            app.config.ai.clone(),
+        );
+        let _ = self.poll_agent(app);
+        app.set_status(
+            "Mentor IA revisando seu código (15–30 min) — dicas em Alt+A",
+            StatusKind::Info,
+        );
+    }
+
+    // ------------------------------------------------------------------
+    // Hub Laboratório RustLab: Raio-X, Lente ELI10, Debugger, Quests,
+    // Playground & Ecossistemas Modernos
+    // ------------------------------------------------------------------
+
+    pub fn diagnostics_text_summary(&self) -> String {
+        let mut out = self.stderr_buf.clone();
+        for d in &self.diags {
+            out.push('\n');
+            out.push_str(&d.message);
+        }
+        out
+    }
+
+    pub fn open_lab_tab(&mut self, tab: crate::lab_tools::LabToolTab, app: &mut App) {
+        let code = self.editor.buf.to_string_lossy();
+        let diags = self.diagnostics_text_summary();
+        self.lib_menu_open = false;
+        self.build_menu_open = false;
+        self.lab.open_tab(tab, &code, &diags);
+        app.set_status(
+            format!("Laboratório: {} (1-6 abas · Esc fecha)", tab.title()),
+            StatusKind::Info,
+        );
+    }
+
+    pub fn debugger_toggle_breakpoint_at_cursor(&mut self, app: &mut App) {
+        let line = self.editor.cursor.line + 1;
+        let active = self.lab.debugger.toggle_breakpoint(line);
+        let msg = if active {
+            format!("● Breakpoint marcado na linha {line} (F10 ou Alt+J depura)")
+        } else {
+            format!("Breakpoint removido da linha {line}")
+        };
+        self.console.system(msg.clone());
+        app.set_status(msg, StatusKind::Info);
+    }
+
+    fn ensure_debugger_started(&mut self) {
+        if !self.lab.debugger.active || self.lab.debugger.steps.is_empty() {
+            let code = self.editor.buf.to_string_lossy();
+            self.lab.debugger.start_or_rebuild(&code);
+        }
+    }
+
+    fn sync_editor_to_debug_step(&mut self, app: &mut App) {
+        let Some(step) = self.lab.debugger.current().cloned() else {
+            app.set_status(
+                "Debugger sem passos executáveis para este arquivo.",
+                StatusKind::Warning,
+            );
+            return;
+        };
+        let target_line = step.line_1based.saturating_sub(1);
+        let max_line = self.editor.buf.line_count().saturating_sub(1);
+        self.editor.cursor.line = target_line.min(max_line);
+        self.editor.cursor.col = 0;
+        self.editor.scroll_row = self.editor.cursor.line.saturating_sub(3);
+        let vars_preview = if step.locals.is_empty() {
+            "sem locais".to_string()
+        } else {
+            step.locals
+                .iter()
+                .take(3)
+                .map(|l| format!("{}={}", l.name, l.value))
+                .collect::<Vec<_>>()
+                .join(", ")
+        };
+        app.set_status(
+            format!(
+                "Debug ▶ L{} [{}]: {} ({})",
+                step.line_1based, step.func, step.note, vars_preview
+            ),
+            StatusKind::Info,
+        );
+    }
+
+    pub fn debugger_step_over(&mut self, app: &mut App) {
+        let was_active = self.lab.debugger.active;
+        self.ensure_debugger_started();
+        if was_active {
+            let _ = self.lab.debugger.step_over();
+        }
+        self.sync_editor_to_debug_step(app);
+    }
+
+    pub fn debugger_step_into(&mut self, app: &mut App) {
+        let was_active = self.lab.debugger.active;
+        self.ensure_debugger_started();
+        if was_active {
+            let _ = self.lab.debugger.step_into();
+        }
+        self.sync_editor_to_debug_step(app);
+    }
+
+    pub fn debugger_continue(&mut self, app: &mut App) {
+        self.ensure_debugger_started();
+        let _ = self.lab.debugger.continue_to_breakpoint();
+        self.sync_editor_to_debug_step(app);
+    }
+
+    fn apply_code_template_to_editor(
+        &mut self,
+        code: &str,
+        label: &str,
+        close_lab: bool,
+        app: &mut App,
+    ) {
+        self.editor.select_all();
+        self.editor.insert_text(code);
+        self.notify_lsp_change();
+        if close_lab {
+            self.lab.open = false;
+            self.focus = Focus::Editor;
+        }
+        self.console
+            .system(format!("★ {label} carregado no editor (Ctrl+Z desfaz)."));
+        app.set_status(
+            format!("{label} carregado no editor (Ctrl+Z desfaz)"),
+            StatusKind::Success,
+        );
+    }
+
+    fn add_dependency_to_cargo(&mut self, pkg: &str, version: &str, app: &mut App) {
+        let Some(project) = self.project.as_ref().cloned() else {
+            app.set_status(
+                "Abra um projeto Cargo para adicionar dependências.",
+                StatusKind::Warning,
+            );
+            return;
+        };
+        let cargo_path = project.root.join("Cargo.toml");
+        let Ok(raw) = project.read(&cargo_path) else {
+            return;
+        };
+        let updated = crate::doc_hint::ensure_dependency_in_cargo_toml(&raw, pkg, version);
+        if updated != raw && project.save(&cargo_path, &updated).is_ok() {
+            if self.editor.path.as_deref() == Some(cargo_path.as_path()) {
+                self.editor.select_all();
+                self.editor.insert_text(&updated);
+                self.editor.mark_saved();
+            }
+            self.console.system(format!(
+                "✔ `{pkg} = \"{version}\"` adicionado em Cargo.toml."
+            ));
+            app.set_status(
+                format!("Dependência `{pkg} = \"{version}\"` adicionada ao Cargo.toml"),
+                StatusKind::Success,
+            );
+        }
+    }
+
+    pub fn validate_active_quest(&mut self, app: &mut App) {
+        let quests = crate::lab_tools::TROUBLESHOOTING_QUESTS;
+        let idx = self
+            .lab
+            .active_quest_id
+            .and_then(|id| quests.iter().position(|q| q.id == id))
+            .unwrap_or(self.lab.quest_sel.min(quests.len().saturating_sub(1)));
+        let quest = quests[idx];
+        let code = self.editor.buf.to_string_lossy();
+        match crate::lab_tools::evaluate_quest(&quest, &code) {
+            Ok(eval) => {
+                self.lab.completed_quests.insert(quest.id);
+                let _ = app.award_xp(format!("quest:{}", quest.id), eval.xp_awarded, quest.title);
+                let _ = app.persist_progress();
+                let bonus_txt = if eval.golf_bonus {
+                    " · Bônus Golfing + Zero Clones!"
+                } else {
+                    ""
+                };
+                let msg = format!(
+                    "✔ {} concluída! (+{} XP · {} linhas editadas / par {} · Heap: {}){}",
+                    quest.id,
+                    eval.xp_awarded,
+                    eval.modified_lines,
+                    eval.par_lines,
+                    eval.heap_allocations,
+                    bonus_txt
+                );
+                self.lab.last_quest_feedback = Some(msg.clone());
+                self.console.system(msg.clone());
+                app.set_status(msg, StatusKind::Success);
+            }
+            Err(reason) => {
+                let msg = format!("✘ {}: {reason}", quest.id);
+                self.lab.last_quest_feedback = Some(msg.clone());
+                app.set_status(msg, StatusKind::Warning);
+            }
+        }
+    }
+
+    fn on_lab_modal_key(&mut self, app: &mut App, key: KeyEvent) {
+        let alt = key.modifiers.contains(KeyModifiers::ALT);
+        match key.code {
+            KeyCode::Esc => {
+                self.lab.open = false;
+                return;
+            }
+            KeyCode::Char('x') if alt => {
+                self.lab.open = false;
+                return;
+            }
+            KeyCode::Tab | KeyCode::Right => {
+                let next = self.lab.tab.next();
+                self.open_lab_tab(next, app);
+                return;
+            }
+            KeyCode::BackTab | KeyCode::Left => {
+                let prev = self.lab.tab.prev();
+                self.open_lab_tab(prev, app);
+                return;
+            }
+            KeyCode::Char(d @ '1'..='6') => {
+                if let Some(tab) = crate::lab_tools::LabToolTab::from_digit(d) {
+                    self.open_lab_tab(tab, app);
+                }
+                return;
+            }
+            KeyCode::PageUp => {
+                self.lab.scroll = self.lab.scroll.saturating_sub(4);
+                return;
+            }
+            KeyCode::PageDown => {
+                self.lab.scroll = self.lab.scroll.saturating_add(4);
+                return;
+            }
+            _ => {}
+        }
+
+        let code = self.editor.buf.to_string_lossy();
+        let diag_text = self.diagnostics_text_summary();
+        match self.lab.tab {
+            crate::lab_tools::LabToolTab::RaioXMemoria => {
+                if matches!(key.code, KeyCode::Char('r' | 'R')) {
+                    self.lab.refresh(&code, &diag_text);
+                    app.set_status("Raio-X de Memória atualizado.", StatusKind::Info);
+                }
+            }
+            crate::lab_tools::LabToolTab::LenteCompilador => match key.code {
+                KeyCode::Char('s' | 'S') => {
+                    self.lab.eli10_mode = !self.lab.eli10_mode;
+                    self.lab.scroll = 0;
+                    app.set_status(
+                        if self.lab.eli10_mode {
+                            "Modo 'Como se eu tivesse 10 anos' (ELI10) ativado!"
+                        } else {
+                            "Modo técnico socrático ativado."
+                        },
+                        StatusKind::Info,
+                    );
+                }
+                KeyCode::Up | KeyCode::Char('k') => {
+                    self.lab.selected_fix = self.lab.selected_fix.saturating_sub(1);
+                }
+                KeyCode::Down | KeyCode::Char('j') => {
+                    self.lab.selected_fix = (self.lab.selected_fix + 1).min(2);
+                }
+                KeyCode::Enter => {
+                    let lens = self.lab.last_lens.clone().unwrap_or_else(|| {
+                        crate::lab_tools::SocraticErrorLens::analyze(&diag_text, &code)
+                    });
+                    let fix = lens.fixes[self.lab.selected_fix.min(2)];
+                    self.agent.open = true;
+                    self.agent.proposed_code = Some(fix.after.to_string());
+                    self.lab.open = false;
+                    self.focus = Focus::Agent;
+                    self.agent.messages.push(AgentChatMessage {
+                        role: AgentRole::Agent,
+                        sender: "Lente RustLab".to_string(),
+                        text: format!(
+                            "{}\n{}\n```rust\n{}\n```\nAlt+Enter aplica no editor (Ctrl+Z desfaz).",
+                            fix.label, fix.explanation, fix.after
+                        ),
+                    });
+                    self.agent.scroll = u16::MAX;
+                    app.set_status(
+                        "Solução idiomática enviada ao painel do Agente.",
+                        StatusKind::Success,
+                    );
+                }
+                _ => {}
+            },
+            crate::lab_tools::LabToolTab::DebuggerVisual => match key.code {
+                KeyCode::Char('n' | 'N') | KeyCode::F(10) => self.debugger_step_over(app),
+                KeyCode::Char('s' | 'S') => self.debugger_step_into(app),
+                KeyCode::Char('c' | 'C') => self.debugger_continue(app),
+                KeyCode::Char('b' | 'B') => self.debugger_toggle_breakpoint_at_cursor(app),
+                KeyCode::Char('r' | 'R') => {
+                    self.lab.debugger.start_or_rebuild(&code);
+                    self.sync_editor_to_debug_step(app);
+                }
+                KeyCode::Char('x' | 'X') => {
+                    self.lab.debugger.stop();
+                    app.set_status("Sessão de debug encerrada.", StatusKind::Info);
+                }
+                KeyCode::Up | KeyCode::Char('k') => {
+                    self.lab.scroll = self.lab.scroll.saturating_sub(2);
+                }
+                KeyCode::Down | KeyCode::Char('j') => {
+                    self.lab.scroll = self.lab.scroll.saturating_add(2);
+                }
+                _ => {}
+            },
+            crate::lab_tools::LabToolTab::ConserteOCodigo => match key.code {
+                KeyCode::Up | KeyCode::Char('k') => {
+                    self.lab.quest_sel = self.lab.quest_sel.saturating_sub(1);
+                }
+                KeyCode::Down | KeyCode::Char('j') => {
+                    let max = crate::lab_tools::TROUBLESHOOTING_QUESTS
+                        .len()
+                        .saturating_sub(1);
+                    self.lab.quest_sel = (self.lab.quest_sel + 1).min(max);
+                }
+                KeyCode::Enter => {
+                    let quest = crate::lab_tools::TROUBLESHOOTING_QUESTS[self.lab.quest_sel];
+                    self.lab.active_quest_id = Some(quest.id);
+                    self.lab.last_quest_feedback = None;
+                    self.apply_code_template_to_editor(quest.broken_code, quest.title, true, app);
+                }
+                KeyCode::Char('v' | 'V') => self.validate_active_quest(app),
+                _ => {}
+            },
+            crate::lab_tools::LabToolTab::PlaygroundComunidade => match key.code {
+                KeyCode::Up | KeyCode::Char('k') => {
+                    self.lab.community_sel = self.lab.community_sel.saturating_sub(1);
+                }
+                KeyCode::Down | KeyCode::Char('j') => {
+                    self.lab.community_sel = (self.lab.community_sel + 1).min(2);
+                }
+                KeyCode::Char('o' | 'O') => {
+                    let url = crate::lab_tools::build_playground_url(&code);
+                    let msg = open_documentation_url(&url);
+                    app.set_status(msg, StatusKind::Info);
+                }
+                KeyCode::Char('e' | 'E') => {
+                    let dir = self
+                        .project
+                        .as_ref()
+                        .map(|p| p.root.clone())
+                        .unwrap_or_else(|| app.projects_base_dir());
+                    let _ = std::fs::create_dir_all(&dir);
+                    match crate::lab_tools::export_project_share_card(&dir, &code) {
+                        Ok(path) => {
+                            self.lab.last_export_path = Some(path.clone());
+                            self.refresh_files(app);
+                            app.set_status(
+                                format!("Exportado: {}", path.display()),
+                                StatusKind::Success,
+                            );
+                        }
+                        Err(e) => {
+                            app.set_status(format!("Falha ao exportar: {e}"), StatusKind::Warning);
+                        }
+                    }
+                }
+                KeyCode::Char('t' | 'T') | KeyCode::Enter => {
+                    let sols = crate::lab_tools::community_solutions_for(&code);
+                    let pick = sols[self.lab.community_sel.min(2)];
+                    self.apply_code_template_to_editor(pick.code, pick.name, true, app);
+                }
+                _ => {}
+            },
+            crate::lab_tools::LabToolTab::EcossistemasModernos => match key.code {
+                KeyCode::Up | KeyCode::Char('k') => {
+                    self.lab.ecosystem_sel = self.lab.ecosystem_sel.saturating_sub(1);
+                }
+                KeyCode::Down | KeyCode::Char('j') => {
+                    let max = crate::lab_tools::MODERN_ECOSYSTEMS.len().saturating_sub(1);
+                    self.lab.ecosystem_sel = (self.lab.ecosystem_sel + 1).min(max);
+                }
+                KeyCode::Char('d' | 'D') => {
+                    let eco = crate::lab_tools::MODERN_ECOSYSTEMS[self.lab.ecosystem_sel];
+                    self.add_dependency_to_cargo(eco.dep_name, eco.dep_version, app);
+                }
+                KeyCode::Char('t' | 'T') | KeyCode::Enter => {
+                    let eco = crate::lab_tools::MODERN_ECOSYSTEMS[self.lab.ecosystem_sel];
+                    self.apply_code_template_to_editor(eco.template_code, eco.name, true, app);
+                }
+                _ => {}
+            },
+        }
+    }
+}
+
+fn grant_project_milestone(
+    app: &mut App,
+    key: &str,
+    xp: u32,
+    label: &str,
+    changed: &mut bool,
+    awarded: &mut bool,
+) {
+    if app.progress.project_milestones.insert(key.to_string()) {
+        *changed = true;
+    }
+    if app.award_xp(format!("project:{key}"), xp, label) {
+        *awarded = true;
+    }
+}
+
+fn maybe_award_independent_capstone(app: &mut App, changed: &mut bool, awarded: &mut bool) {
+    const REQUIRED: [&str; 5] = ["plan", "build", "clippy", "tests", "run"];
+    if REQUIRED
+        .iter()
+        .all(|key| app.progress.project_milestones.contains(*key))
+    {
+        if app
+            .progress
+            .project_milestones
+            .insert("independent-complete".to_string())
+        {
+            *changed = true;
+        }
+        if app.award_xp(
+            "project:independent-complete".into(),
+            50,
+            "Projeto independente (Etapa 10) concluído",
+        ) {
+            *awarded = true;
+        }
+    }
+}
+
+fn secs_of(label: &str) -> u64 {
+    match label {
+        "cargo run" => 30,
+        "cargo test" => 120,
+        _ => 180,
+    }
+}
+
+pub fn count_diags(diags: &[Diagnostic]) -> (usize, usize) {
+    (
+        diags.iter().filter(|d| d.level == DiagLevel::Error).count(),
+        diags
+            .iter()
+            .filter(|d| d.level == DiagLevel::Warning)
+            .count(),
+    )
+}
+
+fn rect_contains(r: ratatui::layout::Rect, x: u16, y: u16) -> bool {
+    r.width > 0
+        && r.height > 0
+        && x >= r.x
+        && y >= r.y
+        && x < r.x.saturating_add(r.width)
+        && y < r.y.saturating_add(r.height)
+}
+
+fn package_binary_name(project: &Project) -> String {
+    let Ok(toml) = std::fs::read_to_string(project.root.join("Cargo.toml")) else {
+        return project.name().to_string();
+    };
+    let mut in_package = false;
+    for raw_line in toml.lines() {
+        let line = raw_line.split('#').next().unwrap_or("").trim();
+        if line.starts_with('[') && line.ends_with(']') {
+            in_package = line == "[package]";
+            continue;
+        }
+        if in_package
+            && let Some(rest) = line.strip_prefix("name")
+            && let Some(val) = rest.trim_start().strip_prefix('=')
+        {
+            let cleaned = val.trim().trim_matches('"').trim_matches('\'');
+            if !cleaned.is_empty() {
+                return cleaned.to_string();
+            }
+        }
+    }
+    project.name().to_string()
+}
+
+fn spawn_external_app(
+    bin_path: &std::path::Path,
+    workdir: &std::path::Path,
+) -> Result<String, String> {
+    if cfg!(test) || std::env::var_os("RUSTLAB_DISABLE_EXTERNAL").is_some() {
+        return Ok(format!(
+            "Janela externa pronta para executar: {}",
+            bin_path.display()
+        ));
+    }
+    if !bin_path.is_file() {
+        return Err(format!(
+            "Binário não encontrado em {} (verifique se o projeto gera executável)",
+            bin_path.display()
+        ));
+    }
+    #[cfg(all(unix, not(target_os = "macos")))]
+    if std::env::var_os("DISPLAY").is_none() && std::env::var_os("WAYLAND_DISPLAY").is_none() {
+        return Err(format!(
+            "Sem servidor gráfico (DISPLAY/WAYLAND) ativo. Execute no terminal: {}",
+            bin_path.display()
+        ));
+    }
+    std::process::Command::new(bin_path)
+        .current_dir(workdir)
+        .stdin(std::process::Stdio::null())
+        .stdout(std::process::Stdio::null())
+        .stderr(std::process::Stdio::null())
+        .spawn()
+        .map(|_| format!("App aberto em janela separada: {}", bin_path.display()))
+        .map_err(|e| format!("Falha ao abrir janela externa: {e}"))
+}
+
+fn spawn_external_cargo_terminal(workdir: &std::path::Path) -> Result<String, String> {
+    if cfg!(test) || std::env::var_os("RUSTLAB_DISABLE_EXTERNAL").is_some() {
+        return Ok(format!(
+            "Terminal externo pronto para cargo run em {}",
+            workdir.display()
+        ));
+    }
+    #[cfg(target_os = "windows")]
+    {
+        return std::process::Command::new("cmd")
+            .args(["/C", "start", "cargo", "run"])
+            .current_dir(workdir)
+            .stdin(std::process::Stdio::null())
+            .stdout(std::process::Stdio::null())
+            .stderr(std::process::Stdio::null())
+            .spawn()
+            .map(|_| {
+                format!(
+                    "Terminal externo iniciado com `cargo run` em {}",
+                    workdir.display()
+                )
+            })
+            .map_err(|_| {
+                format!(
+                    "Abra outro terminal e execute: cd \"{}\" && cargo run",
+                    workdir.display()
+                )
+            });
+    }
+    #[cfg(target_os = "macos")]
+    {
+        let script = format!(
+            "tell application \"Terminal\" to do script \"cd '{}' && cargo run\"",
+            workdir.display().to_string().replace('\'', "'\\''")
+        );
+        return std::process::Command::new("osascript")
+            .args(["-e", &script])
+            .stdin(std::process::Stdio::null())
+            .stdout(std::process::Stdio::null())
+            .stderr(std::process::Stdio::null())
+            .spawn()
+            .map(|_| {
+                format!(
+                    "Terminal.app iniciado com `cargo run` em {}",
+                    workdir.display()
+                )
+            })
+            .map_err(|_| {
+                format!(
+                    "Abra outro terminal e execute: cd \"{}\" && cargo run",
+                    workdir.display()
+                )
+            });
+    }
+    #[cfg(all(unix, not(target_os = "macos")))]
+    {
+        if std::env::var_os("DISPLAY").is_none() && std::env::var_os("WAYLAND_DISPLAY").is_none() {
+            return Err(format!(
+                "Sem servidor gráfico ativo. Abra outro terminal paralelo e rode: cd \"{}\" && cargo run",
+                workdir.display()
+            ));
+        }
+        const TERMINALS: &[(&str, &[&str])] = &[
+            ("x-terminal-emulator", &["-e", "cargo", "run"]),
+            ("gnome-terminal", &["--", "cargo", "run"]),
+            ("konsole", &["-e", "cargo", "run"]),
+            ("xfce4-terminal", &["-x", "cargo", "run"]),
+            ("kitty", &["cargo", "run"]),
+            ("alacritty", &["-e", "cargo", "run"]),
+            ("wezterm", &["start", "--", "cargo", "run"]),
+            ("foot", &["cargo", "run"]),
+            ("xterm", &["-e", "cargo", "run"]),
+        ];
+        for (term, args) in TERMINALS {
+            if std::process::Command::new(term)
+                .args(*args)
+                .current_dir(workdir)
+                .stdin(std::process::Stdio::null())
+                .stdout(std::process::Stdio::null())
+                .stderr(std::process::Stdio::null())
+                .spawn()
+                .is_ok()
+            {
+                return Ok(format!(
+                    "`cargo run` iniciado no terminal `{term}` em {}",
+                    workdir.display()
+                ));
+            }
+        }
+        Err(format!(
+            "Nenhum emulador gráfico encontrado. Abra outro terminal e execute: cd \"{}\" && cargo run",
+            workdir.display()
+        ))
+    }
+}
+
+fn open_documentation_url(url: &str) -> String {
+    if !url.starts_with("https://") && !url.starts_with("http://") {
+        return format!("URL de documentação inválida: {url}");
+    }
+    if cfg!(test) || std::env::var_os("RUSTLAB_DISABLE_BROWSER").is_some() {
+        return format!("Documentação pronta: {url}");
+    }
+    #[cfg(target_os = "macos")]
+    let res = std::process::Command::new("open")
+        .arg(url)
+        .stdin(std::process::Stdio::null())
+        .stdout(std::process::Stdio::null())
+        .stderr(std::process::Stdio::null())
+        .spawn();
+    #[cfg(target_os = "windows")]
+    let res = std::process::Command::new("rundll32")
+        .args(["url.dll,FileProtocolHandler", url])
+        .stdin(std::process::Stdio::null())
+        .stdout(std::process::Stdio::null())
+        .stderr(std::process::Stdio::null())
+        .spawn();
+    #[cfg(all(unix, not(target_os = "macos")))]
+    let res = std::process::Command::new("xdg-open")
+        .arg(url)
+        .stdin(std::process::Stdio::null())
+        .stdout(std::process::Stdio::null())
+        .stderr(std::process::Stdio::null())
+        .spawn();
+
+    match res {
+        Ok(_) => format!("Documentação aberta no navegador: {url}"),
+        Err(_) => format!("Abra no navegador: {url}"),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use ratatui::crossterm::event::KeyEvent;
+
+    #[test]
+    fn autocomplete_por_teclado_aceita_e_escape_nao_sai_do_editor() {
+        let mut app = crate::app::App::for_snapshot();
+        let mut state = CreateState {
+            view: CreateView::Workspace,
+            ..Default::default()
+        };
+        for ch in "pri".chars() {
+            state.on_key(&mut app, KeyEvent::from(KeyCode::Char(ch)));
+        }
+        assert!(state.completion.items.iter().any(|s| s == "println!"));
+        state.on_key(&mut app, KeyEvent::from(KeyCode::Esc));
+        assert_eq!(state.focus, Focus::Editor);
+        assert!(state.completion.items.is_empty());
+        state.on_key(
+            &mut app,
+            KeyEvent::new(KeyCode::Char(' '), KeyModifiers::CONTROL),
+        );
+        state.on_key(&mut app, KeyEvent::from(KeyCode::Enter));
+        assert_eq!(state.editor.buf.to_string_lossy(), "print!");
+    }
+
+    #[test]
+    fn spawn_failed_mostra_motivo_no_estado() {
+        let mut app = crate::app::App::for_snapshot();
+        let mut state = CreateState::default();
+        state.handle_exec_event(
+            ExecEvent::SpawnFailed {
+                label: "cargo new".into(),
+                reason: "teste".into(),
+            },
+            &mut app,
+        );
+        assert_eq!(
+            state.last_failure.as_deref(),
+            Some("cargo new não pôde iniciar: teste")
+        );
+    }
+
+    #[test]
+    fn nome_reservado_cancela_antes_de_executar_cargo() {
+        let mut app = crate::app::App::for_snapshot();
+        let mut state = CreateState {
+            prompt: Some(PromptState {
+                kind: PromptKind::NewProject,
+                text: "test".into(),
+                error: None,
+            }),
+            ..CreateState::default()
+        };
+        state.on_key(&mut app, KeyEvent::from(KeyCode::Enter));
+        assert!(state.prompt.is_some());
+        assert!(
+            state
+                .prompt
+                .as_ref()
+                .unwrap()
+                .error
+                .as_deref()
+                .unwrap()
+                .contains("reservado pelo Rust")
+        );
+        assert!(!app.exec.running);
+        assert_eq!(state.after_exec, AfterExec::None);
+    }
+
+    #[test]
+    fn hover_em_println_encontra_documentacao() {
+        let mut state = CreateState {
+            view: CreateView::Workspace,
+            editor: Editor::new("println!(\"oi\");", None),
+            focus: Focus::Editor,
+            editor_text_area: ratatui::layout::Rect {
+                x: 10,
+                y: 5,
+                width: 40,
+                height: 5,
+            },
+            ..CreateState::default()
+        };
+        // A coluna 3, após moldura e gutter, cai dentro de `println`.
+        state.on_mouse_move(16, 5);
+        assert_eq!(
+            state.hovered_doc.as_ref().map(|x| x.0.as_str()),
+            Some("println")
+        );
+    }
+
+    #[test]
+    fn falha_de_salvamento_bloqueia_troca_de_arquivo_projeto_e_saida() {
+        let mut app = App::for_snapshot();
+        let mut state = CreateState {
+            view: CreateView::Workspace,
+            ..Default::default()
+        };
+        let root = std::env::temp_dir().join(format!("rustlab-save-block-{}", std::process::id()));
+        std::fs::create_dir_all(root.join("src")).unwrap();
+        std::fs::write(
+            root.join("Cargo.toml"),
+            "[package]\nname='test_save'\nversion='0.1.0'\n",
+        )
+        .unwrap();
+        std::fs::write(root.join("src/main.rs"), "fn main() {}\n").unwrap();
+        app.set_config_path(root.join("config.toml"));
+        state.open_project(&root, &mut app);
+        // Remover o arquivo e criar um diretório no mesmo caminho simula erro de escrita.
+        let file = root.join("src/main.rs");
+        std::fs::remove_file(&file).unwrap();
+        std::fs::create_dir(&file).unwrap();
+        state.editor.insert_text("// não perder\n");
+        let code = state.editor.buf.to_string_lossy();
+        state.switch_file(0, &mut app);
+        assert!(state.editor.dirty);
+        assert_eq!(state.editor.buf.to_string_lossy(), code);
+        state.open_project(&root, &mut app);
+        assert_eq!(state.editor.buf.to_string_lossy(), code);
+        assert!(!state.save_before_exit(&mut app));
+        assert_eq!(app.config.workspace.recent_projects.len(), 1);
+        std::fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn selecionar_arquivo_nao_muda_caminho_aberto_ate_enter() {
+        let mut app = App::for_snapshot();
+        let mut state = CreateState {
+            view: CreateView::Workspace,
+            focus: Focus::Files,
+            files: vec!["Cargo.toml".into(), "src/main.rs".into()],
+            open_idx: 1,
+            selected_file: 1,
+            editor: Editor::new("fn main(){}", Some("src/main.rs".into())),
+            ..Default::default()
+        };
+        state.on_key(&mut app, KeyEvent::from(KeyCode::Up));
+        assert_eq!(state.selected_file, 0);
+        assert_eq!(state.open_idx, 1);
+        assert_eq!(state.editor.path, Some("src/main.rs".into()));
+        state.on_key(&mut app, KeyEvent::from(KeyCode::BackTab));
+        assert_eq!(state.focus, Focus::Console);
+    }
+
+    #[test]
+    fn diagnostico_abre_arquivo_e_formatacao_nao_descarta_edicao_nova() {
+        let root = std::env::temp_dir().join(format!("rustlab-jump-{}", std::process::id()));
+        std::fs::create_dir_all(root.join("src")).unwrap();
+        std::fs::write(
+            root.join("Cargo.toml"),
+            "[package]\nname='jump'\nversion='0.1.0'\n",
+        )
+        .unwrap();
+        std::fs::write(root.join("src/main.rs"), "fn main() {\n    erro();\n}\n").unwrap();
+        let mut app = App::for_snapshot();
+        app.set_config_path(root.join("config.toml"));
+        let mut state = CreateState::new();
+        state.open_project(&root, &mut app);
+        state.switch_file(0, &mut app);
+        state.diags = vec![Diagnostic {
+            level: DiagLevel::Error,
+            message: "não encontrado".into(),
+            file: Some("src/main.rs".into()),
+            line: Some(2),
+            col: Some(5),
+        }];
+        state.on_key(&mut app, KeyEvent::from(KeyCode::F(12)));
+        assert_eq!(state.editor.path, Some(root.join("src/main.rs")));
+        assert_eq!(state.cursor_line_col(), (2, 5));
+        state.after_exec_reload = true;
+        state.editor.insert_text("// resposta ainda não salva");
+        let code = state.editor.buf.to_string_lossy();
+        state.handle_exec_event(
+            ExecEvent::Finished {
+                label: "cargo fmt".into(),
+                success: true,
+                code: Some(0),
+            },
+            &mut app,
+        );
+        assert!(state.editor.dirty);
+        assert_eq!(state.editor.buf.to_string_lossy(), code);
+        std::fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn f11_vai_para_definicao_f1_mostra_doc_e_ctrl_g_busca_no_projeto() {
+        let root = std::env::temp_dir().join(format!("rustlab-ide-p7-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&root);
+        std::fs::create_dir_all(root.join("src")).unwrap();
+        std::fs::write(
+            root.join("Cargo.toml"),
+            "[package]\nname='idep7'\nversion='0.1.0'\nedition='2024'\n",
+        )
+        .unwrap();
+        std::fs::write(
+            root.join("src/main.rs"),
+            "mod ajuda;\nfn main() {\n    let x = ajuda::saudar();\n}\n",
+        )
+        .unwrap();
+        std::fs::write(
+            root.join("src/ajuda.rs"),
+            "/// Produz uma saudação acolhedora.\npub fn saudar() -> &'static str {\n    \"oi\"\n}\n",
+        )
+        .unwrap();
+
+        let mut app = App::for_snapshot();
+        app.set_config_path(root.join("config.toml"));
+        let mut state = CreateState::new();
+        state.open_project(&root, &mut app);
+        assert_eq!(state.editor.path, Some(root.join("src/main.rs")));
+
+        // Cursor sobre `saudar` em src/main.rs (linha 2, col 21)
+        state.editor.cursor.line = 2;
+        state.editor.cursor.col = 21;
+
+        // F1 abre documentação local do símbolo do workspace
+        state.on_key(&mut app, KeyEvent::from(KeyCode::F(1)));
+        let doc = state.doc_popup.as_ref().expect("F1 deve abrir doc_popup");
+        assert_eq!(doc.title, "saudar");
+        assert!(doc.body.contains("saudação acolhedora"));
+
+        // F1 novamente fecha o popup
+        state.on_key(&mut app, KeyEvent::from(KeyCode::F(1)));
+        assert!(state.doc_popup.is_none());
+
+        // F11 salta para a definição em src/ajuda.rs
+        state.on_key(&mut app, KeyEvent::from(KeyCode::F(11)));
+        assert_eq!(state.editor.path, Some(root.join("src/ajuda.rs")));
+        assert_eq!(state.cursor_line_col().0, 2);
+
+        // Ctrl+G abre busca global e encontra nos 2 arquivos
+        state.run_project_search("saudar", &mut app);
+        assert_eq!(state.project_matches.len(), 2);
+
+        // Marcador de diagnóstico por linha no editor aberto
+        state.diags.push(Diagnostic {
+            level: DiagLevel::Error,
+            message: "erro de teste".into(),
+            file: Some("src/ajuda.rs".into()),
+            line: Some(2),
+            col: Some(1),
+        });
+        assert_eq!(
+            state.diagnostic_level_for_open_line(2),
+            Some(DiagLevel::Error)
+        );
+        assert_eq!(state.diagnostic_level_for_open_line(1), None);
+
+        let _ = std::fs::remove_dir_all(root);
+    }
+
+    #[test]
+    fn alt_m_cria_plano_e_execucao_limpa_registra_marcos_etapa_10() {
+        let root = std::env::temp_dir().join(format!("rustlab-etapa10-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&root);
+        std::fs::create_dir_all(root.join("src")).unwrap();
+        std::fs::write(
+            root.join("Cargo.toml"),
+            "[package]\nname='etapa10'\nversion='0.1.0'\nedition='2024'\n",
+        )
+        .unwrap();
+        std::fs::write(
+            root.join("src/main.rs"),
+            "/// Entrada.\nmod dados;\nfn main() -> Result<(), String> { Ok(()) }\n",
+        )
+        .unwrap();
+        std::fs::write(
+            root.join("src/dados.rs"),
+            "pub struct Item { pub id: u32 }\n#[cfg(test)]\nmod tests {\n    #[test]\n    fn ok() {}\n}\n",
+        )
+        .unwrap();
+
+        let mut app = App::for_snapshot();
+        app.set_config_path(root.join("config.toml"));
+        app.set_storage_path(root.join("progress.toml"));
+        let mut state = CreateState::new();
+        state.open_project(&root, &mut app);
+
+        // Alt+M cria PLANO.md, abre o arquivo e registra marco `plan`.
+        state.on_key(
+            &mut app,
+            KeyEvent::new(KeyCode::Char('m'), KeyModifiers::ALT),
+        );
+        assert!(root.join("PLANO.md").exists());
+        assert_eq!(state.editor.path, Some(root.join("PLANO.md")));
+        assert!(app.progress.project_milestones.contains("plan"));
+
+        // Execução bem-sucedida de cargo test registra capacidades + testes.
+        state.handle_exec_event(
+            ExecEvent::Finished {
+                label: "cargo test".into(),
+                success: true,
+                code: Some(0),
+            },
+            &mut app,
+        );
+        for expected in [
+            "plan",
+            "multi-module",
+            "types",
+            "error-handling",
+            "docs",
+            "tests",
+        ] {
+            assert!(
+                app.progress.project_milestones.contains(expected),
+                "marco esperado ausente: {expected}"
+            );
+        }
+
+        let _ = std::fs::remove_dir_all(root);
+    }
+
+    #[test]
+    fn agente_lateral_alterna_responde_e_aplica_com_undo() {
+        let root = std::env::temp_dir().join(format!("rustlab-agent-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&root);
+        std::fs::create_dir_all(root.join("src")).unwrap();
+        std::fs::write(
+            root.join("Cargo.toml"),
+            "[package]\nname='agentdemo'\nversion='0.1.0'\nedition='2024'\n",
+        )
+        .unwrap();
+        std::fs::write(
+            root.join("src/main.rs"),
+            "fn soma(a: i32, b: i32) -> i32 { a + b }\nfn main() {}\n",
+        )
+        .unwrap();
+
+        let mut app = App::for_snapshot();
+        app.set_config_path(root.join("config.toml"));
+        app.set_storage_path(root.join("progress.toml"));
+        let mut state = CreateState::new();
+        state.open_project(&root, &mut app);
+        let original = state.editor.buf.to_string_lossy();
+
+        // Alt+A abre o chat do agente na direita e foca o painel.
+        state.on_key(
+            &mut app,
+            KeyEvent::new(KeyCode::Char('a'), KeyModifiers::ALT),
+        );
+        assert!(state.agent.open);
+        assert_eq!(state.focus, Focus::Agent);
+
+        // Envia /testes no guia local determinístico -> gera bloco ```rust``` aplicável.
+        for ch in "/testes".chars() {
+            state.on_key(&mut app, KeyEvent::from(KeyCode::Char(ch)));
+        }
+        state.on_key(&mut app, KeyEvent::from(KeyCode::Enter));
+        assert!(state.agent.proposed_code.is_some());
+
+        // Alt+Enter aplica no editor e devolve foco; Ctrl+Z desfaz.
+        state.on_key(&mut app, KeyEvent::new(KeyCode::Enter, KeyModifiers::ALT));
+        assert_eq!(state.focus, Focus::Editor);
+        assert!(state.editor.buf.to_string_lossy().contains("#[cfg(test)]"));
+        state.on_key(
+            &mut app,
+            KeyEvent::new(KeyCode::Char('z'), KeyModifiers::CONTROL),
+        );
+        assert_eq!(state.editor.buf.to_string_lossy(), original);
+
+        let _ = std::fs::remove_dir_all(root);
+    }
+
+    #[test]
+    fn novo_projeto_aceita_pasta_diferente_e_define_pasta_padrao() {
+        let root = std::env::temp_dir().join(format!("rustlab-dirs-{}", std::process::id()));
+        let custom_dir = root.join("meus_apps");
+        let _ = std::fs::remove_dir_all(&root);
+
+        let mut app = App::for_snapshot();
+        app.set_config_path(root.join("config.toml"));
+        let mut state = CreateState::new();
+
+        // Define pasta padrão pelo prompt ('d' na tela inicial).
+        state.on_key(&mut app, KeyEvent::from(KeyCode::Char('d')));
+        assert_eq!(
+            state.prompt.as_ref().map(|p| p.kind),
+            Some(PromptKind::SetProjectsDir)
+        );
+        state.prompt.as_mut().unwrap().text = custom_dir.display().to_string();
+        state.on_key(&mut app, KeyEvent::from(KeyCode::Enter));
+        assert!(custom_dir.is_dir());
+        assert_eq!(app.projects_base_dir(), custom_dir);
+
+        // Prompt de novo projeto aceita outra subpasta específica (`cli/calc`) sem rodar cargo aqui.
+        state.prompt = Some(PromptState {
+            kind: PromptKind::NewProject,
+            text: "cli/calc".into(),
+            error: None,
+        });
+        state.on_key(&mut app, KeyEvent::from(KeyCode::Enter));
+        assert_eq!(state.pending_new_project_dir, Some(custom_dir.join("cli")));
+        assert_eq!(
+            state.consent_request,
+            Some(ToolCommand::NewProject {
+                name: "calc".into()
+            })
+        );
+
+        let _ = std::fs::remove_dir_all(root);
+    }
+
+    #[test]
+    fn esc_no_workspace_fecha_projeto_e_volta_para_tela_inicial() {
+        let root = std::env::temp_dir().join(format!("rustlab-esc-close-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&root);
+        std::fs::create_dir_all(root.join("src")).unwrap();
+        std::fs::write(
+            root.join("Cargo.toml"),
+            "[package]\nname='escclose'\nversion='0.1.0'\nedition='2024'\n",
+        )
+        .unwrap();
+        std::fs::write(root.join("src/main.rs"), "fn main() {}\n").unwrap();
+
+        let mut app = App::for_snapshot();
+        app.set_config_path(root.join("config.toml"));
+        app.screen = Screen::Create;
+        let mut state = CreateState::new();
+        state.open_project(&root, &mut app);
+        assert_eq!(state.view, CreateView::Workspace);
+        assert!(state.project.is_some());
+
+        // Esc fecha o projeto atual e leva para a tela inicial do Modo Criar.
+        state.on_key(&mut app, KeyEvent::from(KeyCode::Esc));
+        assert_eq!(state.view, CreateView::Start);
+        assert!(state.project.is_none());
+        assert_eq!(app.screen, Screen::Create);
+
+        // Esc na tela inicial volta ao menu principal.
+        state.on_key(&mut app, KeyEvent::from(KeyCode::Esc));
+        assert_eq!(app.screen, Screen::Menu);
+
+        let _ = std::fs::remove_dir_all(root);
+    }
+
+    #[test]
+    fn menu_bibliotecas_insere_no_cargo_toml_e_topo_e_clique_abre_doc() {
+        let root = std::env::temp_dir().join(format!("rustlab-libs-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&root);
+        std::fs::create_dir_all(root.join("src")).unwrap();
+        std::fs::write(
+            root.join("Cargo.toml"),
+            "[package]\nname='meujogo'\nversion='0.1.0'\nedition='2024'\n",
+        )
+        .unwrap();
+        std::fs::write(
+            root.join("src/main.rs"),
+            "fn main() {\n    let pontos = 10;\n    println!(\"{pontos}\");\n}\n",
+        )
+        .unwrap();
+
+        let mut app = App::for_snapshot();
+        app.set_config_path(root.join("config.toml"));
+        app.set_storage_path(root.join("progress.toml"));
+        app.screen = Screen::Create;
+        let mut state = CreateState::new();
+        state.open_project(&root, &mut app);
+
+        // F9 abre menu central de bibliotecas; Enter instala a primeira (macroquad).
+        state.on_key(&mut app, KeyEvent::from(KeyCode::F(9)));
+        assert!(state.lib_menu_open);
+        state.on_key(&mut app, KeyEvent::from(KeyCode::Enter));
+        assert!(!state.lib_menu_open);
+
+        let cargo_disk = std::fs::read_to_string(root.join("Cargo.toml")).unwrap();
+        assert!(cargo_disk.contains("macroquad = \"0.4\""));
+        let code_now = state.editor.buf.to_string_lossy();
+        assert!(code_now.starts_with("use macroquad::prelude::*;"));
+        assert!(code_now.contains("let pontos = 10;"));
+
+        // Clicar na variável local `pontos` abre popup com doc em português.
+        state.editor_text_area = ratatui::layout::Rect {
+            x: 0,
+            y: 0,
+            width: 80,
+            height: 20,
+        };
+        let gutter = (state.editor.buf.line_count().to_string().len().max(2) + 1) as u16;
+        let (line_idx, col_idx) = code_now
+            .lines()
+            .enumerate()
+            .find_map(|(i, l)| l.find("pontos").map(|c| (i as u16, c as u16)))
+            .unwrap();
+        state.on_mouse_down(gutter + col_idx, line_idx, &mut app);
+        let popup = state.doc_popup.as_ref().expect("popup de clique esperado");
+        assert!(popup.title.contains("pontos"));
+        assert!(popup.body.contains("imutável"));
+        assert!(popup.url.as_deref().unwrap().contains("rust-book-pt-br"));
+
+        let _ = std::fs::remove_dir_all(root);
+    }
+
+    #[test]
+    fn revisao_periodica_dispara_sem_premiar_codigo_da_ia() {
+        let root = std::env::temp_dir().join(format!("rustlab-review-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&root);
+        std::fs::create_dir_all(root.join("src")).unwrap();
+        std::fs::write(
+            root.join("Cargo.toml"),
+            "[package]\nname='revapp'\nversion='0.1.0'\nedition='2024'\n",
+        )
+        .unwrap();
+        std::fs::write(root.join("src/main.rs"), "fn main() {}\n").unwrap();
+
+        let mut app = App::for_snapshot();
+        app.set_config_path(root.join("config.toml"));
+        app.set_storage_path(root.join("progress.toml"));
+        app.config.ai.provider = AiProvider::Disabled;
+        app.screen = Screen::Create;
+        let mut state = CreateState::new();
+        state.open_project(&root, &mut app);
+
+        // Quando o código inteiro vem da IA, não há elogio indevido.
+        state.agent.proposed_code = Some("fn bloco_ia() -> i32 {\n    42\n}".to_string());
+        state.apply_agent_code(&mut app);
+        assert!(state.agent.ai_authored_lines.contains("42"));
+        assert!(!state.agent.student_modified_since_review);
+
+        state.trigger_periodic_code_review(&mut app, true);
+        let last_sys = state.agent.messages.last().unwrap();
+        assert!(last_sys.text.contains("veio do agente"));
+
+        // Quando o estudante digita código próprio e passa o intervalo (15-30 min),
+        // poll_agent dispara a revisão periódica automaticamente.
+        state.editor.cursor = crate::editor::Pos { line: 2, col: 0 };
+        state.on_key(&mut app, KeyEvent::from(KeyCode::Enter));
+        for ch in "fn soma_aluno() { let total = 3; }".chars() {
+            state.on_key(&mut app, KeyEvent::from(KeyCode::Char(ch)));
+        }
+        assert!(state.agent.student_modified_since_review);
+        state.agent.last_auto_review =
+            std::time::Instant::now() - std::time::Duration::from_secs(1900);
+        assert!(state.poll_agent(&mut app));
+        assert!(!state.agent.student_modified_since_review);
+        assert!(state.agent.open);
+
+        let _ = std::fs::remove_dir_all(root);
+    }
+
+    #[test]
+    fn bevy_suporte_completo_menu_template_e_terminal_externo() {
+        let root = std::env::temp_dir().join(format!("rustlab-bevy-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&root);
+        std::fs::create_dir_all(root.join("src")).unwrap();
+        std::fs::write(
+            root.join("Cargo.toml"),
+            "[package]\nname='jogobevy'\nversion='0.1.0'\nedition='2024'\n",
+        )
+        .unwrap();
+        std::fs::write(root.join("src/main.rs"), "fn main() {}\n").unwrap();
+
+        let mut app = App::for_snapshot();
+        app.set_config_path(root.join("config.toml"));
+        app.set_storage_path(root.join("progress.toml"));
+        app.screen = Screen::Create;
+        let mut state = CreateState::new();
+        state.open_project(&root, &mut app);
+
+        // F9 -> Down (bevy) -> T (template inicial 2D ECS + Cargo.toml com [profile.dev]).
+        state.on_key(&mut app, KeyEvent::from(KeyCode::F(9)));
+        state.on_key(&mut app, KeyEvent::from(KeyCode::Down));
+        assert_eq!(
+            crate::doc_hint::EXTRA_LIBRARIES[state.lib_menu_sel].name,
+            "bevy"
+        );
+        state.on_key(&mut app, KeyEvent::from(KeyCode::Char('t')));
+        assert!(!state.lib_menu_open);
+
+        let cargo_disk = std::fs::read_to_string(root.join("Cargo.toml")).unwrap();
+        assert!(cargo_disk.contains("bevy = \"0.20\""));
+        assert!(cargo_disk.contains("[profile.dev]"));
+        let code_now = state.editor.buf.to_string_lossy();
+        assert!(code_now.contains("use bevy::prelude::*;"));
+        assert!(code_now.contains("App::new()"));
+        assert!(code_now.contains("DefaultPlugins"));
+        assert!(code_now.contains("Camera2d"));
+
+        // F4 -> Down (opção 1: outro terminal) registra o comando externo sem erros.
+        state.on_key(&mut app, KeyEvent::from(KeyCode::F(4)));
+        assert!(state.build_menu_open);
+        state.on_key(&mut app, KeyEvent::from(KeyCode::Down));
+        state.on_key(&mut app, KeyEvent::from(KeyCode::Enter));
+        assert!(!state.build_menu_open);
+        assert!(
+            state
+                .console
+                .lines
+                .iter()
+                .any(|l| l.text.contains("cargo run"))
+        );
+
+        let _ = std::fs::remove_dir_all(root);
+    }
+
+    #[test]
+    fn hub_laboratorio_integra_raiox_lente_debugger_quests_playground_e_ecossistemas() {
+        let root = std::env::temp_dir().join(format!("rustlab-hub-lab-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&root);
+        std::fs::create_dir_all(root.join("src")).unwrap();
+        std::fs::write(
+            root.join("Cargo.toml"),
+            "[package]\nname='hublab'\nversion='0.1.0'\nedition='2024'\n",
+        )
+        .unwrap();
+        std::fs::write(
+            root.join("src/main.rs"),
+            "fn main() {\n    let mut n = 10;\n    n += 5;\n    let s = String::from(\"oi\");\n    println!(\"{n} {s}\");\n}\n",
+        )
+        .unwrap();
+
+        let mut app = App::for_snapshot();
+        app.set_config_path(root.join("config.toml"));
+        app.set_storage_path(root.join("progress.toml"));
+        app.screen = Screen::Create;
+        let mut state = CreateState::new();
+        state.open_project(&root, &mut app);
+
+        // 1. Alt+X abre Raio-X de Memória e calcula Stack/Heap
+        state.on_key(
+            &mut app,
+            KeyEvent::new(KeyCode::Char('x'), KeyModifiers::ALT),
+        );
+        assert!(state.lab.open);
+        assert_eq!(state.lab.tab, crate::lab_tools::LabToolTab::RaioXMemoria);
+        assert!(
+            state
+                .lab
+                .last_xray
+                .as_ref()
+                .unwrap()
+                .metrics
+                .heap_allocations
+                >= 1
+        );
+
+        // 2. Tecla '2' vai para Lente do Compilador; 's' ativa Modo 10 Anos (ELI10); Enter envia p/ Agente
+        state.on_key(&mut app, KeyEvent::from(KeyCode::Char('2')));
+        assert_eq!(state.lab.tab, crate::lab_tools::LabToolTab::LenteCompilador);
+        state.on_key(&mut app, KeyEvent::from(KeyCode::Char('s')));
+        assert!(state.lab.eli10_mode);
+        state.on_key(&mut app, KeyEvent::from(KeyCode::Enter));
+        assert!(!state.lab.open);
+        assert!(state.agent.open);
+        assert!(state.agent.proposed_code.is_some());
+
+        // 3. Alt+B marca Breakpoint ● na linha 3 e F10 entra/avança no Debugger Visual
+        state.editor.cursor = crate::editor::Pos { line: 2, col: 0 };
+        state.on_key(
+            &mut app,
+            KeyEvent::new(KeyCode::Char('b'), KeyModifiers::ALT),
+        );
+        assert!(state.lab.debugger.breakpoints.contains(&3));
+        state.on_key(&mut app, KeyEvent::from(KeyCode::F(10)));
+        assert!(state.lab.debugger.active);
+        assert_eq!(state.lab.debugger.active_line(), Some(2));
+        state.on_key(&mut app, KeyEvent::from(KeyCode::F(10)));
+        assert_eq!(state.lab.debugger.active_line(), Some(3));
+
+        // 4. Quest "Conserte o Código" (FIX-03) -> carrega quebrado, conserta 1 linha e ganha XP
+        state.on_key(
+            &mut app,
+            KeyEvent::new(KeyCode::Char('x'), KeyModifiers::ALT),
+        );
+        state.on_key(&mut app, KeyEvent::from(KeyCode::Char('4')));
+        state.on_key(&mut app, KeyEvent::from(KeyCode::Down));
+        state.on_key(&mut app, KeyEvent::from(KeyCode::Down));
+        assert_eq!(
+            crate::lab_tools::TROUBLESHOOTING_QUESTS[state.lab.quest_sel].id,
+            "FIX-03"
+        );
+        state.on_key(&mut app, KeyEvent::from(KeyCode::Enter));
+        assert!(!state.lab.open);
+        let fixed = crate::lab_tools::TROUBLESHOOTING_QUESTS[state.lab.quest_sel].fixed_reference;
+        state.editor.select_all();
+        state.editor.insert_text(fixed);
+        state.on_key(
+            &mut app,
+            KeyEvent::new(KeyCode::Char('x'), KeyModifiers::ALT),
+        );
+        state.on_key(&mut app, KeyEvent::from(KeyCode::Char('4')));
+        state.on_key(&mut app, KeyEvent::from(KeyCode::Char('v')));
+        assert!(state.lab.completed_quests.contains("FIX-03"));
+        assert!(app.xp() >= 80);
+
+        // 5. Aba 5 Playground exporta COMPARTILHAR_RUSTLAB.md
+        state.on_key(&mut app, KeyEvent::from(KeyCode::Char('5')));
+        state.on_key(&mut app, KeyEvent::from(KeyCode::Char('e')));
+        assert!(root.join("COMPARTILHAR_RUSTLAB.md").is_file());
+
+        // 6. Aba 6 Ecossistemas Modernos adiciona dep e aplica template Axum
+        state.on_key(&mut app, KeyEvent::from(KeyCode::Char('6')));
+        state.on_key(&mut app, KeyEvent::from(KeyCode::Down));
+        state.on_key(&mut app, KeyEvent::from(KeyCode::Down));
+        state.on_key(&mut app, KeyEvent::from(KeyCode::Char('d')));
+        let toml = std::fs::read_to_string(root.join("Cargo.toml")).unwrap();
+        assert!(toml.contains("axum = \"0.8\""));
+        state.on_key(&mut app, KeyEvent::from(KeyCode::Enter));
+        assert!(
+            state
+                .editor
+                .buf
+                .to_string_lossy()
+                .contains("rotear_requisicao")
+        );
+
+        let _ = std::fs::remove_dir_all(root);
+    }
+}

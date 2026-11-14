@@ -1,0 +1,42 @@
+id = "traits-modulos-e-cargo"
+title = "Traits, módulos e Cargo"
+estimated_minutes = 8
+
+[[blocks]]
+type = "text"
+text = "**Traits** definem comportamentos compartilhados (como `Display`, `Debug` ou contratos criados por você). **Módulos** (`mod`, `pub`, `use`) dividem projetos maiores em arquivos limpos, e o **Cargo** gerencia pacotes (`crates`) e dependências."
+
+[[blocks]]
+type = "code"
+file = "src/main.rs"
+code = """
+trait Descritivel {
+    fn resumo(&self) -> String;
+}
+
+struct Tarefa {
+    titulo: String,
+}
+
+impl Descritivel for Tarefa {
+    fn resumo(&self) -> String {
+        format!("[ ] {}", self.titulo)
+    }
+}
+
+fn main() {
+    let t = Tarefa { titulo: "Estudar traits".into() };
+    println!("{}", t.resumo());
+}
+"""
+
+[[blocks]]
+type = "quiz"
+question = "Para que serve `pub` antes de uma função dentro de um módulo `mod util;`?"
+options = [
+  "Torna a função visível fora do módulo `util`.",
+  "Transforma a função em variável global mutável.",
+  "Faz o compilador pular os testes daquela função.",
+]
+correct = 0
+why = "Em Rust itens de um módulo são privados por padrão; `pub` expõe a interface pública."

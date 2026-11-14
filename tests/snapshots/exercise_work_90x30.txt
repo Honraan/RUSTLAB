@@ -1,0 +1,30 @@
+┌ Enunciado · F9 rolar · Shift+F9 subir ─────────────────────────────────────────────────┐
+│Some dois números                                                                       │
+│Implemente `soma(a, b)` para devolver a soma de dois valores i32. Não imprima: a função │
+│deve retornar o resultado. Cargo test verifica valores positivos, zero e negativos.     │
+└────────────────────────────────────────────────────────────────────────────────────────┘
+┌ Seu código · Ctrl+S salvar · F5 testar ─────────────────────┐┌ Dicas · F4/Shift+F4 rola┐
+│  1 │ pub fn soma(a: i32, b: i32) -> i32 {                   ││F1 revela a primeira     │
+│  2 │     todo!("implemente a soma")                         ││dica.                    │
+│  3 │ }                                                      ││F2/F3 revisam dicas já   │
+│  4 │                                                        ││reveladas.               │
+│                                                             ││                         │
+│                                                             │└─────────────────────────┘
+│                                                             │┌ Ferris ─────────────────┐
+│                                                             ││c(o.o)c Ferris observando│
+│                                                             ││XP: 100+100 s/ dicas     │
+│                                                             ││                         │
+└─────────────────────────────────────────────────────────────┘└─────────────────────────┘
+┌ Resultado · PgUp/PgDn · fim ───────────────────────────────────────────────────────────┐
+│Ainda não executado                                                                     │
+│                                                                                        │
+│                                                                                        │
+│                                                                                        │
+│                                                                                        │
+│                                                                                        │
+│                                                                                        │
+│                                                                                        │
+│                                                                                        │
+└────────────────────────────────────────────────────────────────────────────────────────┘
+RustLab  · F5 testar  · F1 dica  · F2/F3 rever dicas  · F4/Shift+F4 rolar dica  ·         
+F9/Shift+F9 enunciado  · PgUp/PgDn saída  · Ctrl+S salvar  · Ctrl+K cancelar  · Esc voltar

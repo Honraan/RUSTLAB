@@ -1,0 +1,33 @@
+id = "genericos-e-closures"
+title = "Genéricos e closures"
+estimated_minutes = 8
+
+[[blocks]]
+type = "text"
+text = "**Genéricos** (`<T>`) permitem escrever funções e structs que funcionam para vários tipos mantendo total segurança estática. **Closures** (`|x| x * 2`) são funções anônimas rápidas usadas como argumento em combinadores e ordenação."
+
+[[blocks]]
+type = "code"
+file = "src/main.rs"
+code = """
+fn primeiro<T>(lista: &[T]) -> Option<&T> {
+    lista.first()
+}
+
+fn main() {
+    let fator = 3;
+    let multiplicar = |x: i32| x * fator;
+    println!("p = {:?}, mult = {}", primeiro(&[10, 20]), multiplicar(4));
+}
+"""
+
+[[blocks]]
+type = "quiz"
+question = "Em Rust, qual vantagem dos genéricos `<T>` em relação a um tipo dinâmico genérico sem verificação?"
+options = [
+  "O compilador verifica tipos estaticamente e gera código especializado para cada tipo usado.",
+  "Eles eliminam a checagem de tipos em tempo de compilação.",
+  "Só funcionam para inteiros `i32`.",
+]
+correct = 0
+why = "Monomorfização gera código específico e seguro para cada tipo concreto em compilação."

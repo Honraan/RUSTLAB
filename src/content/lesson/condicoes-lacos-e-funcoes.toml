@@ -1,0 +1,63 @@
+id = "condicoes-lacos-e-funcoes"
+title = "Condições, laços e funções"
+estimated_minutes = 7
+
+[[blocks]]
+type = "text"
+text = "Programas tomam decisões com `if`/`else`, repetem tarefas com `for`, `while` e `loop`, e organizam passos reutilizáveis em funções (`fn`). Em Rust, `if` também é uma expressão: ele pode devolver um valor."
+
+[[blocks]]
+type = "code"
+file = "src/main.rs"
+code = """
+fn classificar(nota: i32) -> &'static str {
+    if nota >= 7 {
+        "aprovado"
+    } else {
+        "em estudo"
+    }
+}
+
+fn main() {
+    let mut soma = 0;
+    for n in 1..=4 {
+        soma += n;
+    }
+    println!("soma = {soma}, status = {}", classificar(soma));
+}
+"""
+explain = "Repare que a última linha de `classificar` não tem `;`: em Rust isso devolve o resultado da expressão."
+
+[[blocks]]
+type = "demo"
+demo = "loop"
+name = "1..=4"
+caption = "Passo a passo de um laço `for`"
+steps = [
+  "n = 1 -> soma vira 1",
+  "n = 2 -> soma vira 3",
+  "n = 3 -> soma vira 6",
+  "n = 4 -> soma vira 10 (fim de 1..=4)",
+]
+
+[[blocks]]
+type = "demo"
+demo = "function"
+name = "dobro"
+caption = "Função transforma entrada em saída"
+steps = [
+  "entrada x = 5",
+  "calcula x * 2",
+  "retorna 10",
+]
+
+[[blocks]]
+type = "quiz"
+question = "Em `fn dobro(x: i32) -> i32 { x * 2 }`, por que não colocamos `;` após `x * 2`?"
+options = [
+  "Porque Rust proíbe ponto e vírgula dentro de funções.",
+  "Porque sem `;`, `x * 2` é a expressão de retorno da função.",
+  "Porque `*` já encerra a instrução.",
+]
+correct = 1
+why = "Em Rust, uma instrução com `;` produz `()` (vazio); sem `;`, a expressão final entrega o valor de retorno."

@@ -1,0 +1,30 @@
+ Olá, mundo! — seu primeiro programa · Etapa 1 — Primeiro contato · ~7 min                
+↑↓ rolar · 1-9 responder · d demonstração · ←→ lições · esc voltar                        
+┌ Explicação · ↑↓ rolar ─────────────────────────────────────────────────────────────────┐
+│Todo curso de programação começa igual: fazemos o computador dizer                      │
+│"Olá, mundo!". É o "ola" do programa ao mundo — e prova que as três                     │
+│peças funcionam: você escreveu, o compilador tradziu, a máquina executou.               │
+│                                                                                        │
+│Em Rust, um programa mínimo tem exatamente esta forma:                                  │
+│                                                                                        │
+│  ▚ src/main.rs                                                                         │
+│  1 │ fn main() {                                                                       │
+│  2 │     println!("Olá, mundo!");                                                      │
+│  3 │ }                                                                                 │
+│                                                                                        │
+└────────────────────────────────────────────────────────────────────────────────────────┘
+┌ B-P01 · F5 Cargo run · Ctrl+S salvar · Tab leitura ──────────┐┌ Ferris ────────────────┐
+│  1 │ fn main() {                                             ││c(o.o)c  Ferris         │
+│  2 │     // Escreva sua mensagem abaixo e aperte F5 para comp││observando              │
+│  3 │     println!("...");                                    ││Leia a lição e pratique │
+│  4 │ }                                                       ││abaixo.                 │
+│  5 │                                                         ││XP possível: 100+100    │
+└──────────────────────────────────────────────────────────────┘│(sem dicas)             │
+┌ Saída & Dicas · F1 (0/4) · PgUp/PgDn ────────────────────────┐│                        │
+│Objetivo: Substitua o placeholder `"..."` por uma mensagem sua││                        │
+│em português usando `println!`, salve e rode com `F5`.        ││                        │
+│                                                              ││                        │
+└──────────────────────────────────────────────────────────────┘└────────────────────────┘
+                                    4/30 · leitura 0%                                     
+  Mini-IDE embutida focada · digite seu código e rode com F5 (Tab volta).                 
+RustLab  · F5 Executar  · Ctrl+S Salvar  · F1..F3 Dicas  · Tab Leitura/Quiz  · Esc Voltar 

@@ -1,0 +1,30 @@
+╭ Mentor RustLab ────────────────────────────────────────────────────────────────────────╮
+│Contexto: Visão geral do aprendizado                                                    │
+│O mentor explica conceitos e dá pistas, mas nunca substitui `cargo check` / `cargo      │
+╰────────────────────────────────────────────────────────────────────────────────────────╯
+╭ Ações (1–6 · Enter) ─────────╮╭ Resposta do Mentor ────────────────────────────────────╮
+│▶ [1] Explicar conceito atual ││Pronto para ajudar · Guia local determinístico          │
+│  [2] Explicar erro do compila││                                                        │
+│  [3] Revisar código          ││Escolha uma ação (1–6, Enter ou `p` para pergunta       │
+│  [4] Pedir pista do próximo p││livre).                                                 │
+│  [5] Sugerir refatoração idio││Dica: o mentor usa o código, lição ou erros capturados  │
+│  [6] Pergunta livre          ││da tela anterior.                                       │
+│                              ││                                                        │
+│                              ││                                                        │
+│                              ││                                                        │
+│                              ││                                                        │
+│                              ││                                                        │
+│                              ││                                                        │
+│                              ││                                                        │
+│                              ││                                                        │
+│                              ││                                                        │
+│                              ││                                                        │
+│                              ││                                                        │
+│                              ││                                                        │
+╰──────────────────────────────╯│                                                        │
+╭ Sobre a ação ────────────────╮│                                                        │
+│Resume a ideia principal da   ││                                                        │
+│lição ou desafio com analogia ││                                                        │
+╰──────────────────────────────╯╰────────────────────────────────────────────────────────╯
+RustLab  · 1–5 ação  · 6/p pergunta livre  · o/m modelo Ollama  · Enter executar  ·       
+PgUp/PgDn rolar  · Ctrl+K cancelar  · Esc/Ctrl+T voltar                                   

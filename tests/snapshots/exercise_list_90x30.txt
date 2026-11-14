@@ -1,0 +1,30 @@
+┌ Exercícios · testes Cargo determinísticos ─────────────────────────────────────────────┐
+│▶ · Some dois números                                                                   │
+│  · Calcule o dobro                                                                     │
+│  · Média sem perder a fração                                                           │
+│  · Descubra se é par                                                                   │
+│  · Encontre o maior                                                                    │
+│  · Dentro do intervalo                                                                 │
+│  · Contar vogais                                                                       │
+│  · Filtrar positivos                                                                   │
+│  · Primeira palavra                                                                    │
+│  · Métodos em struct Retangulo                                                         │
+│  · Divisão segura com Option                                                           │
+│  · Soma dos quadrados pares                                                            │
+│                                                                                        │
+│                                                                                        │
+│                                                                                        │
+│                                                                                        │
+│                                                                                        │
+└────────────────────────────────────────────────────────────────────────────────────────┘
+┌ Antes de praticar ─────────────────────────────────────────────────────────────────────┐
+│Some dois números                                                                       │
+│Implemente `soma(a, b)` para devolver a soma de dois valores i32. Não imprima: a função │
+│deve retornar o resultado. Cargo test verifica valores positivos, zero e negativos.     │
+│Revisar: Operadores: aritmética e comparação                                            │
+│Enter abrir código inicial · quatro dicas disponíveis                                   │
+│Esc volta ao curso.                                                                     │
+│                                                                                        │
+│                                                                                        │
+└────────────────────────────────────────────────────────────────────────────────────────┘
+RustLab  · ↑↓ escolher  · Enter abrir/retomar  · Esc voltar                               

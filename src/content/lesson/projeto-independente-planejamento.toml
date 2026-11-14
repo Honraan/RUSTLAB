@@ -1,0 +1,37 @@
+id = "projeto-independente-planejamento"
+title = "Projeto independente: Planejamento (PLANO.md)"
+estimated_minutes = 8
+
+[[blocks]]
+type = "text"
+text = "Na Etapa 10 o laboratório é seu! Você projeta um programa original em Rust do zero no **Modo Criar**. Antes de escrever muito código, defina o problema, os módulos, os dados e os marcos verificáveis no arquivo **`PLANO.md`**."
+
+[[blocks]]
+type = "callout"
+kind = "tip"
+text = "No Modo Criar, pressione **`Alt+M`** para gerar automaticamente um modelo `PLANO.md` dentro do seu projeto (sem nunca sobrescrever se você já tiver editado um)."
+
+[[blocks]]
+type = "code"
+file = "PLANO.md"
+code = """
+# Meu Projeto RustLab
+- Problema: ...
+- Comandos / Fluxo principal: ...
+- Estruturas e módulos: ...
+- Critérios de conclusão:
+  1. `cargo check` e `cargo clippy` sem erros
+  2. `cargo test` com casos de borda verdes
+  3. Documentação `///` e `cargo run` funcionando
+"""
+
+[[blocks]]
+type = "quiz"
+question = "Como a conclusão de um projeto independente deve ser medida no RustLab?"
+options = [
+  "Por capacidades demonstradas no código (compilação, testes verdes, qualidade, execução), não só XP.",
+  "Apenas abrindo e fechando o menu dez vezes.",
+  "Ignorando erros de compilação se houver bastante texto.",
+]
+correct = 0
+why = "Marcos reais exigem programa compilável, testado com `cargo test` e validado na prática."

@@ -1,0 +1,42 @@
+id = "tuplas-arrays-e-vetores"
+title = "Tuplas, arrays e vetores"
+estimated_minutes = 7
+
+[[blocks]]
+type = "text"
+text = "Quando precisamos agrupar múltiplos valores: **tuplas** `(i32, bool)` combinam tipos diferentes de tamanho fixo; **arrays** `[i32; 3]` guardam tamanho fixo do mesmo tipo; e **vetores** `Vec<T>` crescem e encolhem dinamicamente."
+
+[[blocks]]
+type = "code"
+file = "src/main.rs"
+code = """
+fn main() {
+    let ponto = (10, 20);
+    let semana = ["seg", "ter", "qua"];
+    let mut notas = vec![7, 8];
+    notas.push(10);
+    println!("x={}, dia={}, notas={:?}", ponto.0, semana[1], notas);
+}
+"""
+
+[[blocks]]
+type = "demo"
+demo = "vector"
+name = "i32"
+caption = "Inserção e remoção no final de um Vec<i32>"
+steps = [
+  "[ 7, 8 ]  (len = 2)",
+  "push(10) -> [ 7, 8, 10 ]  (len = 3)",
+  "pop() -> Some(10), sobra [ 7, 8 ]",
+]
+
+[[blocks]]
+type = "quiz"
+question = "Qual estrutura usar quando o número de itens muda durante a execução?"
+options = [
+  "Tupla `(T, U)`",
+  "Array `[T; 4]`",
+  "Vetor `Vec<T>`",
+]
+correct = 2
+why = "`Vec<T>` permite `.push()`, `.pop()` e crescimento dinâmico em tempo de execução."

@@ -1,0 +1,56 @@
+id = "anatomia-do-hello-world"
+title = "Anatomia do Olá, mundo"
+estimated_minutes = 6
+
+[[blocks]]
+type = "text"
+text = """Vamos dissecar peça por peça. Reconhecer cada parte agora evita
+frustração depois — a maior parte do tempo de um iniciante é gasta
+tentando entender mensagens de erro, e erros fazem mais sentido quando
+você sabe o que cada símbolo deveria fazer."""
+
+[[blocks]]
+type = "code"
+file = "src/main.rs"
+code = '''fn main() {
+    println!("Olá, mundo!");
+}'''
+explain = """fn        → "função"
+main      → nome da função de entrada
+( )       → parâmetros da função (vazio aqui: main não recebe nada)
+{ }       → corpo: os passos a executar
+;         → fim de uma instrução (ponto-e-vírgula é obrigatório aqui)
+"..."     → texto literal (uma string)"""
+
+[[blocks]]
+type = "text"
+text = """Detalhes que a tradição C esconde dos iniciantes:
+
+  · A indentação (4 espaços) não muda a execução, mas muda a legibilidade.
+    Rust tem um formatador automático, o rustfmt, que padroniza isso para
+    você. Bom gosto tem atalho.
+  · println! adiciona a quebra de linha sozinha. Existe print! para quando
+    você NÃO quer pular linha.
+  · Rust distingue maiúsculas: main é função (minúscula); tipos importantes
+    costumam começar com maiúscula (String, Vec)."""
+
+[[blocks]]
+type = "callout"
+kind = "warning"
+text = """Erro clássico: escrever printn! (trocar as letras). O compilador vai
+reclamar e — fofo — vai sugerir: "did you mean: println!". Ler a sugestão
+até o fim resolve 80% dos erros de iniciante."""
+
+[[blocks]]
+type = "quiz"
+question = "O que acontece se você esquecer o ponto-e-vírgula da instrução println!?"
+options = [
+    "Nada: Rust é flexível como Python.",
+    "O programa roda, mas imprime duas vezes.",
+    "O compilador aponta o erro, na linha e coluna exatas.",
+    "O programa compila, mas ignora a instrução.",
+]
+correct = 2
+why = """; encerra a instrução. Rust é rigoroso na sintaxe — e isso é bondade:
+rigor significa que o compilador encontra seus descuidos ANTES do usuário.
+A mensagem dirá onde (linha e coluna) e porquê."""

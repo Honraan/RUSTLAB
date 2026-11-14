@@ -1,0 +1,30 @@
+ O que é programar? · Etapa 1 — Primeiro contato · ~5 min                                 
+↑↓ rolar · 1-9 responder · d demonstração · ←→ lições · esc voltar                        
+┌ Explicação · ↑↓ rolar ─────────────────────────────────────────────────────────────────┐
+│ ★ programar. Precisa de paciência, precisão e curiosidade — três coisas que            │
+│ ★ todo mundo tem.                                                                      │
+│                                                                                        │
+│Toda linguagem de programação oferece um pequeno conjunto de ferramentas:               │
+│                                                                                        │
+│  · GUARDE informações (variáveis)                                                      │
+│  · DECIDA entre caminhos (condições)                                                   │
+│  · REPITA tarefas (laços)                                                              │
+│  · ORGANIZE passos reutilizáveis (funções)                                             │
+│                                                                                        │
+│O resto — aplicativos, jogos, sistemas — é combinação dessas quatro peças.              │
+│Neste curso, você vai dominar cada uma delas em Rust.                                   │
+│                                                                                        │
+└────────────────────────────────────────────────────────────────────────────────────────┘
+┌ Tarefa & Quiz · Tab abrir Mini-IDE (B-T01-P) ────────────────┐┌ Ferris ────────────────┐
+│? Qual frase melhor descreve um programa?                     ││c(ovo)c  Boa!           │
+│1  Um desenho que mostra a forma de um site.                  ││Excelente! Você resolveu│
+│✓  Uma sequência precisa de instruções que a máquina executa. ││de verdade.             │
+│3  Um arquivo que guarda fotos e documentos.                  ││XP possível: 100+100    │
+│4  Um botão que instala outros programas.                     ││(sem dicas)             │
+│porquê:                                                       ││                        │
+│Programa = instruções precisas, em ordem, que o computador    ││                        │
+│executa.                                                      ││                        │
+└──────────────────────────────────────────────────────────────┘└────────────────────────┘
+████████████████████████████1/30 · lição concluída — → avança ████████████████████████████
+RustLab  · Tab/e praticar  · ↑↓ ler  · 1-9 responder  · d demo  · m mentor  · ←/→ lição  ·
+esc voltar                                                                                

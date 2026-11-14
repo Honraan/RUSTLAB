@@ -1,0 +1,31 @@
+id = "filtrar-positivos"
+order = 80
+lesson_ids = ["tuplas-arrays-e-vetores"]
+title = "Filtrar positivos"
+statement = "Implemente filtrar_positivos(nums: &[i32]) -> Vec<i32> devolvendo um novo Vec apenas com os números estritamente maiores que zero, mantendo a ordem original. Zero e negativos devem ser ignorados."
+skeleton = '''pub fn filtrar_positivos(nums: &[i32]) -> Vec<i32> {
+    todo!("devolva somente valores > 0")
+}
+'''
+tests = '''#[cfg(test)]
+mod tests {
+    use super::filtrar_positivos;
+
+    #[test]
+    fn mistura_de_valores() {
+        assert_eq!(filtrar_positivos(&[-5, 0, 3, -1, 7, 2]), vec![3, 7, 2]);
+    }
+
+    #[test]
+    fn vazio_ou_sem_positivos() {
+        assert_eq!(filtrar_positivos(&[]), Vec::<i32>::new());
+        assert_eq!(filtrar_positivos(&[0, -10, -1]), Vec::<i32>::new());
+    }
+}
+'''
+hints = [
+  "Crie um `let mut out = Vec::new();` ou use iteradores sobre `nums`.",
+  "Percorra `for &n in nums` e teste `if n > 0` (zero não entra!).",
+  "Para cada positivo encontrado, faça `out.push(n);`.",
+  "Solução: nums.iter().copied().filter(|&n| n > 0).collect()",
+]

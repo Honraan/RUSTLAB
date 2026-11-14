@@ -1,0 +1,12 @@
+ Olá, mundo! — seu primeiro programa · Etapa 1 — P
+↑↓ rolar · 1-9 responder · d demonstração · ←→ liç
+Todo curso de programação começa igual: fazemos o 
+computador dizer                                  
+"Olá, mundo!". É o "ola" do programa ao mundo — e 
+prova que as três                                 
+peças funcionam: você escreveu, o compilador      
+tradziu, a máquina executou.                      
+                4/30 · leitura 0%                 
+RustLab  · Tab/e praticar  · ↑↓ ler  · 1-9        
+responder  · d demo  · m mentor  · ←/→ lição  ·   
+esc voltar                                        

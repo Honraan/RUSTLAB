@@ -1,0 +1,49 @@
+id = "borrowing-e-referencias"
+title = "Borrowing e referências"
+estimated_minutes = 8
+
+[[blocks]]
+type = "text"
+text = "Nem sempre queremos transferir a posse de um dado apenas para lê-lo ou atualizá-lo. **Empréstimos** (*borrowing*) criam referências: `&T` permite várias leituras simultâneas; `&mut T` dá acesso exclusivo para modificar."
+
+[[blocks]]
+type = "code"
+file = "src/main.rs"
+code = """
+fn contar_letras(s: &str) -> usize {
+    s.chars().count()
+}
+
+fn adicionar_exclamacao(s: &mut String) {
+    s.push('!');
+}
+
+fn main() {
+    let mut msg = String::from("Rust");
+    println!("letras = {}", contar_letras(&msg));
+    adicionar_exclamacao(&mut msg);
+    println!("{msg}");
+}
+"""
+
+[[blocks]]
+type = "demo"
+demo = "borrowing"
+name = "msg"
+caption = "Regras do borrow checker"
+steps = [
+  "1+ leitores `&msg` simultâneos -> PERMITIDO",
+  "1 escritor `&mut msg` exclusivo -> PERMITIDO",
+  "`&msg` e `&mut msg` vivos ao mesmo tempo -> BLOQUEADO (evita corrida de dados)",
+]
+
+[[blocks]]
+type = "quiz"
+question = "Quantas referências `&mut T` ativas ao mesmo valor podem coexistir ao mesmo tempo?"
+options = [
+  "Quantas você quiser.",
+  "No máximo uma por vez, e sem referências `&T` concorrentes.",
+  "Nenhuma: `&mut` não existe em funções.",
+]
+correct = 1
+why = "A exclusividade de `&mut T` impede modificações concorrentes inesperadas enquanto alguém lê o dado."

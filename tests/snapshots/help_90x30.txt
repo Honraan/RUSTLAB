@@ -1,0 +1,30 @@
+╭ Ajuda & Atalhos ───────────────────────────────────────────────────────────────────────╮
+│RustLab é guiado por teclado. Estas são as teclas disponíveis:                          │
+│                                                                                        │
+│  Navegar        ↑/↓ · k/j                                                              │
+│  Enter          confirmar / abrir                                                      │
+│  Esc            voltar uma tela                                                        │
+│  q              sair (no menu) / voltar (em telas)                                     │
+│  Ctrl+C         sair de qualquer lugar                                                 │
+│  F4–F8          build / run / test / check / fmt no Modo Criar                         │
+│  F1/F11/Ctrl+G  doc / definição / busca global no Modo Criar                           │
+│  Ctrl+L/Alt+M   rodar cargo clippy / gerar PLANO.md (Etapa 10)                         │
+│  Ctrl+S/K       salvar / cancelar execução                                             │
+│  Ctrl+T / m     abrir Mentor opcional (guia local / Ollama / API)                      │
+│  Alt+A / Ctrl+T abrir/fechar Agente IA lateral no Modo Criar                           │
+│  Alt+O          escolher modelo Ollama no Agente (o/m no Mentor)                       │
+│  Alt+Enter      aplicar código sugerido pelo Agente no editor                          │
+│  Alt+D / d      definir pasta padrão dos novos projetos (Criar)                        │
+│  e (Aprender)   abrir exercícios com testes Cargo determinísticos                      │
+│  F1 exercício   revelar a próxima dica progressiva                                     │
+│  Ajustar        ←/→ ou h/l, na tela Configurações                                      │
+│                                                                                        │
+│                                                                                        │
+╰────────────────────────────────────────────────────────────────────────────────────────╯
+╭────────────────────────────────────────────────────────────────────────────────────────╮
+│  Situação do projeto                                                                   │
+│  Fases 1-9: etapas 1-10 (pt-BR), 12 exercícios Cargo e widgets visuais.                │
+│  Criar: rust-analyzer/índice local, Clippy, Alt+M plano; Cargo sem sandbox.            │
+│XP: tom curto e suave via paplay (PulseAudio/PipeWire); zero silencia.                  │
+╰────────────────────────────────────────────────────────────────────────────────────────╯
+RustLab  · esc voltar                                                                     

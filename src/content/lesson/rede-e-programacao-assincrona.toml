@@ -1,0 +1,42 @@
+id = "rede-e-programacao-assincrona"
+title = "Rede básica e programação assíncrona"
+estimated_minutes = 8
+
+[[blocks]]
+type = "text"
+text = "`std::net` permite abrir conexões TCP/HTTP simples de forma síncrona, enquanto `async fn` com um executor como `tokio` permite aguardar múltiplas tarefas de I/O (rede, timers, subprocessos) sem travar a interface."
+
+[[blocks]]
+type = "code"
+file = "src/main.rs"
+code = """
+use std::net::TcpListener;
+
+fn abrir_porta_local() -> std::io::Result<u16> {
+    let listener = TcpListener::bind("127.0.0.1:0")?;
+    Ok(listener.local_addr()?.port())
+}
+
+fn main() {
+    match abrir_porta_local() {
+        Ok(porta) => println!("escutando temporariamente na porta {porta}"),
+        Err(e) => eprintln!("erro de rede: {e}"),
+    }
+}
+"""
+
+[[blocks]]
+type = "callout"
+kind = "note"
+text = "Em código assíncrono (`tokio`), nunca bloqueie uma worker thread por longo tempo com leituras síncronas pesadas: use APIs assíncronas ou `spawn_blocking`."
+
+[[blocks]]
+type = "quiz"
+question = "O que uma função marcada com `async fn` retorna antes de receber `.await`?"
+options = [
+  "O valor final já pronto imediatamente.",
+  "Um `Future`, que representa trabalho assíncrono a ser conduzido por um runtime.",
+  "Um processo separado do sistema operacional.",
+]
+correct = 1
+why = "`Future` em Rust não executa até ser consultado (`.await` ou executor)."

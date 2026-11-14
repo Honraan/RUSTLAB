@@ -1,0 +1,30 @@
+╭ Trilha V3 (213 lições) ────────────╮╭ O BÁSICO — v clássica ───────────────────────────╮
+│▶  ≡ O BÁSICO  0/14                 ││▶  1 [B-T01] O que é programar?  [Teoria]         │
+│   × O MEIO  0/48                   ││  × [B-T02] Como o computador executa instruções  │
+│   × O DIFÍCIL  0/61                ││  × [B-T03] O terminal sem medo  [Teoria]         │
+│   × O FIM  0/60                    ││  × [B-T04] RustLab, Rust e Cargo  [Teoria]       │
+│   × MINI PAINT  0/12               ││  × [B-T05] Arquivos e projeto Rust  [Teoria]     │
+│   × CAVEGAME (BEVY)  0/18          ││  × [B-P01] Meu primeiro Hello, world!  [Prática C│
+│                                    ││  × [B-T06] Lendo um programa linha por linha  [Te│
+│                                    ││  × [B-T07] Valores e variáveis com let  [Teoria] │
+│                                    ││  × [B-T08] Tipos primitivos sem complicar  [Teori│
+│                                    ││  × [B-T09] Imutabilidade, mut e const  [Teoria]  │
+│                                    ││  × [B-T10] println! e interpolação  [Teoria]     │
+│                                    ││  × [B-T11] Erros normais de iniciante  [Teoria]  │
+│                                    ││  × [B-T12] Como experimentar e estudar  [Teoria] │
+│                                    ││  × [B-P02] Minha primeira variável  [Prática Carg│
+│                                    ││                                                  │
+│                                    ││                                                  │
+│                                    ││                                                  │
+│                                    ││                                                  │
+│                                    ││                                                  │
+│                                    ││                                                  │
+│                                    ││                                                  │
+│                                    ││                                                  │
+│                                    ││                                                  │
+│                                    ││                                                  │
+│                                    ││                                                  │
+│                                    ││B-T01: Compreender instruções, sequência e exemplo│
+╰────────────────────────────────────╯╰──────────────────────────────────────────────────╯
+RustLab  · ↑↓ navegar  · enter confirmar  · Tab trocar · v 10 caps · Alt+V prévia · r     
+revisar  · esc voltar                                                                     

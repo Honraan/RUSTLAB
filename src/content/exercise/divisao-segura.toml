@@ -1,0 +1,33 @@
+id = "divisao-segura"
+order = 110
+lesson_ids = ["option-e-ausencia", "result-e-propagacao"]
+title = "Divisão segura com Option"
+statement = "Implemente divisao_segura(a: i32, b: i32) -> Option<i32>. Quando `b == 0`, retorne `None` em vez de dividir por zero; caso contrário retorne `Some(a / b)` (divisão inteira)."
+skeleton = '''pub fn divisao_segura(a: i32, b: i32) -> Option<i32> {
+    todo!("evite dividir por zero retornando Option")
+}
+'''
+tests = '''#[cfg(test)]
+mod tests {
+    use super::divisao_segura;
+
+    #[test]
+    fn divisoes_validas() {
+        assert_eq!(divisao_segura(10, 2), Some(5));
+        assert_eq!(divisao_segura(7, 2), Some(3));
+        assert_eq!(divisao_segura(-9, 3), Some(-3));
+    }
+
+    #[test]
+    fn divisor_zero_retorna_none() {
+        assert_eq!(divisao_segura(42, 0), None);
+        assert_eq!(divisao_segura(0, 0), None);
+    }
+}
+'''
+hints = [
+  "Teste primeiro se `b == 0` usando `if b == 0`.",
+  "Se `b == 0`, retorne `None` explicitamente.",
+  "Nos demais casos, embrulhe `a / b` dentro de `Some(...)` (ou use `a.checked_div(b)`).",
+  "Solução: if b == 0 { None } else { Some(a / b) }",
+]

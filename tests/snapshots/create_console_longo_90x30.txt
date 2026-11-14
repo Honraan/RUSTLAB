@@ -1,0 +1,30 @@
+                  [ ▼ Bibliotecas (F9) ]    [ Compilar Linux/Win (F4) ]                   
+┌ Arquivos ──────────┐┌ sem arquivo ───────────────────┐┌ Console ───────────────────────┐
+│                    ││ 1                              ││Mensagem de diagnóstico longa   │
+│                    ││                                ││para revisar por linhas visuais.│
+│                    ││                                ││Mensagem de diagnóstico longa   │
+│                    ││                                ││para revisar por linhas visuais.│
+│                    ││                                ││Mensagem de diagnóstico longa   │
+│                    ││                                ││para revisar por linhas visuais.│
+│                    ││                                ││Mensagem de diagnóstico longa   │
+│                    ││                                ││para revisar por linhas visuais.│
+│                    ││                                ││Mensagem de diagnóstico longa   │
+│                    ││                                ││para revisar por linhas visuais.│
+│                    ││                                ││Mensagem de diagnóstico longa   │
+│                    ││                                ││para revisar por linhas visuais.│
+│                    ││                                ││Mensagem de diagnóstico longa   │
+│                    ││                                ││para revisar por linhas visuais.│
+│                    ││                                ││Mensagem de diagnóstico longa   │
+│                    ││                                ││para revisar por linhas visuais.│
+│                    ││                                ││Mensagem de diagnóstico longa   │
+│                    ││                                ││para revisar por linhas visuais.│
+│                    ││                                ││FIM DA SAIDA                    │
+│                    ││                                │└────────────────────────────────┘
+│                    ││                                │┌ Diagnósticos · índice local ───┐
+│                    ││                                ││Sem diagnósticos                │
+│                    ││                                ││                                │
+│                    ││                                ││                                │
+│                    ││                                ││                                │
+└────────────────────┘└────────────────────────────────┘└────────────────────────────────┘
+· F5 Executar  · Ctrl+S Salvar  · F4 Compilar (Linux/Win)  · F6 Testar  · Alt+A Agente IA 
+· F9 Bibliotecas (▼)  · F1 Doc/Ajuda  · Shift+Tab Foco  · Esc Fechar projeto              

@@ -1,0 +1,45 @@
+id = "ownership-na-pratica"
+title = "Ownership na prática"
+estimated_minutes = 8
+
+[[blocks]]
+type = "text"
+text = "Todo valor em Rust tem exatamente **um dono** (owner). Quando esse dono sai de escopo, a memória é liberada automaticamente — sem coletor de lixo nem `free` manual. Ao atribuir ou passar um valor não-Copy (como `String`) por valor, ocorre uma transferência de posse (*move*)."
+
+[[blocks]]
+type = "code"
+file = "src/main.rs"
+code = """
+fn consumir(texto: String) {
+    println!("recebi: {texto}");
+} // `texto` é liberado aqui
+
+fn main() {
+    let nome = String::from("Ferris");
+    consumir(nome);
+    // println!("{nome}"); // ERRO E0382: posse já foi movida para `consumir`
+}
+"""
+
+[[blocks]]
+type = "demo"
+demo = "ownership"
+name = "nome: String"
+caption = "Acompanhe a transferência de posse (move)"
+steps = [
+  "main possui `nome` (\"Ferris\")",
+  "chamada `consumir(nome)` move a posse para o parâmetro `texto`",
+  "main perde acesso a `nome` (compilador bloqueia uso após move)",
+  "`consumir` termina -> memória liberada uma única vez",
+]
+
+[[blocks]]
+type = "quiz"
+question = "Por que Rust impede usar `nome` depois de `consumir(nome)`?"
+options = [
+  "Para impedir liberação dupla ou acesso à memória já descartada.",
+  "Porque Strings só podem ter 5 caracteres.",
+  "Porque funções não aceitam parâmetros em Rust.",
+]
+correct = 0
+why = "Garantir um único dono evita double-free e use-after-free já em tempo de compilação."

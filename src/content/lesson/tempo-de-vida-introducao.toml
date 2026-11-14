@@ -1,0 +1,38 @@
+id = "tempo-de-vida-introducao"
+title = "Tempo de vida (lifetimes) introdutório"
+estimated_minutes = 7
+
+[[blocks]]
+type = "text"
+text = "Toda referência tem um **tempo de vida** (*lifetime*): o trecho do programa em que ela continua válida. Na maioria das vezes o compilador infere sozinho; quando uma função recebe duas referências e devolve uma, anotamos `'a` para deixar explícito que o retorno vive enquanto ambas viverem."
+
+[[blocks]]
+type = "code"
+file = "src/main.rs"
+code = """
+fn maior_texto<'a>(x: &'a str, y: &'a str) -> &'a str {
+    if x.len() >= y.len() { x } else { y }
+}
+
+fn main() {
+    let a = String::from("caranguejo");
+    let b = String::from("rust");
+    println!("maior: {}", maior_texto(&a, &b));
+}
+"""
+
+[[blocks]]
+type = "callout"
+kind = "warning"
+text = "Lifetimes (`'a`) **não esticam** a vida de um valor: eles apenas descrevem a relação entre entradas e saídas para o verificador garantir que nenhuma referência aponte para memória já destruída."
+
+[[blocks]]
+type = "quiz"
+question = "Para que serve a anotação `'a` em `fn maior<'a>(x: &'a str, y: &'a str) -> &'a str`?"
+options = [
+  "Relaciona a duração do retorno à menor duração entre `x` e `y`.",
+  "Converte automaticamente `&str` em `String` no heap.",
+  "Desativa a checagem de segurança de memória.",
+]
+correct = 0
+why = "`'a` garante em compilação que a referência devolvida não sobreviva aos dados originais."

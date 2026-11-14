@@ -1,0 +1,49 @@
+id = "retangulo-area"
+order = 100
+lesson_ids = ["structs-e-metodos"]
+title = "Métodos em struct Retangulo"
+statement = "Defina os métodos `area(&self) -> u32` e `eh_quadrado(&self) -> bool` para a struct pública `Retangulo` (`largura: u32`, `altura: u32`). `area` multiplica largura por altura; `eh_quadrado` retorna true somente quando largura > 0 e largura == altura."
+skeleton = '''pub struct Retangulo {
+    pub largura: u32,
+    pub altura: u32,
+}
+
+impl Retangulo {
+    pub fn area(&self) -> u32 {
+        todo!("largura * altura")
+    }
+
+    pub fn eh_quadrado(&self) -> bool {
+        todo!("verifique se lados são positivos e iguais")
+    }
+}
+'''
+tests = '''#[cfg(test)]
+mod tests {
+    use super::Retangulo;
+
+    #[test]
+    fn calcula_area_e_quadrado() {
+        let r = Retangulo { largura: 4, altura: 6 };
+        assert_eq!(r.area(), 24);
+        assert!(!r.eh_quadrado());
+
+        let q = Retangulo { largura: 5, altura: 5 };
+        assert_eq!(q.area(), 25);
+        assert!(q.eh_quadrado());
+    }
+
+    #[test]
+    fn zero_nao_eh_quadrado() {
+        let z = Retangulo { largura: 0, altura: 0 };
+        assert_eq!(z.area(), 0);
+        assert!(!z.eh_quadrado());
+    }
+}
+'''
+hints = [
+  "Acesse os campos dentro do `impl` usando `self.largura` e `self.altura`.",
+  "Em `area(&self)`, retorne `self.largura * self.altura`.",
+  "Em `eh_quadrado(&self)`, cheque `self.largura > 0 && self.largura == self.altura`.",
+  "Solução: area retorna `self.largura * self.altura` e eh_quadrado retorna `self.largura > 0 && self.largura == self.altura`.",
+]

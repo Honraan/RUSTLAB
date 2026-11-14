@@ -1,0 +1,6 @@
+id = "etapa-10"
+title = "Etapa 10 — Projeto independente"
+summary = "Você planeja no PLANO.md, implementa, testa e entrega um programa original em Rust."
+order = 10
+status = "available"
+lessons = ["projeto-independente-planejamento", "projeto-independente-qualidade-e-entrega"]

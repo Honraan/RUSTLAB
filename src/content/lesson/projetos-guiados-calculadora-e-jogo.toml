@@ -1,0 +1,43 @@
+id = "projetos-guiados-calculadora-e-jogo"
+title = "Projetos guiados: Calculadora e Jogo de Adivinhação"
+estimated_minutes = 10
+
+[[blocks]]
+type = "text"
+text = "Chegou a hora de construir programas maiores no **Modo Criar**! Neste primeiro roteiro você implementa duas aplicações clássicas com assistência gradual: uma **Calculadora** que interpreta expressões com `Result`, e um **Jogo de Adivinhação** com tentativas em laço e leitura de entrada padrão."
+
+[[blocks]]
+type = "code"
+file = "src/main.rs"
+code = """
+fn avaliar(op: &str, a: f64, b: f64) -> Result<f64, String> {
+    match op {
+        "+" => Ok(a + b),
+        "-" => Ok(a - b),
+        "*" => Ok(a * b),
+        "/" if b != 0.0 => Ok(a / b),
+        "/" => Err("divisão por zero".into()),
+        _ => Err(format!("operador desconhecido: {op}")),
+    }
+}
+
+fn main() {
+    println!("10 / 2 = {:?}", avaliar("/", 10.0, 2.0));
+}
+"""
+
+[[blocks]]
+type = "callout"
+kind = "tip"
+text = "Crie um novo projeto no Modo Criar (`Ctrl+N`), separe a lógica pura (`avaliar`) das leituras de `stdin` para poder testá-la com `F6` (`cargo test`), e valide entrada interativa com `F5`."
+
+[[blocks]]
+type = "quiz"
+question = "Por que separar a lógica da calculadora/jogo em funções puras além de `main()`?"
+options = [
+  "Permite escrever testes unitários rápidos e determinísticos (`#[test]`) sem depender de digitação manual.",
+  "Porque `fn main()` não pode conter `match`.",
+  "Porque Cargo exige no mínimo 10 funções por arquivo.",
+]
+correct = 0
+why = "Funções puras são testáveis automaticamente com `cargo test`, garantindo estabilidade conforme o projeto cresce."

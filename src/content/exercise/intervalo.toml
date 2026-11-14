@@ -1,0 +1,37 @@
+id = "intervalo"
+order = 60
+lesson_ids = ["operadores"]
+title = "Dentro do intervalo"
+statement = "Implemente no_intervalo(n, minimo, maximo), retornando bool. n deve ser maior ou igual ao mínimo E menor ou igual ao máximo, incluindo as bordas. >= e <= comparam valores; && combina condições e só retorna true quando ambas são verdadeiras. Se minimo > maximo, retorne false."
+skeleton = '''pub fn no_intervalo(n: i32, minimo: i32, maximo: i32) -> bool {
+    todo!("combine as duas condições")
+}
+'''
+tests = '''#[cfg(test)]
+mod tests {
+    use super::no_intervalo;
+    #[test]
+    fn interior_e_bordas() {
+        assert!(no_intervalo(5, 1, 10));
+        assert!(no_intervalo(1, 1, 10));
+        assert!(no_intervalo(10, 1, 10));
+    }
+    #[test]
+    fn fora_dos_limites() {
+        assert!(!no_intervalo(0, 1, 10));
+        assert!(!no_intervalo(11, 1, 10));
+    }
+    #[test]
+    fn negativos_ponto_unico_e_invertido() {
+        assert!(no_intervalo(-3, -5, -1));
+        assert!(no_intervalo(0, 0, 0));
+        assert!(!no_intervalo(5, 10, 1));
+    }
+}
+'''
+hints = [
+  "Você precisa verificar os dois limites, não apenas um deles.",
+  "As condições são n >= minimo e n <= maximo.",
+  "Combine as duas condições com && (E lógico), não com || (OU).",
+  "Solução: pub fn no_intervalo(n: i32, minimo: i32, maximo: i32) -> bool { n >= minimo && n <= maximo }",
+]

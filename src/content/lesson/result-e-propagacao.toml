@@ -1,0 +1,45 @@
+id = "result-e-propagacao"
+title = "Result e propagação com ?"
+estimated_minutes = 8
+
+[[blocks]]
+type = "text"
+text = "Para operações que podem falhar com motivo explicável (abrir arquivo, converter texto, divisão por zero), Rust usa `Result<T, E>` com `Ok(T)` e `Err(E)`. O operador `?` propaga automaticamente um `Err` para quem chamou a função."
+
+[[blocks]]
+type = "code"
+file = "src/main.rs"
+code = """
+fn dividir(a: i32, b: i32) -> Result<i32, String> {
+    if b == 0 {
+        Err(String::from("divisão por zero"))
+    } else {
+        Ok(a / b)
+    }
+}
+
+fn calcular() -> Result<i32, String> {
+    let q = dividir(20, 4)?;
+    Ok(q + 1)
+}
+
+fn main() {
+    println!("{:?}", calcular());
+}
+"""
+
+[[blocks]]
+type = "callout"
+kind = "warning"
+text = "Evite `.unwrap()` fora de testes e protótipos rápidos: se receber `Err`, o programa entra em pânico e encerra na hora."
+
+[[blocks]]
+type = "quiz"
+question = "O que o operador `?` faz ao receber `Err(e)`?"
+options = [
+  "Converte o erro em zero e continua executando.",
+  "Encerra a função atual imediatamente retornando `Err(e)`.",
+  "Imprime o erro e ignora a falha.",
+]
+correct = 1
+why = "Em caso de `Ok(v)` ele extrai `v`; em caso de `Err(e)` ele retorna cedo da função."

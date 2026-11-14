@@ -1,0 +1,37 @@
+id = "iteradores-e-arquivos"
+title = "Iteradores e arquivos"
+estimated_minutes = 8
+
+[[blocks]]
+type = "text"
+text = "**Iteradores** encadeiam transformações preguiçosas (`.iter()`, `.filter()`, `.map()`, `.sum()`, `.collect()`) sem alocar vetores intermediários. Para ler e gravar arquivos, `std::fs` entrega operações simples combinadas com `Result`."
+
+[[blocks]]
+type = "code"
+file = "src/main.rs"
+code = """
+use std::fs;
+
+fn soma_pares(nums: &[i32]) -> i32 {
+    nums.iter().copied().filter(|n| n % 2 == 0).sum()
+}
+
+fn main() -> std::io::Result<()> {
+    let total = soma_pares(&[1, 2, 3, 4, 6]);
+    println!("total pares = {total}");
+    let existe = fs::metadata("Cargo.toml").is_ok();
+    println!("Cargo.toml presente? {existe}");
+    Ok(())
+}
+"""
+
+[[blocks]]
+type = "quiz"
+question = "O que significa dizer que iteradores em Rust são *preguiçosos* (*lazy*)?"
+options = [
+  "Eles só processam os elementos quando um consumidor (`.collect()`, `.sum()`, `for`) solicita resultados.",
+  "Eles falham sempre que há mais de 10 itens.",
+  "Eles rodam em segundo plano sem terminar.",
+]
+correct = 0
+why = "Adaptadores como `.map` e `.filter` apenas descrevem o fluxo; o trabalho acontece no consumidor final."

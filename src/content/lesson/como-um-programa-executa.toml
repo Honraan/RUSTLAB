@@ -1,0 +1,52 @@
+id = "como-um-programa-executa"
+title = "Como um programa executa?"
+estimated_minutes = 6
+
+[[blocks]]
+type = "text"
+text = """O computador só entende números (instruções de máquina). O seu código,
+escrito em Rust, precisa ser TRADUZIDO para essa língua. Quem faz essa
+tradução se chama compilador.
+
+  você escreve  →  código-fonte (texto)
+  compilador    →  programa (binário)
+  sistema       →  executa o programa, passo a passo"""
+
+[[blocks]]
+type = "demo"
+demo = "variables"
+name = "passo"
+steps = ["você escreve o código", "o compilador traduz", "o programa vira binário", "a máquina executa"]
+caption = "Um exemplo do caminho até a execução — aperte d para avançar os passos"
+
+[[blocks]]
+type = "text"
+text = """Rust usa compilação antecipada: o programa é traduzido ANTES de rodar.
+Se houver um erro, o compilador para a tradução e explica exatamente o
+que houve — linha, coluna e motivo. Você verá mensagens dele o tempo
+todo neste curso; longe de ser um obstáculo, elas são a melhor
+professora de Rust.
+
+Linguagens como Python fazem diferente: traduzem linha a linha, durante
+a execução. São escolhas de projeto, não certo e errado."""
+
+[[blocks]]
+type = "callout"
+kind = "note"
+text = """Nas próximas fases do RustLab você vai compilar e executar cada exemplo
+com uma tecla, aqui mesmo no terminal. Nesta primeira versão das lições,
+leia os exemplos com atenção: eles voltarão como desafios práticos."""
+
+[[blocks]]
+type = "quiz"
+question = "O que um compilador faz?"
+options = [
+    "Executa o programa mais rápido.",
+    "Traduz o código-fonte para o formato que a máquina entende.",
+    "Corrige automaticamente qualquer erro de lógica.",
+    "Baixa bibliotecas da internet.",
+]
+correct = 1
+why = """O compilador é o tradutor: transforma seu código em instruções de
+máquina. Ele encontra erros de escrita/sentido, mas não conserta sua
+lógica por você."""

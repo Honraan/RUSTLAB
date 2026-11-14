@@ -1,0 +1,6 @@
+id = "etapa-5"
+title = "Etapa 5 — Organizando programas"
+summary = "Structs, enums, métodos, traits, módulos e crates para estruturar sistemas reais."
+order = 5
+status = "available"
+lessons = ["structs-e-metodos", "enums-e-pattern-matching", "traits-modulos-e-cargo"]

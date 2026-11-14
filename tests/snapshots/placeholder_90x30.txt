@@ -1,0 +1,30 @@
+╭ Modo Criar ────────────────────────────────────────────────────────────────────────────╮
+│ ◐ Em construção — Fase 3 do plano                                                      │
+│um mini-IDE real: projetos Cargo, editor multilinha, execução e diagnósticos            │
+│                                                                                        │
+│   · Fase 3 — editor e execução de programas reais                                      │
+│   · Fase 6 — projetos independentes e terminal de CLI interativo                       │
+│   · Fase 7 — rust-analyzer: autocompletar, navegar, diagnosticar                       │
+│                                                                                        │
+│                                                                                        │
+│Esta área será implementada nas próximas fases do projeto.                              │
+│celebrações (conclusão de lição, conquista, level-up) chegam na Fase 5                  │
+│                                                                                        │
+│                                                                                        │
+│                                                                                        │
+│                                                                                        │
+│                                                                                        │
+│                                                                                        │
+│                                                                                        │
+│                                                                                        │
+│                                                                                        │
+│                                                                                        │
+│                                                                                        │
+│                                                                                        │
+│                                                                                        │
+│                                                                                        │
+│                                                                                        │
+│                                                                                        │
+│                                                                                        │
+╰────────────────────────────────────────────────────────────────────────────────────────╯
+┌────────────────────────────────────────────────────────────────────────────────────────┐

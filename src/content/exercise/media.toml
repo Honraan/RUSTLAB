@@ -1,0 +1,29 @@
+id = "media"
+order = 30
+lesson_ids = ["tipos-numericos", "operadores"]
+title = "Média sem perder a fração"
+statement = "Implemente media(a, b) para retornar a média de dois valores f64. Divisão com inteiros descartaria a parte fracionária; aqui os parâmetros são decimais. Some os valores antes de dividir por 2.0: parênteses controlam a precedência. Use valores finitos pequenos, como nos testes."
+skeleton = '''pub fn media(a: f64, b: f64) -> f64 {
+    todo!("retorne a média")
+}
+'''
+tests = '''#[cfg(test)]
+mod tests {
+    use super::media;
+    #[test]
+    fn media_inteira() { assert_eq!(media(2.0, 8.0), 5.0); }
+    #[test]
+    fn preserva_fracao() { assert_eq!(media(1.0, 2.0), 1.5); }
+    #[test]
+    fn negativos_e_zero() {
+        assert_eq!(media(-4.0, 0.0), -2.0);
+        assert_eq!(media(-3.0, 3.0), 0.0);
+    }
+}
+'''
+hints = [
+  "Média aritmética: soma dos dois valores dividida por dois.",
+  "Escrever a + b / 2.0 divide apenas b, porque / tem precedência sobre +.",
+  "Agrupe a soma: (a + b). Depois divida por 2.0.",
+  "Solução: pub fn media(a: f64, b: f64) -> f64 { (a + b) / 2.0 }",
+]

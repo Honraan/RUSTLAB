@@ -1,0 +1,30 @@
+┌ RustLab ───────────────────────────────────────────────────────────────────────────────┐
+│                                         c(o.o)c                                        │
+│                                                                                        │
+│                                      R U S T L A B                                     │
+│                        Aprenda Rust fazendo — direto no terminal                       │
+│                         um laboratório de Rust no seu terminal                         │
+│                                                                                        │
+│                                                                                        │
+│                                                                                        │
+│                                                                                        │
+│                                                                                        │
+│                                                                                        │
+│                                                                                        │
+│                                                                                        │
+│                                                                                        │
+│                                                                                        │
+│                                                                                        │
+│                                                                                        │
+│                                                                                        │
+│                                                                                        │
+│                                                                                        │
+│                                                                                        │
+│                                                                                        │
+│                                                                                        │
+│                                                                                        │
+│                                                                                        │
+│                                                                                        │
+│                        · Pressione qualquer tecla para começar ·                       │
+└─v0.3.2 · pt-BR─────────────────────────────────────────────────────────────────────────┘
+RustLab  · q sair  · Pressione qualquer tecla para começar                                

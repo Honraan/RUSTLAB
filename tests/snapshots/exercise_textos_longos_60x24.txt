@@ -1,0 +1,24 @@
+┌ Enunciado · F9 rolar · Shift+F9 subir ───────────────────┐
+│valores f64. Divisão com inteiros descartaria a parte     │
+│fracionária; aqui os parâmetros são decimais. Some os     │
+│valores antes de dividir por 2.0: parênteses controlam a  │
+└──────────────────────────────────────────────────────────┘
+┌ Seu código · Ctrl+S salvar · F5 testar ┐┌ Dicas · F4/Shif┐
+│  1 │ pub fn media(a: f64, b: f64) -> f6││Solução: pub fn │
+│  2 │     todo!("retorne a média")      ││media(a: f64, b:│
+│  3 │ }                                 ││f64) -> f64 { (a│
+│  4 │                                   ││+ b) / 2.0 }    │
+│                                        ││                │
+│                                        ││F2 anterior · F3│
+└────────────────────────────────────────┘└────────────────┘
+┌ Resultado · PgUp/PgDn · fim ─────────────────────────────┐
+│! O código não compilou                                   │
+│mensagem de erro muito longa: mensagem de erro muito      │
+│longa: mensagem de erro muito longa: mensagem de erro     │
+│muito longa: mensagem de erro muito longa: mensagem de    │
+│erro muito longa: mensagem de erro muito longa: mensagem  │
+│de erro muito longa: FIM DO DIAGNOSTICO                   │
+└──────────────────────────────────────────────────────────┘
+RustLab  · F5 testar  · F1 dica  · F2/F3 rever dicas  ·     
+F4/Shift+F4 rolar dica  · F9/Shift+F9 enunciado  · PgUp/PgDn
+saída  · Ctrl+S salvar  · Ctrl+K cancelar  · Esc voltar     

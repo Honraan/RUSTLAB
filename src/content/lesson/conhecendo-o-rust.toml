@@ -1,0 +1,36 @@
+id = "conhecendo-o-rust"
+title = "Conhecendo o Rust"
+estimated_minutes = 4
+
+[[blocks]]
+type = "text"
+text = """Rust é uma linguagem criada em 2010 por Graydon Hoare, na Mozilla, com
+uma meta ousada: programas rápidos como C, seguros como linguagens
+modernas, sem coletor de lixo e sem penalidade de abstração.
+
+Por que isso importa para quem está começando?
+
+  · SEGURANÇA REAL: erros comuns de memória (o programa acessar o que
+    não devia) são detectados em tempo de compilação, antes de rodar.
+  · O COMPILADOR ENSINA: as mensagens de erro de Rust são famosas por
+    explicar o problema e sugerir a solução.
+  · FERRAMENTA ÚNICA: o Cargo (que acompanha o Rust) cria projetos,
+    baixa dependências, compila, testa e documenta."""
+
+[[blocks]]
+type = "text"
+text = """O mascote da linguagem é um ferrugem-do-campo — ferrugem, em inglês.
+
+Ao longo do curso você verá três modos de usar o que aprender:
+
+  1. Aprender — lições e desafios guiados (este lugar!)
+  2. Criar — o mini-IDE do RustLab para programas seus (Fase 3+)
+  3. Conquistar — projetos guiados até voar sozinho (Etapa 9-10)"""
+
+[[blocks]]
+type = "callout"
+kind = "tip"
+text = """Se travar em qualquer conceito, pergunte! Nas fases com o mentor de IA
+opcional, a própria lição poderá explicar de novo com outras palavras —
+e, hoje, a Ajuda do app e a comunidade brasileira de Rust
+(rust-brasil.org) já respondem muito bem."""

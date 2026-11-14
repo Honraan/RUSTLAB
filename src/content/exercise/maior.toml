@@ -1,0 +1,27 @@
+id = "maior"
+order = 50
+lesson_ids = ["operadores"]
+title = "Encontre o maior"
+statement = "Implemente `maior(a, b)` para devolver o maior dos dois inteiros. Se forem iguais, devolva o valor comum."
+skeleton = '''pub fn maior(a: i32, b: i32) -> i32 {
+    todo!("compare os dois valores")
+}
+'''
+tests = '''#[cfg(test)]
+mod tests {
+    use super::maior;
+
+    #[test]
+    fn escolhe_maior_em_ordem_crescente() { assert_eq!(maior(2, 9), 9); }
+    #[test]
+    fn escolhe_maior_em_ordem_decrescente() { assert_eq!(maior(8, 3), 8); }
+    #[test]
+    fn iguais_e_negativos() { assert_eq!(maior(-4, -4), -4); assert_eq!(maior(-1, -9), -1); }
+}
+'''
+hints = [
+  "Compare os valores com `>`.",
+  "Um `if` pode escolher qual valor devolver.",
+  "Se `a > b`, devolva `a`; caso contrário, devolva `b`.",
+  "Use `if a > b { a } else { b }` como expressão final.",
+]

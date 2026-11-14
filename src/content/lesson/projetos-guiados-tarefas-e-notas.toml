@@ -1,0 +1,43 @@
+id = "projetos-guiados-tarefas-e-notas"
+title = "Projetos guiados: Tarefas, Organizador e Notas CLI"
+estimated_minutes = 10
+
+[[blocks]]
+type = "text"
+text = "Subindo um degrau: construa ferramentas úteis no dia a dia no **Modo Criar** — um **Gerenciador de Tarefas**, um **Organizador de Arquivos** por extensão (`std::fs`) ou um **Bloco de Notas em CLI** que persiste itens em disco."
+
+[[blocks]]
+type = "code"
+file = "src/lib.rs"
+code = """
+#[derive(Debug, PartialEq, Eq)]
+pub struct Tarefa {
+    pub titulo: String,
+    pub concluida: bool,
+}
+
+pub fn adicionar(lista: &mut Vec<Tarefa>, titulo: &str) {
+    if !titulo.trim().is_empty() {
+        lista.push(Tarefa {
+            titulo: titulo.trim().to_string(),
+            concluida: false,
+        });
+    }
+}
+"""
+
+[[blocks]]
+type = "callout"
+kind = "note"
+text = "Sugestão de progressão: comece salvando em arquivo texto simples, depois evolua para subcomandos CLI (`listar`, `adicionar`, `concluir`), documentação `///` e `cargo clippy` limpo (`Ctrl+L`)."
+
+[[blocks]]
+type = "quiz"
+question = "Ao criar um organizador de arquivos CLI, qual cuidado evita sobrescrever arquivos por engano?"
+options = [
+  "Verificar se o destino já existe (`dest.exists()`) antes de mover ou copiar.",
+  "Desligar a checagem de erros com `.unwrap()`.",
+  "Apagar a pasta inteira antes de começar.",
+]
+correct = 0
+why = "Validar existência e permissões preserva dados reais do usuário com segurança."

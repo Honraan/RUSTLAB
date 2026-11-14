@@ -1,0 +1,32 @@
+id = "contar-vogais"
+order = 70
+lesson_ids = ["strings-e-fatias"]
+title = "Contar vogais"
+statement = "Implemente contar_vogais(texto: &str) -> usize retornando quantas vogais ASCII (a, e, i, o, u, maiúsculas ou minúsculas) aparecem no texto. Percorra texto.chars() e normalize com to_ascii_lowercase()."
+skeleton = '''pub fn contar_vogais(texto: &str) -> usize {
+    todo!("conte as vogais ASCII em texto")
+}
+'''
+tests = '''#[cfg(test)]
+mod tests {
+    use super::contar_vogais;
+
+    #[test]
+    fn palavras_com_maiusculas_e_minusculas() {
+        assert_eq!(contar_vogais("RustLab"), 2);
+        assert_eq!(contar_vogais("AEIOUaeiou"), 10);
+    }
+
+    #[test]
+    fn vazio_e_consoantes() {
+        assert_eq!(contar_vogais(""), 0);
+        assert_eq!(contar_vogais("bcdfg123!"), 0);
+    }
+}
+'''
+hints = [
+  "Use `for ch in texto.chars()` para visitar cada caractere UTF-8.",
+  "Converta para minúscula com `ch.to_ascii_lowercase()` antes de comparar.",
+  "Verifique `matches!(c, 'a' | 'e' | 'i' | 'o' | 'u')` e some 1 a um contador `mut`.",
+  "Solução: texto.chars().filter(|c| matches!(c.to_ascii_lowercase(), 'a' | 'e' | 'i' | 'o' | 'u')).count()",
+]

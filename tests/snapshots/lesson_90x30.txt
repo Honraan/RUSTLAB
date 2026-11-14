@@ -1,0 +1,30 @@
+ O que é programar? · Etapa 1 — Primeiro contato · ~5 min                                 
+↑↓ rolar · 1-9 responder · d demonstração · ←→ lições · esc voltar                        
+┌ Explicação · ↑↓ rolar ─────────────────────────────────────────────────────────────────┐
+│Programar é escrever, com palavras muito precisas, uma sequência                        │
+│de instruções que uma máquina executa. Um programa é como uma receita:                  │
+│cada passo deve estar claro, na ordem certa, sem espaço para ambiguidade.               │
+│                                                                                        │
+│A máquina não "adivinha". Se você diz "misture um pouco", ela pergunta                  │
+│(metaforicamente): quanto é um pouco? Programar é aprender a responder                  │
+│essas perguntas com antecedência.                                                       │
+│                                                                                        │
+│ ★ Você não precisa saber matemática avançada nem inglês perfeito para                  │
+│ ★ programar. Precisa de paciência, precisão e curiosidade — três coisas que            │
+│ ★ todo mundo tem.                                                                      │
+│                                                                                        │
+│Toda linguagem de programação oferece um pequeno conjunto de ferramentas:               │
+└────────────────────────────────────────────────────────────────────────────────────────┘
+┌ Tarefa & Quiz · Tab abrir Mini-IDE (B-T01-P) ────────────────┐┌ Ferris ────────────────┐
+│? Qual frase melhor descreve um programa?                     ││c(o.o)c  Ferris         │
+│1  Um desenho que mostra a forma de um site.                  ││observando              │
+│2  Uma sequência precisa de instruções que a máquina executa. ││Leia a lição e pratique │
+│3  Um arquivo que guarda fotos e documentos.                  ││abaixo.                 │
+│4  Um botão que instala outros programas.                     ││XP possível: 100+100    │
+│responda com as teclas 1 a 4                                  ││(sem dicas)             │
+│                                                              ││                        │
+│→ Mini-IDE B-T01-P: pressione Tab para escrever e rodar com   ││                        │
+└──────────────────────────────────────────────────────────────┘└────────────────────────┘
+                                    1/30 · leitura 0%                                     
+RustLab  · Tab/e praticar  · ↑↓ ler  · 1-9 responder  · d demo  · m mentor  · ←/→ lição  ·
+esc voltar                                                                                

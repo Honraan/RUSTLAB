@@ -1,0 +1,33 @@
+id = "primeira-palavra"
+order = 90
+lesson_ids = ["borrowing-e-referencias", "strings-e-fatias"]
+title = "Primeira palavra"
+statement = "Implemente primeira_palavra(frase: &str) -> &str devolvendo uma fatia (&str) com a primeira palavra da frase (ignorando espaços iniciais). Se a frase estiver vazia ou tiver só espaços, retorne \"\"."
+skeleton = '''pub fn primeira_palavra(frase: &str) -> &str {
+    todo!("devolva a primeira palavra sem alocar String")
+}
+'''
+tests = '''#[cfg(test)]
+mod tests {
+    use super::primeira_palavra;
+
+    #[test]
+    fn frases_normais_e_espacos() {
+        assert_eq!(primeira_palavra("olá mundo rust"), "olá");
+        assert_eq!(primeira_palavra("   ferris caranguejo"), "ferris");
+        assert_eq!(primeira_palavra("unica"), "unica");
+    }
+
+    #[test]
+    fn string_vazia_ou_brancos() {
+        assert_eq!(primeira_palavra(""), "");
+        assert_eq!(primeira_palavra("   \t  "), "");
+    }
+}
+'''
+hints = [
+  "Você não precisa alocar `String`: os métodos de `&str` já retornam fatias `&str`.",
+  "`.trim_start()` remove espaços iniciais; `.split_whitespace()` separa palavras.",
+  "`frase.split_whitespace().next()` retorna `Option<&str>` com a primeira palavra.",
+  "Solução: frase.split_whitespace().next().unwrap_or(\"\")",
+]

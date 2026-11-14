@@ -1,0 +1,6 @@
+id = "etapa-3"
+title = "Etapa 3 — Trabalhando com dados"
+summary = "Strings, fatias (&str), tuplas, arrays, vetores e mapas para guardar e percorrer informação."
+order = 3
+status = "available"
+lessons = ["strings-e-fatias", "tuplas-arrays-e-vetores", "colecoes-e-iteracao"]

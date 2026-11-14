@@ -1,0 +1,29 @@
+id = "soma"
+order = 10
+lesson_ids = ["operadores"]
+title = "Some dois números"
+statement = "Implemente `soma(a, b)` para devolver a soma de dois valores i32. Não imprima: a função deve retornar o resultado. Cargo test verifica valores positivos, zero e negativos."
+skeleton = '''pub fn soma(a: i32, b: i32) -> i32 {
+    todo!("implemente a soma")
+}
+'''
+tests = '''#[cfg(test)]
+mod tests {
+    use super::soma;
+
+    #[test]
+    fn soma_positivos() { assert_eq!(soma(2, 3), 5); }
+
+    #[test]
+    fn soma_com_zero() { assert_eq!(soma(0, 7), 7); }
+
+    #[test]
+    fn soma_negativos() { assert_eq!(soma(-4, 1), -3); }
+}
+'''
+hints = [
+  "O operador `+` produz um novo valor; a função precisa devolvê-lo.",
+  "O corpo pode ser uma expressão: `a + b`.",
+  "Substitua `todo!(...)` por `a + b`.",
+  "Implementação completa: `pub fn soma(a: i32, b: i32) -> i32 { a + b }`.",
+]

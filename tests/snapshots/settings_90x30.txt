@@ -1,0 +1,30 @@
+╭ Configurações ─────────────────────────────────────────────────────────────────────────╮
+│▶   Tema                      Cuia                                                      │
+│    Animações                 Completas                                                 │
+│    Alertas sonoros           Ativados                                                  │
+│    Volume do som de XP       70% (tom suave)                                           │
+│    Efeitos de gamificação    Visíveis                                                  │
+│    Mentor de IA              Desligado (guia local determinístico)                     │
+│    Modelo Ollama (local)     qwen2.5-coder:3b (←/→ alternar · r buscar no Ollama)      │
+│                                                                                        │
+│                                                                                        │
+│                                                                                        │
+│                                                                                        │
+│                                                                                        │
+│                                                                                        │
+│                                                                                        │
+│                                                                                        │
+│                                                                                        │
+│                                                                                        │
+│                                                                                        │
+│                                                                                        │
+│                                                                                        │
+│                                                                                        │
+│                                                                                        │
+│                                                                                        │
+╰────────────────────────────────────────────────────────────────────────────────────────╯
+╭ Dispositivo de áudio detectado ────────────────────────────────────────────────────────╮
+│○ Nenhum subsistema de áudio detectado —                                                │
+╰────────────────────────────────────────────────────────────────────────────────────────╯
+Use ←/→ para navegar e ajustar — tudo salva automaticamente                               
+RustLab  · ↑↓ navegar  · ←/→ ou h/l ajustar  · esc voltar                                 

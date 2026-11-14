@@ -1,0 +1,30 @@
+ Tipos numéricos e texto · Etapa 2 — Programação básica · ~8 min                          
+↑↓ rolar · 1-9 responder · d demonstração · ←→ lições · esc voltar                        
+ e praticar · 1 exercício(s): Média sem perder a fração                                   
+┌ Explicação · ↑↓ rolar ─────────────────────────────────────────────────────────────────┐
+│Rust tem tipos explícitos e vários sabores de número. Os principais:                    │
+│                                                                                        │
+│  inteiros com sinal:   i8 i16 i32 i64 i128   (podem ser negativos)                     │
+│  inteiros sem sinal:   u8 u16 u32 u64 u128   (só 0 para cima)                          │
+│  tamanho de memória:   usize                  (números de itens, índices)              │
+│  ponto flutuante:      f32 f64                (números com casa decimal)               │
+│                                                                                        │
+│Quando você escreve 25 sem nada, o compilador escolhe i32 por padrão.                   │
+│Quando escreve 1.8, escolhe f64.                                                        │
+│                                                                                        │
+│  ▚ src/main.rs                                                                         │
+│  1 │ fn main() {                                                                       │
+└────────────────────────────────────────────────────────────────────────────────────────┘
+┌ Tarefa & Quiz · Tab abrir Mini-IDE (M01-T01-P) ──────────────┐┌ Ferris ────────────────┐
+│? Você precisa guardar quantos itens há numa lista (nunca     ││c(o.o)c  Ferris         │
+│negativo, e a lista pode ser enorme). Melhor tipo?            ││observando              │
+│1  i8                                                         ││Leia a lição e pratique │
+│2  u8                                                         ││abaixo.                 │
+│3  usize                                                      ││XP possível: 100+100    │
+│4  f64                                                        ││(sem dicas)             │
+│responda com as teclas 1 a 4                                  ││                        │
+│                                                              ││                        │
+└──────────────────────────────────────────────────────────────┘└────────────────────────┘
+                                    8/30 · leitura 0%                                     
+RustLab  · Tab/e praticar  · ↑↓ ler  · 1-9 responder  · d demo  · m mentor  · ←/→ lição  ·
+esc voltar                                                                                

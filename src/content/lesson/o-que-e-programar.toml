@@ -1,0 +1,45 @@
+id = "o-que-e-programar"
+title = "O que é programar?"
+estimated_minutes = 5
+
+[[blocks]]
+type = "text"
+text = """Programar é escrever, com palavras muito precisas, uma sequência
+de instruções que uma máquina executa. Um programa é como uma receita:
+cada passo deve estar claro, na ordem certa, sem espaço para ambiguidade.
+
+A máquina não "adivinha". Se você diz "misture um pouco", ela pergunta
+(metaforicamente): quanto é um pouco? Programar é aprender a responder
+essas perguntas com antecedência."""
+
+[[blocks]]
+type = "callout"
+kind = "tip"
+text = """Você não precisa saber matemática avançada nem inglês perfeito para
+programar. Precisa de paciência, precisão e curiosidade — três coisas que
+todo mundo tem."""
+
+[[blocks]]
+type = "text"
+text = """Toda linguagem de programação oferece um pequeno conjunto de ferramentas:
+
+  · GUARDE informações (variáveis)
+  · DECIDA entre caminhos (condições)
+  · REPITA tarefas (laços)
+  · ORGANIZE passos reutilizáveis (funções)
+
+O resto — aplicativos, jogos, sistemas — é combinação dessas quatro peças.
+Neste curso, você vai dominar cada uma delas em Rust."""
+
+[[blocks]]
+type = "quiz"
+question = "Qual frase melhor descreve um programa?"
+options = [
+    "Um desenho que mostra a forma de um site.",
+    "Uma sequência precisa de instruções que a máquina executa.",
+    "Um arquivo que guarda fotos e documentos.",
+    "Um botão que instala outros programas.",
+]
+correct = 1
+why = """Programa = instruções precisas, em ordem, que o computador executa.
+Desenhos são design, arquivos de fotos são dados, instaladores são... programas!"""

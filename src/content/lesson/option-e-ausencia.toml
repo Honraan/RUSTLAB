@@ -1,0 +1,37 @@
+id = "option-e-ausencia"
+title = "Option e ausência explícita"
+estimated_minutes = 7
+
+[[blocks]]
+type = "text"
+text = "Rust não tem `null` solto. Quando um valor pode legitimamente faltar, usamos `Option<T>` (`Some(T)` ou `None`). Isso força o código a decidir o que fazer no caso ausente com `match`, `if let` ou `.unwrap_or(...)`."
+
+[[blocks]]
+type = "code"
+file = "src/main.rs"
+code = """
+fn buscar_par(nums: &[i32]) -> Option<i32> {
+    for &n in nums {
+        if n % 2 == 0 {
+            return Some(n);
+        }
+    }
+    None
+}
+
+fn main() {
+    let valor = buscar_par(&[1, 3, 8]).unwrap_or(0);
+    println!("encontrado: {valor}");
+}
+"""
+
+[[blocks]]
+type = "quiz"
+question = "Quando devemos preferir `Option<T>` em vez de retornar um número mágico como `-1`?"
+options = [
+  "Sempre que a ausência de resultado for possível: o sistema de tipos impede esquecer o caso `None`.",
+  "Apenas quando o tipo `T` for booleano.",
+  "Nunca; `-1` é verificado pelo compilador.",
+]
+correct = 0
+why = "`Option<T>` torna a possibilidade de ausência parte da assinatura da função."

@@ -1,0 +1,37 @@
+id = "cli-configuracao-e-serde"
+title = "CLI, configuração e serialização"
+estimated_minutes = 8
+
+[[blocks]]
+type = "text"
+text = "Aplicações reais de terminal leem argumentos (`std::env::args()`), respeitam diretórios de configuração do usuário e serializam dados com `serde` + `toml`/`json`. No Modo Criar do RustLab você adiciona crates ao projeto com `F9` (`cargo add`)."
+
+[[blocks]]
+type = "code"
+file = "src/main.rs"
+code = """
+fn main() {
+    let args: Vec<String> = std::env::args().skip(1).collect();
+    if args.is_empty() {
+        println!("Uso: meu_app <arquivo>");
+        return;
+    }
+    println!("Argumentos recebidos: {:?}", args);
+}
+"""
+
+[[blocks]]
+type = "callout"
+kind = "tip"
+text = "Use `serde::Serialize` e `serde::Deserialize` com `#[serde(default)]` em structs de configuração para manter compatibilidade quando novos campos forem adicionados."
+
+[[blocks]]
+type = "quiz"
+question = "Por que pulamos o primeiro item em `std::env::args().skip(1)`?"
+options = [
+  "Porque o índice 0 normalmente contém o caminho/nome do próprio executável.",
+  "Porque Rust descarta strings pares.",
+  "Porque o índice 0 é reservado à senha do sistema.",
+]
+correct = 0
+why = "`argv[0]` identifica o binário invocado; os argumentos do usuário começam a partir do segundo item."

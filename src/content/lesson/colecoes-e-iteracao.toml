@@ -1,0 +1,41 @@
+id = "colecoes-e-iteracao"
+title = "Coleções e iteração segura"
+estimated_minutes = 7
+
+[[blocks]]
+type = "text"
+text = "Além de `Vec<T>`, a biblioteca padrão oferece `HashMap<K, V>` para associar chaves a valores e `.get(idx)` para acessar elementos sem risco de pânico fora dos limites."
+
+[[blocks]]
+type = "code"
+file = "src/main.rs"
+code = """
+use std::collections::HashMap;
+
+fn main() {
+    let mut pontos = HashMap::new();
+    pontos.insert("Ana", 12);
+    pontos.insert("Bia", 18);
+
+    for (nome, valor) in &pontos {
+        println!("{nome}: {valor}");
+    }
+    println!("Primeiro seguro: {:?}", [10, 20].get(5));
+}
+"""
+
+[[blocks]]
+type = "callout"
+kind = "note"
+text = "Usar `for x in &colecao` percorre os itens por empréstimo, mantendo a coleção viva após o laço."
+
+[[blocks]]
+type = "quiz"
+question = "Por que `lista.get(99)` é mais seguro que `lista[99]` quando o índice pode estar fora dos limites?"
+options = [
+  "`get` retorna `Option`, devolvendo `None` em vez de causar pânico.",
+  "`get` sempre cria novos zeros até alcançar o índice.",
+  "`get` ignora o sistema de tipos.",
+]
+correct = 0
+why = "`slice::get` retorna `Some(&item)` ou `None`, evitando abortar o programa."

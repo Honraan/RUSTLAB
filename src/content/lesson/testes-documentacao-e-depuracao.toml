@@ -1,0 +1,39 @@
+id = "testes-documentacao-e-depuracao"
+title = "Testes, documentação e depuração"
+estimated_minutes = 7
+
+[[blocks]]
+type = "text"
+text = "Código confiável traz testes automatizados com `#[test]`, documentação inline com `///` (processada pelo `cargo doc` / hover da IDE) e diagnósticos limpos com `dbg!(&valor)` e `cargo clippy`."
+
+[[blocks]]
+type = "code"
+file = "src/lib.rs"
+code = """
+/// Soma dois inteiros garantindo legibilidade no Rustdoc.
+pub fn somar(a: i32, b: i32) -> i32 {
+    a + b
+}
+
+#[cfg(test)]
+mod tests {
+    use super::somar;
+
+    #[test]
+    fn soma_positivos_e_negativos() {
+        assert_eq!(somar(2, 3), 5);
+        assert_eq!(somar(-4, 4), 0);
+    }
+}
+"""
+
+[[blocks]]
+type = "quiz"
+question = "Qual comando do Cargo verifica erros de lógica comuns e sugestões idiomáticas além dos erros básicos de compilação?"
+options = [
+  "`cargo clippy`",
+  "`cargo init`",
+  "`cargo clean`",
+]
+correct = 0
+why = "`cargo clippy` é o linter oficial de Rust; no Modo Criar você pode rodá-lo com Ctrl+L ou Alt+C."

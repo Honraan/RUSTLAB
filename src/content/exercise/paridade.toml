@@ -1,0 +1,27 @@
+id = "paridade"
+order = 40
+lesson_ids = ["operadores"]
+title = "Descubra se é par"
+statement = "Implemente `eh_par(n)`: retorne `true` quando o inteiro for divisível por 2 e `false` caso contrário. O exercício inclui números negativos e zero."
+skeleton = '''pub fn eh_par(n: i32) -> bool {
+    todo!("verifique a divisibilidade por 2")
+}
+'''
+tests = '''#[cfg(test)]
+mod tests {
+    use super::eh_par;
+
+    #[test]
+    fn zero_e_par() { assert!(eh_par(0)); }
+    #[test]
+    fn positivos() { assert!(eh_par(8)); assert!(!eh_par(7)); }
+    #[test]
+    fn negativos() { assert!(eh_par(-4)); assert!(!eh_par(-3)); }
+}
+'''
+hints = [
+  "O resto da divisão inteira é calculado com `%`.",
+  "Um número é divisível por 2 quando `n % 2` é igual a zero.",
+  "A expressão booleana `n % 2 == 0` já produz `bool`.",
+  "Retorne `n % 2 == 0`.",
+]

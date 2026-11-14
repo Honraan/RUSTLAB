@@ -1,0 +1,60 @@
+id = "tipos-numericos"
+title = "Tipos numéricos e texto"
+estimated_minutes = 8
+
+[[blocks]]
+type = "text"
+text = """Rust tem tipos explícitos e vários sabores de número. Os principais:
+
+  inteiros com sinal:   i8 i16 i32 i64 i128   (podem ser negativos)
+  inteiros sem sinal:   u8 u16 u32 u64 u128   (só 0 para cima)
+  tamanho de memória:   usize                  (números de itens, índices)
+  ponto flutuante:      f32 f64                (números com casa decimal)
+
+Quando você escreve 25 sem nada, o compilador escolhe i32 por padrão.
+Quando escreve 1.8, escolhe f64."""
+
+[[blocks]]
+type = "code"
+file = "src/main.rs"
+code = '''
+fn main() {
+    let pontos: i32 = -10;
+    let idade: u8 = 25;
+    let altura: f64 = 1.80;
+    let total_de_itens: usize = idade as usize + 3;
+    println!("{pontos} {idade} {altura:.2} {total_de_itens}");
+}
+'''
+explain = """:tipo   → quando NÃO quer deixar o compilador escolher, declare.
+u8 segura 0 a 255 (idade cabe; -1 não). i32 segura negativos.
+as usize → conversão explícita: Rust nunca mistura tipos numéricos
+silenciosamente; você converte, e a conversão fica visível no código.
+{altura:.2} → duas casas decimais na impressão (formatador)."""
+
+[[blocks]]
+type = "text"
+text = """Em Rust, "texto" tem dois tipos fundamentais — e a distinção aparece
+de novo na Etapa 3/4:
+
+  &str  → fatia de texto emprestada, tamanho fixo (literal como "oi")
+  String → texto na pilha, pode crescer (String::from("oi"))
+
+Por enquanto: aspas duplas produzem &str, e println! aceita os dois."""
+
+[[blocks]]
+type = "callout"
+kind = "note"
+text = """u8 para idade é uma escolha de projeto (1 byte, 0-255). i32 é o padrão
+sensato para contagens do dia a dia, usize para tamanhos e índices.
+Na dúvida entre i32 e u32, comece com i32 — você ajusta mais tarde,
+e o compilador aprova cada ajuste."""
+
+[[blocks]]
+type = "quiz"
+question = "Você precisa guardar quantos itens há numa lista (nunca negativo, e a lista pode ser enorme). Melhor tipo?"
+options = ["i8", "u8", "usize", "f64"]
+correct = 2
+why = """usize é o tipo para contagens/índices: nunca negativo, cresce conforme a
+máquina (64 bits em máquinas comuns). i8/u8 estourariam; f64 é para
+medidas com casas decimais, não para contagem de itens."""

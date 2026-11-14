@@ -1,0 +1,6 @@
+id = "etapa-8"
+title = "Etapa 8 — Desenvolvimento real"
+summary = "Aplicações CLI, configuração, serialização, rede básica e programação assíncrona."
+order = 8
+status = "available"
+lessons = ["cli-configuracao-e-serde", "rede-e-programacao-assincrona"]

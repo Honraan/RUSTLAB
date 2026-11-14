@@ -1,0 +1,6 @@
+id = "etapa-2"
+title = "Etapa 2 — Programação básica"
+summary = "Variáveis, mutabilidade, tipos, operadores, fluxo e funções: os tijolos de todo programa."
+order = 2
+status = "available"
+lessons = ["variaveis", "mutabilidade", "tipos-numericos", "operadores", "condicoes-lacos-e-funcoes"]

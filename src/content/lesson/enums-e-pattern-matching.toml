@@ -1,0 +1,44 @@
+id = "enums-e-pattern-matching"
+title = "Enums e pattern matching"
+estimated_minutes = 7
+
+[[blocks]]
+type = "text"
+text = "`enum` modela um valor que só pode estar em **um entre vários estados válidos**. Cada variante pode carregar seus próprios dados. Com `match`, o compilador exige que você trate **todas** as variantes possíveis."
+
+[[blocks]]
+type = "code"
+file = "src/main.rs"
+code = """
+enum Comando {
+    Mover { x: i32, y: i32 },
+    Pausar,
+}
+
+fn executar(cmd: Comando) {
+    match cmd {
+        Comando::Mover { x, y } => println!("indo para ({x}, {y})"),
+        Comando::Pausar => println!("pausado"),
+    }
+}
+
+fn main() {
+    executar(Comando::Mover { x: 2, y: 3 });
+}
+"""
+
+[[blocks]]
+type = "callout"
+kind = "tip"
+text = "Se você adicionar uma nova variante ao `enum`, o compilador aponta imediatamente todos os `match` que precisam ser atualizados."
+
+[[blocks]]
+type = "quiz"
+question = "Qual garantia principal o `match` oferece ao lidar com um `enum`?"
+options = [
+  "Exaustividade: todos os casos possíveis precisam ser cobertos.",
+  "Executa todas as variantes em paralelo.",
+  "Ignora variantes não tratadas em silêncio.",
+]
+correct = 0
+why = "`match` em Rust é exaustivo, prevenindo esquecimento de estados."

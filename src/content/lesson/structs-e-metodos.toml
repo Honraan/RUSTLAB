@@ -1,0 +1,39 @@
+id = "structs-e-metodos"
+title = "Structs e métodos"
+estimated_minutes = 7
+
+[[blocks]]
+type = "text"
+text = "`struct` agrupa campos relacionados em um único tipo com significado claro. Blocos `impl` associam métodos (`&self`, `&mut self`) e construtores (`Self::novo`) diretamente ao tipo."
+
+[[blocks]]
+type = "code"
+file = "src/main.rs"
+code = """
+struct Retangulo {
+    largura: u32,
+    altura: u32,
+}
+
+impl Retangulo {
+    fn area(&self) -> u32 {
+        self.largura * self.altura
+    }
+}
+
+fn main() {
+    let r = Retangulo { largura: 4, altura: 5 };
+    println!("área = {}", r.area());
+}
+"""
+
+[[blocks]]
+type = "quiz"
+question = "Em um método `fn area(&self) -> u32`, o que `&self` indica?"
+options = [
+  "Que o método consome e destrói a struct ao terminar.",
+  "Que o método empresta a instância atual apenas para leitura.",
+  "Que `area` não tem acesso aos campos da struct.",
+]
+correct = 1
+why = "`&self` é um empréstimo imutável da própria instância, mantendo o chamador dono da struct."

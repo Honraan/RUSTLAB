@@ -1,0 +1,63 @@
+id = "hello-world"
+title = "Olá, mundo! — seu primeiro programa"
+estimated_minutes = 7
+
+[[blocks]]
+type = "text"
+text = """Todo curso de programação começa igual: fazemos o computador dizer
+"Olá, mundo!". É o "ola" do programa ao mundo — e prova que as três
+peças funcionam: você escreveu, o compilador tradziu, a máquina executou.
+
+Em Rust, um programa mínimo tem exatamente esta forma:"""
+
+[[blocks]]
+type = "code"
+file = "src/main.rs"
+code = '''
+fn main() {
+    println!("Olá, mundo!");
+}
+'''
+explain = """fn main() { ... }  é a porta de entrada: todo programa Rust começa a
+executar pela função main. As chaves { } delimitam o corpo — os passos.
+
+println!(...)  mostra uma linha de texto na tela. O ! indica que é uma
+macro (um atalho inteligente do compilador) — ainda falaremos delas.
+O texto entre aspas é exatamente o que será impresso."""
+
+[[blocks]]
+type = "text"
+text = """Para compilar e rodar este programa, na vida real você usaria:
+
+  $ cargo new ola_mundo      # cria o projeto
+  $ cd ola_mundo
+  $ cargo run                # compila e executa
+
+O que veria na tela:"""
+
+[[blocks]]
+type = "code"
+file = "saída do terminal"
+code = '''Olá, mundo!
+'''
+
+[[blocks]]
+type = "callout"
+kind = "note"
+text = """A partir da Fase 3, o botão Executar existirá dentro desta lição.
+Por enquanto, leia e antecipe mentalmente a saída — é um ótimo exercício:
+programadores fazem o compilador "por dentro" o tempo todo."""
+
+[[blocks]]
+type = "quiz"
+question = "Por que o programa acima usa fn main()?"
+options = [
+    "Porque main é obrigatória em qualquer arquivo Rust, até bibliotecas.",
+    "Porque main é o ponto de entrada: o programa começa a rodar nela.",
+    "Porque println! só funciona dentro de uma função chamada main.",
+    "Porque sem main o programa imprime apenas 'erro'.",
+]
+correct = 1
+why = """Todo programa executável começa pela função main — é a convenção que
+o sistema usa para saber onde dar o primeiro passo. Bibliotecas Rust
+podem não ter main."""

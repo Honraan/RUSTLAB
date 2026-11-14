@@ -1,0 +1,30 @@
+┌ Enunciado · F9 rolar · Shift+F9 subir ─────────────────────────────────────────────────┐
+│Some dois números                                                                       │
+│Implemente `soma(a, b)` para devolver a soma de dois valores i32. Não imprima: a função │
+│deve retornar o resultado. Cargo test verifica valores positivos, zero e negativos.     │
+└────────────────────────────────────────────────────────────────────────────────────────┘
+┌ Seu código · Ctrl+S salvar · F5 testar ─────────────────────┐┌ Dicas · F4/Shift+F4 rola┐
+│  1 │ pub fn soma(a: i32, b: i32) -> i32 {                   ││Dica 1/4 · 2 reveladas   │
+│  2 │     todo!("implemente a soma")                         ││O operador `+` produz um │
+│  3 │ }                                                      ││novo valor; a função     │
+│  4 │                                                        ││precisa devolvê-lo.      │
+│                                                             ││                         │
+│                                                             │└─────────────────────────┘
+│                                                             │┌ Ferris ─────────────────┐
+│                                                             ││c(o,x,o)c Quase lá!      │
+│                                                             ││Dicas: 2 (bônus indep.   │
+│                                                             ││usado)                   │
+└─────────────────────────────────────────────────────────────┘└─────────────────────────┘
+┌ Resultado · PgUp/PgDn · 10 linhas acima ───────────────────────────────────────────────┐
+│✗ Um ou mais testes falharam                                                            │
+│Diagnóstico de teste: linha 13                                                          │
+│Diagnóstico de teste: linha 14                                                          │
+│Diagnóstico de teste: linha 15                                                          │
+│Diagnóstico de teste: linha 16                                                          │
+│Diagnóstico de teste: linha 17                                                          │
+│Diagnóstico de teste: linha 18                                                          │
+│Diagnóstico de teste: linha 19                                                          │
+│Diagnóstico de teste: linha 20                                                          │
+└────────────────────────────────────────────────────────────────────────────────────────┘
+RustLab  · F5 testar  · F1 dica  · F2/F3 rever dicas  · F4/Shift+F4 rolar dica  ·         
+F9/Shift+F9 enunciado  · PgUp/PgDn saída  · Ctrl+S salvar  · Ctrl+K cancelar  · Esc voltar

@@ -1,0 +1,12 @@
+id = "etapa-1"
+title = "Etapa 1 — Primeiro contato"
+summary = "O que é programar, como um programa roda e o seu primeiro programa em Rust."
+order = 1
+status = "available"
+lessons = [
+    "o-que-e-programar",
+    "como-um-programa-executa",
+    "conhecendo-o-rust",
+    "hello-world",
+    "anatomia-do-hello-world",
+]

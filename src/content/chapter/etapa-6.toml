@@ -1,0 +1,6 @@
+id = "etapa-6"
+title = "Etapa 6 — Software confiável"
+summary = "Option, Result, tratamento explícito de erros, testes automatizados e documentação."
+order = 6
+status = "available"
+lessons = ["option-e-ausencia", "result-e-propagacao", "testes-documentacao-e-depuracao"]

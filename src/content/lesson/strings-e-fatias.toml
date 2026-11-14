@@ -1,0 +1,49 @@
+id = "strings-e-fatias"
+title = "Strings e fatias (&str)"
+estimated_minutes = 6
+
+[[blocks]]
+type = "text"
+text = "Rust possui dois tipos principais de texto UTF-8: `String` (dona dos bytes no heap, cresce quando precisar) e `&str` (uma janela emprestada para um texto já existente, como literais `\"olá\"`)."
+
+[[blocks]]
+type = "code"
+file = "src/main.rs"
+code = """
+fn saudacao(nome: &str) -> String {
+    format!("Olá, {nome}!")
+}
+
+fn main() {
+    let mut frase = saudacao("RustLab");
+    frase.push_str(" Vamos programar.");
+    println!("{frase} (bytes: {})", frase.len());
+}
+"""
+
+[[blocks]]
+type = "demo"
+demo = "stack-heap"
+name = "String"
+caption = "Stack guarda ponteiro/tamanho/capacidade; Heap guarda os bytes"
+steps = [
+  "Stack: ptr -> Heap: [R,u,s,t] (len=4, cap=4)",
+  "push_str(\"!\") -> Heap realoca se faltar capacidade",
+  "Ao sair do escopo da função dona, Heap é liberado",
+]
+
+[[blocks]]
+type = "callout"
+kind = "tip"
+text = "Prefira aceitar `&str` nos parâmetros de leitura: assim você atende tanto literais `\"abc\"` quanto `&minha_string` sem copiar memória."
+
+[[blocks]]
+type = "quiz"
+question = "Qual diferença prática entre `String` e `&str`?"
+options = [
+  "`String` pode crescer e é dona do texto; `&str` apenas aponta para texto emprestado.",
+  "`&str` suporta acentos UTF-8 e `String` só aceita ASCII.",
+  "Os dois são idênticos e trocáveis sem diferença.",
+]
+correct = 0
+why = "`String` gerencia alocação mutável no heap; `&str` empresta uma fatia sem assumir posse."

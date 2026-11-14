@@ -1,0 +1,23 @@
+id = "projeto-independente-qualidade-e-entrega"
+title = "Projeto independente: Testes, Clippy e Entrega"
+estimated_minutes = 8
+
+[[blocks]]
+type = "text"
+text = "Ao desenvolver seu projeto original no Modo Criar, cada execução real bem-sucedida (`F4` Build / `F7` Check, `Ctrl+L` Clippy, `F6` Test, `F5` Run) somada ao `PLANO.md` e testes `#[test]` registra **marcos reais de capacidade** na sua tela Progresso."
+
+[[blocks]]
+type = "callout"
+kind = "note"
+text = "Lembre-se do fluxo profissional em Rust: `F8` (`cargo fmt`) para estilo consistente, `Ctrl+L`/`Alt+C` (`cargo clippy`) para boas práticas, `F1`/`F11` para navegar símbolos e `Ctrl+T` se quiser uma segunda opinião do Mentor."
+
+[[blocks]]
+type = "quiz"
+question = "Qual sequência de verificação garante entrega sólida de um projeto Rust?"
+options = [
+  "Formatar (`cargo fmt`), checar avisos (`cargo clippy`), rodar testes (`cargo test`) e executar (`cargo run`).",
+  "Apagar `Cargo.toml` para compilar mais rápido.",
+  "Evitar escrever qualquer teste `#[test]`.",
+]
+correct = 0
+why = "Estilo, lints, suíte de testes e execução real formam o ciclo completo de qualidade em Rust."

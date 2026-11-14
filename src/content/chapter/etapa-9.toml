@@ -1,0 +1,6 @@
+id = "etapa-9"
+title = "Etapa 9 — Projetos guiados"
+summary = "Roteiros práticos de dificuldade crescente (calculadora, jogo, tarefas, organizador e notas)."
+order = 9
+status = "available"
+lessons = ["projetos-guiados-calculadora-e-jogo", "projetos-guiados-tarefas-e-notas"]

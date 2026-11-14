@@ -1,0 +1,30 @@
+┌ Modo Criar · Projetos Cargo ───────────────────────────────────────────────────────────┐
+│  Criar projeto novo  (pasta padrão · d escolhe pasta)                                  │
+│  Abrir projeto Cargo por caminho                                                       │
+│  Reabrir último projeto  (nenhum salvo)                                                │
+│› Recente: /projetos/calculadora                                                        │
+│  Recente: /projetos/jogo                                                               │
+│                                                                                        │
+│                                                                                        │
+│                                                                                        │
+│                                                                                        │
+│                                                                                        │
+│                                                                                        │
+│                                                                                        │
+│                                                                                        │
+│                                                                                        │
+│                                                                                        │
+│                                                                                        │
+│                                                                                        │
+│                                                                                        │
+│                                                                                        │
+│                                                                                        │
+│                                                                                        │
+│                                                                                        │
+│                                                                                        │
+│                                                                                        │
+│                                                                                        │
+│                                                                                        │
+│                                                                                        │
+└────────────────────────────────────────────────────────────────────────────────────────┘
+· ↑↓ escolher ação  · d alterar pasta  · Enter confirmar/abrir  · Esc voltar ao menu      

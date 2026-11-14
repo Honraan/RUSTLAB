@@ -1,0 +1,30 @@
+                  [ ▲ Bibliotecas (F9) ]    [ Compilar Linux/Win (F4) ]                   
+┌ Arquivos ──────────┐┌ sem arquivo ───────────────────┐┌ Console ───────────────────────┐
+│                    ││ 1                              ││                                │
+│                    ││                                ││                                │
+│   ┌ ▼ Bibliotecas Visuais, Efeitos & Mini Engine ──────────────────────────────────┐   │
+│   │Clique/Enter adiciona · T insere template · D abre docs · Esc fecha             │   │
+│   │▶ macroquad (0.4)           ┌ Documentação da Biblioteca ──────────────────────┐│   │
+│   │  bevy (0.20)               │macroquad · Mini Engine de Jogos 2D               ││   │
+│   │  minifb (0.27)             │Engine leve estilo game loop (Pong, plataforma,   ││   │
+│   │  eframe (0.31)             │arcade) com janela, formas 2D, texto e            ││   │
+│   │  tachyonfx (0.11)          │teclado/mouse sem setup complicado.               ││   │
+│   │  rand (0.9)                │                                                  ││   │
+│   │  rodio (0.20)              │Como funciona: Abre uma janela gráfica própria    ││   │
+│   │                            │(Linux e Windows). Use #[macroquad::main("Jogo")] ││   │
+│   │                            │async fn main(), desenhe com                      ││   │
+│   │                            │draw_rectangle/draw_circle/draw_text, leia teclas ││   │
+│   │                            │com is_key_down e finalize o frame com            ││   │
+│   │                            │next_frame().await.                               ││   │
+│   │                            │Inserção automática: use macroquad::prelude::*;   ││   │
+│   │                            │Símbolos principais: clear_background,            ││   │
+│   │                            │draw_circle, draw_rectangle, draw_line, draw_text,││   │
+│   │                            └──────────────────────────────────────────────────┘│───┘
+│   │[ Docs: https://docs.rs/macroquad/latest/macroquad/ ] (clique ou D)             │───┐
+│   └────────────────────────────────────────────────────────────────────────────────┘   │
+│                    ││                                ││                                │
+│                    ││                                ││                                │
+│                    ││                                ││                                │
+└────────────────────┘└────────────────────────────────┘└────────────────────────────────┘
+· F5 Executar  · Ctrl+S Salvar  · F4 Compilar (Linux/Win)  · F6 Testar  · Alt+A Agente IA 
+· F9 Bibliotecas (▼)  · F1 Doc/Ajuda  · Shift+Tab Foco  · Esc Fechar projeto              

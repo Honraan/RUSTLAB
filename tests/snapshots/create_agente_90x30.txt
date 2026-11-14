@@ -1,0 +1,30 @@
+                  [ ▼ Bibliotecas (F9) ]    [ Compilar Linux/Win (F4) ]                   
+┌ Arquivos ──────┐┌ sem arquivo ───────┐┌ Console ──────────┐┌ Agente · Ollama · qwen2.5-┐
+│                ││ 1 fn main() {      ││                   ││Antigravity: Chat lateral  │
+│                ││ 2     todo!()      ││                   ││pronto! Peça funções,      │
+│                ││ 3 }                ││                   ││correções ou testes.       │
+│                ││ 4                  ││                   ││Atalhos: /modelo (Alt+O) · │
+│                ││                    ││                   ││/corrigir · /testes ·      │
+│                ││                    ││                   ││/revisar · /aplicar        │
+│                ││                    ││                   ││(Alt+Enter) · /limpar.     │
+│                ││                    ││                   ││                           │
+│                ││                    ││                   ││Você: implemente olá mundo │
+│                ││                    ││                   ││                           │
+│                ││                    ││                   ││Antigravity: Sugestão para │
+│                ││                    ││                   ││`main`:                    │
+│                ││                    ││                   ││```rust                    │
+│                ││                    ││                   ││fn main() {                │
+│                ││                    ││                   ││    println!("Olá,         │
+│                ││                    ││                   ││RustLab!");                │
+│                ││                    ││                   ││}                          │
+│                ││                    ││                   ││```                        │
+│                ││                    ││                   ││                           │
+│                ││                    │└───────────────────┘│                           │
+│                ││                    │┌ Diagnósticos · índ┐│                           │
+│                ││                    ││Sem diagnósticos   ││★ Código pronto: Alt+Enter │
+│                ││                    ││                   ││> _                        │
+│                ││                    ││                   ││Enter envia · Alt+O modelo │
+│                ││                    ││                   ││· Alt+Enter aplicar · Esc  │
+└────────────────┘└────────────────────┘└───────────────────┘└───────────────────────────┘
+· F5 Executar  · Ctrl+S Salvar  · F4 Compilar (Linux/Win)  · F6 Testar  · Alt+A Agente IA 
+· F9 Bibliotecas (▼)  · F1 Doc/Ajuda  · Shift+Tab Foco  · Esc Fechar projeto              

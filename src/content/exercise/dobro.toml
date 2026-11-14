@@ -1,0 +1,26 @@
+id = "dobro"
+order = 20
+lesson_ids = ["operadores"]
+title = "Calcule o dobro"
+statement = "O operador * multiplica valores. Implemente dobro(n) retornando duas vezes n, sem imprimir. A última expressão de uma função, sem ponto e vírgula, é seu retorno. Os testes usam valores pequenos de i32 (sem overflow)."
+skeleton = '''pub fn dobro(n: i32) -> i32 {
+    todo!("retorne o dobro")
+}
+'''
+tests = '''#[cfg(test)]
+mod tests {
+    use super::dobro;
+    #[test]
+    fn positivo() { assert_eq!(dobro(7), 14); }
+    #[test]
+    fn zero() { assert_eq!(dobro(0), 0); }
+    #[test]
+    fn negativo() { assert_eq!(dobro(-9), -18); }
+}
+'''
+hints = [
+  "Multiplicar por 2 é o mesmo que somar o número a ele próprio.",
+  "Use o parâmetro n como um dos operandos de *.",
+  "A expressão n * 2 já tem tipo i32. Não coloque ; no final dela.",
+  "Solução: pub fn dobro(n: i32) -> i32 { n * 2 }",
+]

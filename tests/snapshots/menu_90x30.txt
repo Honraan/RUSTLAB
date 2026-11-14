@@ -1,0 +1,30 @@
+╭ RustLab v0.3.2 ────────────────────────────────────────────────────────────────────────╮
+│▶   ◆ Modo Aprender   — currículo guiado                                                │
+│    ◆ Modo Criar   — mini-IDE com Cargo                                                 │
+│    ◆ Meu Progresso   — lições, exercícios e dicas                                      │
+│    ⚙ Configurações                                                                     │
+│    ? Ajuda & Atalhos                                                                   │
+│    x Sair                                                                              │
+│                                                                                        │
+│                                                                                        │
+│                                                                                        │
+│                                                                                        │
+│                                                                                        │
+│                                                                                        │
+│                                                                                        │
+│                                                                                        │
+│                                                                                        │
+│                                                                                        │
+│                                                                                        │
+│                                                                                        │
+│                                                                                        │
+│                                                                                        │
+│                                                                                        │
+│                                                                                        │
+│                                                                                        │
+╰───────────────────────────Modo Aprender — comece por aqui :)───────────────────────────╯
+╭ · ─────────────────────────────────────────────────────────────────────────────────────╮
+│           Currículo por etapas — comece pela Etapa 1; progresso desta sessão.          │
+│                                                                                        │
+╰────────────────────────────────────────────────────────────────────────────────────────╯
+RustLab  · ↑↓ navegar  · enter confirmar  · q sair                                        

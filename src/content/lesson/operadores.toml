@@ -1,0 +1,52 @@
+id = "operadores"
+title = "Operadores: aritmética e comparação"
+estimated_minutes = 6
+
+[[blocks]]
+type = "text"
+text = """Operadores fazem contas com valores. Em Rust eles têm os símbolos que
+você espera — com dois detalhes de precisão que evitam bugs clássicos."""
+
+[[blocks]]
+type = "code"
+file = "src/main.rs"
+code = '''
+fn main() {
+    println!("{}", 7 + 3);   // 10
+    println!("{}", 7 - 3);   // 4
+    println!("{}", 7 * 3);   // 21
+    println!("{}", 7 / 2);   // 3 (!)
+    println!("{}", 7 % 2);   // 1 (resto da divisão)
+
+    println!("{}", 7 > 3);   // true
+    println!("{}", 7 == 3);  // false
+    println!("{}", 7 != 3);  // true
+}
+'''
+explain = """Os dois detalhes prometidos:
+
+1) DIVISÃO INTEIRA: 7 / 2 é 3, não 3.5. Inteiros divididos por inteiros
+   resultam em inteiro TRUNCADO. Quer 3.5? Use ponto flutuante: 7.0 / 2.0.
+
+2) == compara, = atribui. Em Rust esquecer o segundo sinal de = em uma
+   comparação é erro de compilação — o sistema de tipos pega o deslize
+   na hora, porque bool não é número."""
+
+[[blocks]]
+type = "text"
+text = """% (resto/módulo) é mais útil do que parece:
+
+  · número par?  n % 2 == 0
+  · que horas são no relógio de 12?  hora % 12
+  · posição num ciclo de itens?  índice % tamanho
+
+E a comparação entre inteiros de sinais DIFERENTES (i32 vs u32) o
+compilador nem deixa escrever — mais uma pegadinha que morre cedo."""
+
+[[blocks]]
+type = "quiz"
+question = "Quanto vale 9 / 2 em Rust, com inteiros?"
+options = ["4.5", "4", "5", "erro de compilação"]
+correct = 1
+why = """Divisão de inteiros trunca (corta a parte decimal): 9 / 2 = 4. Se você
+quiser 4.5, escreva 9.0 / 2.0 — números de ponto flutuante."""

@@ -1,0 +1,30 @@
+╭ Meu Progresso ─────────────────────────────────────────────────────────────────────────╮
+│Lições concluídas: 1/30 · Lidas: 0/30                                                   │
+│Exercícios concluídos: 1/12                                                             │
+│Conclusões e dicas são persistidas em disco; avisos de salvamento aparecem na interface.│
+│Nível 1 · 0 XP · 0/100 para o próximo                                                   │
+│Marcos conquistados: 2/8                                                                │
+│[★] Primeiros passos                                                                    │
+│[ ] Cinco lições                                                                        │
+│[ ] Trilha completa                                                                     │
+│[★] Primeiro desafio                                                                    │
+│[ ] Seis desafios                                                                       │
+│[ ] Todos os desafios                                                                   │
+│[ ] Prática constante                                                                   │
+│[ ] Projeto independente concluído                                                      │
+│                                                                                        │
+│LIÇÕES DISPONÍVEIS                                                                      │
+│[pendente] O que é programar?                                                           │
+│[pendente] Como um programa executa?                                                    │
+│[pendente] Conhecendo o Rust                                                            │
+│[ok] Olá, mundo! — seu primeiro programa                                                │
+│[pendente] Anatomia do Olá, mundo                                                       │
+│[pendente] Variáveis: caixas com nome                                                   │
+│[pendente] Mutabilidade: caixas que podem ser recheadas de novo                         │
+│[pendente] Tipos numéricos e texto                                                      │
+│[pendente] Operadores: aritmética e comparação                                          │
+│[pendente] Condições, laços e funções                                                   │
+│[pendente] Strings e fatias (&str)                                                      │
+│[pendente] Tuplas, arrays e vetores                                                     │
+╰────────────────────────────────────────────────────────────────────────────────────────╯
+RustLab  · ↑↓ rolar  · Home início  · e exercícios  · m mentor  · Esc menu                
