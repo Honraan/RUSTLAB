@@ -1055,7 +1055,7 @@ impl CreateState {
                     .any(|needle| self.stderr_buf.contains(needle))
                     {
                         self.console.system(
-                            "Dica Bevy/GUI Linux: se faltarem bibliotecas do sistema, instale ex. (Ubuntu/Debian): `sudo apt install pkg-config libx11-dev libasound2-dev libudev-dev libxkbcommon-x11-0 libwayland-dev`.",
+                            "Dica Bevy/GUI Linux (dependências do sistema): Ubuntu/Debian: `sudo apt install pkg-config libx11-dev libasound2-dev libudev-dev libxkbcommon-x11-0 libwayland-dev` | openSUSE: `sudo zypper install pkg-config libudev-devel alsa-devel libX11-devel libXi-devel libXcursor-devel libxkbcommon-devel wayland-devel` | Fedora: `sudo dnf install pkgconf-pkg-config systemd-devel alsa-lib-devel libX11-devel libxkbcommon-devel wayland-devel` | Arch: `sudo pacman -S pkgconf systemd-libs alsa-lib libx11 libxkbcommon wayland`.",
                         );
                     }
                     self.last_failure = Some(generic_detail.clone());
@@ -2813,8 +2813,8 @@ impl CreateState {
             return;
         }
         let prompt = match raw.as_str() {
-            "/corrigir" => {
-                "Analise os diagnósticos e erros do compilador no arquivo aberto e proponha a correção completa."
+            "/corrigir" | "/fix" | "/console" | "/erros" => {
+                "Analise a saída recente do Console (stderr/stdout), os diagnósticos do compilador e o código do arquivo aberto; explique a causa real e proponha a correção completa."
                     .to_string()
             }
             "/testes" => {
@@ -2839,10 +2839,12 @@ impl CreateState {
     }
 
     fn dispatch_agent_query(&mut self, app: &mut App, prompt: String) {
+        let prior_len = self.agent.messages.len().saturating_sub(1);
         let history: Vec<(String, String)> = self
             .agent
             .messages
             .iter()
+            .take(prior_len)
             .filter_map(|m| match m.role {
                 AgentRole::User => Some(("user".to_string(), m.text.clone())),
                 AgentRole::Agent => Some(("assistant".to_string(), m.text.clone())),
@@ -2926,8 +2928,62 @@ impl CreateState {
     // Playground & Ecossistemas Modernos
     // ------------------------------------------------------------------
 
+    /// Retorna as linhas mais recentes do Console com prefixo do stream e preservação
+    /// do trecho final (tail) caso exceda `max_bytes`.
+    pub fn recent_console_output(&self, max_lines: usize, max_bytes: usize) -> String {
+        if max_lines == 0 || max_bytes == 0 {
+            return String::new();
+        }
+        let start = self.console.lines.len().saturating_sub(max_lines);
+        let mut lines: Vec<String> = self
+            .console
+            .lines
+            .iter()
+            .skip(start)
+            .map(|line| {
+                let tag = match line.kind {
+                    StreamKind::Stdout => "[stdout]",
+                    StreamKind::Stderr => "[stderr]",
+                    StreamKind::System => "[sistema]",
+                };
+                format!("{tag} {}", line.text)
+            })
+            .collect();
+
+        let has_stderr_in_console = self
+            .console
+            .lines
+            .iter()
+            .skip(start)
+            .any(|l| l.kind == StreamKind::Stderr);
+        if !has_stderr_in_console && !self.stderr_buf.trim().is_empty() {
+            let stderr_lines: Vec<&str> = self.stderr_buf.lines().collect();
+            let s_start = stderr_lines.len().saturating_sub(max_lines);
+            for raw_line in stderr_lines.into_iter().skip(s_start) {
+                lines.push(format!("[stderr] {raw_line}"));
+            }
+        }
+
+        let joined = lines.join("\n");
+        if joined.len() <= max_bytes {
+            return joined;
+        }
+        let mut cut = joined.len().saturating_sub(max_bytes);
+        while cut < joined.len() && !joined.is_char_boundary(cut) {
+            cut += 1;
+        }
+        let tail = joined[cut..].trim_start_matches('\n');
+        format!("[... linhas anteriores omitidas]\n{tail}")
+    }
+
     pub fn diagnostics_text_summary(&self) -> String {
         let mut out = self.stderr_buf.clone();
+        if out.trim().is_empty() {
+            let console_tail = self.recent_console_output(60, 4_000);
+            if !console_tail.trim().is_empty() {
+                out.push_str(&console_tail);
+            }
+        }
         for d in &self.diags {
             out.push('\n');
             out.push_str(&d.message);
@@ -4601,6 +4657,157 @@ mod tests {
         state.on_key(&mut app, KeyEvent::from(KeyCode::Char('3')));
         state.on_key(&mut app, KeyEvent::from(KeyCode::Char('g')));
         assert!(state.lab.native_debugger_status.is_some());
+
+        let _ = std::fs::remove_dir_all(root);
+    }
+
+    #[test]
+    fn agente_le_console_stderr_e_envia_contexto_completo_para_ollama() {
+        use std::io::{Read, Write};
+        use std::net::TcpListener;
+
+        let root = std::env::temp_dir().join(format!(
+            "rustlab-agent-console-{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        let _ = std::fs::remove_dir_all(&root);
+        std::fs::create_dir_all(root.join("src")).unwrap();
+        std::fs::write(
+            root.join("Cargo.toml"),
+            "[package]\nname='meubevy'\nversion='0.1.0'\nedition='2024'\n[dependencies]\nbevy = \"0.20\"\n",
+        )
+        .unwrap();
+        std::fs::write(
+            root.join("src/main.rs"),
+            "use bevy::prelude::*;\nfn main() { App::new().run(); }\n",
+        )
+        .unwrap();
+
+        let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+        let port = listener.local_addr().unwrap().port();
+        let captured = std::sync::Arc::new(std::sync::Mutex::new(String::new()));
+        let captured_srv = std::sync::Arc::clone(&captured);
+        let server = std::thread::spawn(move || {
+            let (mut stream, _) = listener.accept().unwrap();
+            let mut buf = Vec::new();
+            let mut chunk = [0u8; 4096];
+            let mut content_len = None;
+            let mut header_end = None;
+            loop {
+                let n = stream.read(&mut chunk).unwrap_or(0);
+                if n == 0 {
+                    break;
+                }
+                buf.extend_from_slice(&chunk[..n]);
+                if header_end.is_none()
+                    && let Some(pos) = buf.windows(4).position(|w| w == b"\r\n\r\n")
+                {
+                    header_end = Some(pos + 4);
+                    let hdrs = String::from_utf8_lossy(&buf[..pos]);
+                    for line in hdrs.lines() {
+                        if let Some((k, v)) = line.split_once(':')
+                            && k.trim().eq_ignore_ascii_case("content-length")
+                        {
+                            content_len = v.trim().parse::<usize>().ok();
+                        }
+                    }
+                }
+                if let (Some(he), Some(cl)) = (header_end, content_len)
+                    && buf.len() >= he + cl
+                {
+                    break;
+                }
+            }
+            *captured_srv.lock().unwrap() = String::from_utf8_lossy(&buf).to_string();
+            let body = r#"{"message":{"content":"Falta libudev-dev / libudev-devel via zypper no openSUSE Tumbleweed."}}"#;
+            let resp = format!(
+                "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{}",
+                body.len(),
+                body
+            );
+            let _ = stream.write_all(resp.as_bytes());
+        });
+
+        let mut app = App::for_snapshot();
+        app.set_config_path(root.join("config.toml"));
+        app.set_storage_path(root.join("progress.toml"));
+        app.config.ai.provider = AiProvider::Ollama;
+        app.config.ai.ollama_url = format!("http://127.0.0.1:{port}");
+        app.config.ai.ollama_model = "gemma4:e4b".to_string();
+        app.screen = Screen::Create;
+
+        let mut state = CreateState::new();
+        state.open_project(&root, &mut app);
+        state.handle_exec_event(
+            ExecEvent::Chunk {
+                kind: StreamKind::Stdout,
+                text: "Compiling libudev-sys v0.1.4".to_string(),
+            },
+            &mut app,
+        );
+        state.handle_exec_event(
+            ExecEvent::Chunk {
+                kind: StreamKind::Stderr,
+                text: "thread 'main' panicked at libudev-sys/build.rs:38:41:\nPackage libudev was not found in the pkg-config search path\nerror: failed to run custom build command for `libudev-sys v0.1.4`".to_string(),
+            },
+            &mut app,
+        );
+        state.handle_exec_event(
+            ExecEvent::Finished {
+                label: "cargo build".to_string(),
+                code: Some(101),
+                success: false,
+            },
+            &mut app,
+        );
+
+        let console_txt = state.recent_console_output(50, 4_000);
+        assert!(console_txt.contains("libudev was not found"));
+        assert!(console_txt.contains("zypper install"));
+
+        let ctx = crate::mentor::create_context_from(&state);
+        assert!(ctx.console.contains("libudev was not found"));
+        assert!(ctx.summary.contains("bevy"));
+        assert!(ctx.errors.contains("libudev-sys"));
+
+        state.on_key(
+            &mut app,
+            KeyEvent::new(KeyCode::Char('a'), KeyModifiers::ALT),
+        );
+        state.agent.input = "me ajude a entender esses erros no opensuse tumbleweed".to_string();
+        state.on_key(&mut app, KeyEvent::from(KeyCode::Enter));
+
+        server.join().unwrap();
+        let req_raw = captured.lock().unwrap().clone();
+        assert!(req_raw.contains("libudev was not found"));
+        assert!(req_raw.contains("zypper install"));
+        assert!(req_raw.contains("me ajude a entender esses erros no opensuse tumbleweed"));
+        assert_eq!(
+            req_raw
+                .matches("me ajude a entender esses erros no opensuse tumbleweed")
+                .count(),
+            1,
+            "pergunta do usuário não deve ser duplicada no payload do Ollama"
+        );
+
+        // Poll até chegar a resposta da thread
+        for _ in 0..50 {
+            if state.poll_agent(&mut app) {
+                break;
+            }
+            std::thread::sleep(std::time::Duration::from_millis(10));
+        }
+        assert!(
+            state
+                .agent
+                .messages
+                .iter()
+                .any(|m| m.text.contains("libudev-devel"))
+        );
 
         let _ = std::fs::remove_dir_all(root);
     }
