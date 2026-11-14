@@ -187,4 +187,4 @@ tests/
 | 8 | Mentor de IA opcional (Local / Ollama / API remota) | ✅ concluída |
 | 9 | Currículo completo (Etapas 1–10), widgets visuais e polimento | ✅ concluída |
 
-Licença: MIT.
+Licença: GPL 3.0
