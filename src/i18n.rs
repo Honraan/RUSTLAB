@@ -1,13 +1,32 @@
-//! Strings da interface. Conteúdo voltado a iniciantes começa em
-//! português do Brasil (requisito da especificação, seção 2).
-//!
-//! Centralizar as chaves aqui mantém as telas limpas e torna a
-//! tradução futura (fase do requisito 14) uma mudança apenas neste arquivo.
+//! Strings da interface com suporte a inglês (`en-US`, padrão inicial)
+//! e português do Brasil (`pt-BR`), selecionável nas Configurações.
 
+use std::cell::Cell;
 use std::collections::HashMap;
 use std::sync::OnceLock;
 
-fn strings() -> &'static HashMap<&'static str, &'static str> {
+thread_local! {
+    static CURRENT_LANG_EN: Cell<bool> = const { Cell::new(false) };
+}
+
+pub fn set_english(english: bool) {
+    CURRENT_LANG_EN.with(|c| c.set(english));
+}
+
+pub fn set_language(lang: &str) {
+    let english = !lang.trim().to_ascii_lowercase().starts_with("pt");
+    set_english(english);
+}
+
+pub fn is_english() -> bool {
+    CURRENT_LANG_EN.with(Cell::get)
+}
+
+pub fn bi<'a>(pt: &'a str, en: &'a str, english: bool) -> &'a str {
+    if english { en } else { pt }
+}
+
+fn strings_pt() -> &'static HashMap<&'static str, &'static str> {
     static TABLE: OnceLock<HashMap<&'static str, &'static str>> = OnceLock::new();
     TABLE.get_or_init(|| {
         HashMap::from([
@@ -130,15 +149,152 @@ fn strings() -> &'static HashMap<&'static str, &'static str> {
     })
 }
 
-/// Retorna a mensagem para `key`. Se a chave não existir, devolve a própria
-/// chave — visível o suficiente para ser pega em testes e no uso.
+fn strings_en() -> &'static HashMap<&'static str, &'static str> {
+    static TABLE: OnceLock<HashMap<&'static str, &'static str>> = OnceLock::new();
+    TABLE.get_or_init(|| {
+        HashMap::from([
+            // Footer / general
+            (
+                "app.tagline",
+                "Learn Rust by doing — right in your terminal",
+            ),
+            ("footer.quit", "q quit"),
+            ("footer.enter", "enter confirm"),
+            ("footer.esc", "esc back"),
+            ("footer.nav", "↑↓ navigate"),
+            // Main menu
+            ("menu.title", "RustLab"),
+            ("menu.learn", "Learn Mode"),
+            ("menu.create", "Create Mode"),
+            ("menu.progress", "My Progress"),
+            ("menu.settings", "Settings"),
+            ("menu.help", "Help & Shortcuts"),
+            ("menu.quit", "Quit"),
+            ("menu.subtitle", "Choose a path to begin"),
+            // Placeholder screens
+            ("placeholder.heading", "Under construction"),
+            ("placeholder.phase", "Under construction — Phase {} of plan"),
+            (
+                "placeholder.footer",
+                "This area will be implemented in future phases of the project.",
+            ),
+            // Settings
+            ("settings.title", "Settings"),
+            (
+                "settings.legend",
+                "Use {} to navigate and adjust — everything saves automatically",
+            ),
+            ("settings.saved", "Settings saved"),
+            ("settings.save_error", "Could not save settings"),
+            ("settings.theme", "Theme"),
+            ("settings.animations", "Animations"),
+            ("settings.sound", "Sound alerts"),
+            ("settings.volume", "XP sound volume"),
+            ("settings.gamification", "Gamification effects"),
+            ("settings.language", "Language"),
+            ("settings.audio_report", "Detected audio device"),
+            ("settings.anim_full", "Full"),
+            ("settings.anim_reduced", "Reduced"),
+            ("settings.anim_off", "Off"),
+            ("settings.gam_on", "Visible"),
+            ("settings.gam_off", "Hidden"),
+            ("settings.sound_on", "Enabled"),
+            ("settings.sound_off", "Disabled"),
+            ("settings.ai_provider", "AI Mentor"),
+            ("settings.ollama_model", "Ollama model (local)"),
+            ("settings.ai.disabled", "Disabled"),
+            // Help
+            ("help.title", "Help & Shortcuts"),
+            (
+                "help.intro",
+                "RustLab is keyboard-driven. These shortcuts are available:",
+            ),
+            ("help.k_nav", "Navigate"),
+            ("help.k_enter", "Enter"),
+            ("help.k_adjust", "Adjust"),
+            (
+                "help.audio_note",
+                "XP: short soft tone via paplay (PulseAudio/PipeWire); zero mutes.",
+            ),
+            // Welcome
+            ("welcome.prompt", "Press any key to start"),
+            ("welcome.caption", "a Rust lab right in your terminal"),
+            // Browser
+            ("browser.title", "Course stages"),
+            ("browser.lessons", "lessons"),
+            ("browser.planned-tag", "planned"),
+            (
+                "browser.planned-note",
+                "This chapter does not have written lessons yet.",
+            ),
+            (
+                "browser.planned-line1",
+                "Roadmap chapter — lessons not written yet.",
+            ),
+            (
+                "browser.planned-line2",
+                "Content scheduled for Phase {} of the project.",
+            ),
+            (
+                "learn.empty",
+                "Curriculum unavailable: embedded content invalid or not loaded.",
+            ),
+            // Lesson
+            (
+                "lesson.nav-hint",
+                "↑↓ scroll · 1-9 answer · d demo · ←→ lessons · esc back",
+            ),
+            ("lesson.answer-hint", "answer with keys 1 to {}"),
+            (
+                "lesson.try-again",
+                "almost! try another option — re-reading helps :)",
+            ),
+            ("lesson.why-head", "why:"),
+            ("lesson.progress", "{} · read {}%"),
+            ("lesson.progress-done", "{} · lesson complete — → next"),
+            (
+                "lesson.blocked_next",
+                "please answer this lesson's quiz first",
+            ),
+            (
+                "lesson.scroll_to_end",
+                "scroll to the end of the lesson (End) to finish it",
+            ),
+            (
+                "lesson.end-of-curriculum",
+                "End of available content so far — thanks for studying!",
+            ),
+            (
+                "demo.simplified",
+                "(conceptual illustration — simplified; not a memory inspector)",
+            ),
+        ])
+    })
+}
+
+pub fn t_for(key: &'static str, english: bool) -> &'static str {
+    if english && let Some(v) = strings_en().get(key).copied() {
+        return v;
+    }
+    strings_pt().get(key).copied().unwrap_or(key)
+}
+
+/// Retorna a mensagem para `key` no idioma ativo.
 pub fn t(key: &'static str) -> &'static str {
-    strings().get(key).copied().unwrap_or(key)
+    t_for(key, is_english())
+}
+
+pub fn tf_for(key: &'static str, english: bool, args: &[&dyn std::fmt::Display]) -> String {
+    let template = t_for(key, english);
+    format_template(template, args)
 }
 
 /// Formata `{}` dentro do template identificado por `key`.
 pub fn tf(key: &'static str, args: &[&dyn std::fmt::Display]) -> String {
-    let template = t(key);
+    format_template(t(key), args)
+}
+
+fn format_template(template: &str, args: &[&dyn std::fmt::Display]) -> String {
     let mut out = String::with_capacity(template.len());
     let mut args = args.iter();
     let mut chars = template.char_indices().peekable();
@@ -166,31 +322,34 @@ mod tests {
 
     #[test]
     fn todas_as_chaves_usadas_existem() {
-        // As chaves listadas em `strings()` devem resolver para si mesmas
-        // (isto é, não cair no fallback de "chave ausente").
         let keys = [
             "app.tagline",
             "menu.title",
             "menu.learn",
             "settings.title",
+            "settings.language",
             "help.title",
             "welcome.prompt",
         ];
         for k in keys {
-            assert!(t(k) != k, "chave faltando: {k}");
+            assert!(t_for(k, false) != k, "chave pt faltando: {k}");
+            assert!(t_for(k, true) != k, "chave en faltando: {k}");
         }
+        for k in strings_pt().keys() {
+            assert!(
+                strings_en().contains_key(k),
+                "tradução en-US ausente para chave {k}"
+            );
+        }
+        assert_eq!(t_for("settings.title", true), "Settings");
+        assert_eq!(t_for("settings.title", false), "Configurações");
     }
 
     #[test]
     fn interpolacao_simples() {
-        let table: HashMap<&str, &str> = HashMap::from([("x", "a {} b {} c")]);
-        // reuso da lógica de tf com uma tabela local via closure não é possível;
-        // testamos tf com uma chave real + placeholder embutido.
-        let _ = table;
-        let s = {
-            // Chave temporária não existe; t() devolve a chave, que contém {}.
-            tf("template {} de teste {}", &[&"1", &"2"])
-        };
+        let s = tf("template {} de teste {}", &[&"1", &"2"]);
         assert_eq!(s, "template 1 de teste 2");
+        let en = tf_for("lesson.progress", true, &[&"1/3", &"50"]);
+        assert_eq!(en, "1/3 · read 50%");
     }
 }

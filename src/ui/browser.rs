@@ -9,7 +9,6 @@ use ratatui::widgets::{List, ListItem, ListState, Paragraph};
 
 use crate::app::App;
 use crate::curriculum::ChapterStatus;
-use crate::i18n::t;
 use crate::learn::BrowserPane;
 use crate::ui::titled_block;
 
@@ -17,7 +16,7 @@ pub fn draw(frame: &mut Frame, app: &App, area: Rect) {
     let theme = &app.theme;
     let Some(cur) = app.curriculum.as_ref() else {
         frame.render_widget(
-            Paragraph::new(Span::styled(t("learn.empty"), theme.warning())),
+            Paragraph::new(Span::styled(app.t("learn.empty"), theme.warning())),
             area,
         );
         return;
@@ -47,9 +46,11 @@ pub fn draw(frame: &mut Frame, app: &App, area: Rect) {
                     ("✓", theme.success(), format!(" {done}/{total}"))
                 }
                 ChapterStatus::Available => ("≡", theme.title(), format!(" {done}/{total}")),
-                ChapterStatus::Planned => {
-                    ("◦", theme.dim(), format!(" · {}", t("browser.planned-tag")))
-                }
+                ChapterStatus::Planned => (
+                    "◦",
+                    theme.dim(),
+                    format!(" · {}", app.t("browser.planned-tag")),
+                ),
             };
             let short = ch.title.split('—').next_back().unwrap_or(&ch.title).trim();
             ListItem::new(Line::from(vec![
@@ -64,7 +65,7 @@ pub fn draw(frame: &mut Frame, app: &App, area: Rect) {
     let chapters_list = List::new(items)
         .highlight_symbol(if app.unicode { "▶ " } else { "> " })
         .highlight_style(theme.selection());
-    let block = titled_block(t("browser.title"), theme, focused);
+    let block = titled_block(app.t("browser.title"), theme, focused);
     let inner = block.inner(cols[0]);
     frame.render_widget(block, cols[0]);
     let mut state = ListState::default().with_selected(Some(app.browser.chapter_idx));
@@ -75,13 +76,13 @@ pub fn draw(frame: &mut Frame, app: &App, area: Rect) {
     let lesson_items: Vec<ListItem> = match ch.status {
         ChapterStatus::Planned => vec![
             ListItem::new(Line::from(Span::styled(
-                format!("   {}", t("browser.planned-line1"),),
+                format!("   {}", app.t("browser.planned-line1"),),
                 theme.dim(),
             ))),
             ListItem::new(Line::from(Span::styled(
                 format!(
                     "   {}",
-                    t("browser.planned-line2").replacen(
+                    app.t("browser.planned-line2").replacen(
                         "{}",
                         ch.planned_phase.unwrap_or(9).to_string().as_str(),
                         1
@@ -122,7 +123,7 @@ pub fn draw(frame: &mut Frame, app: &App, area: Rect) {
     let lessons_list = List::new(lesson_items)
         .highlight_symbol(if app.unicode { "▶ " } else { "> " })
         .highlight_style(theme.selection());
-    let panel_title = format!("{} — {}", ch.title, t("browser.lessons"));
+    let panel_title = format!("{} — {}", ch.title, app.t("browser.lessons"));
     let lblock = titled_block(&panel_title, theme, lfocused);
     let linner = lblock.inner(cols[1]);
     frame.render_widget(lblock, cols[1]);
@@ -278,7 +279,10 @@ mod tests {
     #[test]
     fn v3_browser_e_licao_paint_com_badge_e_dica4_renderizam() {
         let mut app = App::from_config(
-            Config::default(),
+            Config {
+                language: "pt-BR".to_string(),
+                ..Config::default()
+            },
             None,
             true,
             AudioReport {

@@ -1562,6 +1562,24 @@ impl CreateState {
                 self.open_lab_tab(crate::lab_tools::LabToolTab::PlaygroundComunidade, app);
                 return;
             }
+            KeyCode::Char('l') if alt => {
+                self.lab.lifetime_gutter_enabled = true;
+                self.open_lab_tab(crate::lab_tools::LabToolTab::MapaLifetimes, app);
+                return;
+            }
+            KeyCode::Char('y') if alt => {
+                self.open_lab_tab(crate::lab_tools::LabToolTab::LayoutMemoria, app);
+                return;
+            }
+            KeyCode::Char('u') if alt => {
+                self.open_lab_tab(crate::lab_tools::LabToolTab::DesacucararMacros, app);
+                return;
+            }
+            KeyCode::Char('i') if alt => {
+                self.lab.polyglot_mode_flashcards = true;
+                self.open_lab_tab(crate::lab_tools::LabToolTab::PoliglotaIntuicao, app);
+                return;
+            }
             KeyCode::Char('y') if ctrl && self.focus != Focus::Editor => {
                 self.toggle_agent_panel(app);
                 return;
@@ -2744,6 +2762,40 @@ impl CreateState {
                 );
                 return;
             }
+            "/lifetimes" | "/lt" => {
+                self.lab.lifetime_gutter_enabled = true;
+                self.open_lab_tab(crate::lab_tools::LabToolTab::MapaLifetimes, app);
+                return;
+            }
+            "/layout" | "/sizeof" | "/padding" => {
+                self.open_lab_tab(crate::lab_tools::LabToolTab::LayoutMemoria, app);
+                return;
+            }
+            "/desugar" | "/expand" | "/macros" => {
+                self.open_lab_tab(crate::lab_tools::LabToolTab::DesacucararMacros, app);
+                return;
+            }
+            "/poliglota" | "/python" | "/js" | "/cpp" => {
+                self.lab.polyglot_mode_flashcards = false;
+                self.lab.polyglot_lang_filter = match raw.as_str() {
+                    "/python" => 1,
+                    "/js" => 2,
+                    "/cpp" => 3,
+                    _ => 0,
+                };
+                self.open_lab_tab(crate::lab_tools::LabToolTab::PoliglotaIntuicao, app);
+                return;
+            }
+            "/treino" | "/flashcard" | "/intuicao" => {
+                self.lab.polyglot_mode_flashcards = true;
+                self.open_lab_tab(crate::lab_tools::LabToolTab::PoliglotaIntuicao, app);
+                return;
+            }
+            "/gdb" | "/lldb" => {
+                self.open_lab_tab(crate::lab_tools::LabToolTab::DebuggerVisual, app);
+                self.open_native_debugger(app);
+                return;
+            }
             "/limpar" | "/clear" => {
                 let open = self.agent.open;
                 self.agent = CreateAgentState::default();
@@ -2970,6 +3022,59 @@ impl CreateState {
         self.sync_editor_to_debug_step(app);
     }
 
+    pub fn open_native_debugger(&mut self, app: &mut App) {
+        let probe = crate::lab_tools::detect_native_debugger();
+        let Some(project) = self.project.as_ref().cloned() else {
+            self.lab.native_debugger_status = Some(
+                "Abra um projeto Cargo para anexar `rust-gdb` / `lldb` ao binário compilado."
+                    .to_string(),
+            );
+            app.set_status(
+                "Abra um projeto Cargo antes de iniciar o debugger nativo.",
+                StatusKind::Warning,
+            );
+            return;
+        };
+        let pkg = package_binary_name(&project);
+        let bin_path = project.root.join("target").join("debug").join(&pkg);
+        let src_rel = self
+            .editor
+            .path
+            .as_ref()
+            .and_then(|p| p.strip_prefix(&project.root).ok())
+            .map(|p| p.display().to_string())
+            .unwrap_or_else(|| "src/main.rs".to_string());
+        let args = crate::lab_tools::build_native_debugger_args(
+            &probe,
+            &bin_path,
+            &src_rel,
+            &self.lab.debugger.breakpoints,
+        );
+        let cmd_preview = crate::lab_tools::format_native_debugger_command(
+            &probe,
+            &bin_path,
+            &src_rel,
+            &self.lab.debugger.breakpoints,
+        );
+
+        let status_msg = if !probe.available {
+            format!("{} Comando pronto: {cmd_preview}", probe.install_hint)
+        } else if !bin_path.is_file() && !cfg!(test) {
+            format!(
+                "Debugger `{}` pronto! Compile primeiro (`F4` / `cargo build`) e rode em outro terminal: {cmd_preview}",
+                probe.binary_name
+            )
+        } else {
+            match spawn_external_terminal_command(&project.root, probe.binary_name, &args) {
+                Ok(ok) => format!("{ok} · {cmd_preview}"),
+                Err(err) => format!("{err} · Comando: {cmd_preview}"),
+            }
+        };
+        self.console.system(status_msg.clone());
+        self.lab.native_debugger_status = Some(status_msg.clone());
+        app.set_status(status_msg, StatusKind::Info);
+    }
+
     fn apply_code_template_to_editor(
         &mut self,
         code: &str,
@@ -3082,7 +3187,7 @@ impl CreateState {
                 self.open_lab_tab(prev, app);
                 return;
             }
-            KeyCode::Char(d @ '1'..='6') => {
+            KeyCode::Char(d @ '0'..='9') => {
                 if let Some(tab) = crate::lab_tools::LabToolTab::from_digit(d) {
                     self.open_lab_tab(tab, app);
                 }
@@ -3157,6 +3262,7 @@ impl CreateState {
                 KeyCode::Char('s' | 'S') => self.debugger_step_into(app),
                 KeyCode::Char('c' | 'C') => self.debugger_continue(app),
                 KeyCode::Char('b' | 'B') => self.debugger_toggle_breakpoint_at_cursor(app),
+                KeyCode::Char('g' | 'G') => self.open_native_debugger(app),
                 KeyCode::Char('r' | 'R') => {
                     self.lab.debugger.start_or_rebuild(&code);
                     self.sync_editor_to_debug_step(app);
@@ -3247,6 +3353,181 @@ impl CreateState {
                 KeyCode::Char('t' | 'T') | KeyCode::Enter => {
                     let eco = crate::lab_tools::MODERN_ECOSYSTEMS[self.lab.ecosystem_sel];
                     self.apply_code_template_to_editor(eco.template_code, eco.name, true, app);
+                }
+                _ => {}
+            },
+            crate::lab_tools::LabToolTab::MapaLifetimes => match key.code {
+                KeyCode::Char('l' | 'L') => {
+                    self.lab.lifetime_gutter_enabled = !self.lab.lifetime_gutter_enabled;
+                    app.set_status(
+                        if self.lab.lifetime_gutter_enabled {
+                            "Marcadores de lifetime (┣/┃/✘) ativados na margem do editor."
+                        } else {
+                            "Marcadores de lifetime na margem desativados."
+                        },
+                        StatusKind::Info,
+                    );
+                }
+                KeyCode::Char('r' | 'R') => {
+                    self.lab.refresh(&code, &diag_text);
+                    app.set_status("Mapa de Lifetimes recalculado.", StatusKind::Info);
+                }
+                KeyCode::Up | KeyCode::Char('k') => {
+                    self.lab.scroll = self.lab.scroll.saturating_sub(2);
+                }
+                KeyCode::Down | KeyCode::Char('j') => {
+                    self.lab.scroll = self.lab.scroll.saturating_add(2);
+                }
+                _ => {}
+            },
+            crate::lab_tools::LabToolTab::LayoutMemoria => match key.code {
+                KeyCode::Char('r' | 'R') => {
+                    self.lab.refresh(&code, &diag_text);
+                    app.set_status("Layout de Memória recalculado.", StatusKind::Info);
+                }
+                KeyCode::Char('o' | 'O') | KeyCode::Enter => {
+                    let report =
+                        self.lab.last_layout.clone().unwrap_or_else(|| {
+                            crate::lab_tools::MemoryLayoutReport::analyze(&code)
+                        });
+                    if let Some(st) = report.user_types.first() {
+                        self.agent.open = true;
+                        self.agent.proposed_code = Some(st.reordered_preview.clone());
+                        self.lab.open = false;
+                        self.focus = Focus::Agent;
+                        self.agent.messages.push(AgentChatMessage {
+                            role: AgentRole::Agent,
+                            sender: "Layout X-Ray".to_string(),
+                            text: format!(
+                                "Sugestão de ordenação por alinhamento decrescente para `{}` (economiza {} bytes em repr(C)):\n```rust\n{}\n```",
+                                st.name, st.bytes_saved, st.reordered_preview
+                            ),
+                        });
+                        self.agent.scroll = u16::MAX;
+                        app.set_status(
+                            "Ordem otimizada da struct enviada ao painel do Agente.",
+                            StatusKind::Success,
+                        );
+                    } else {
+                        app.set_status(
+                            "Defina uma `struct Nome { ... }` no editor para sugerir reordenação.",
+                            StatusKind::Info,
+                        );
+                    }
+                }
+                KeyCode::Up | KeyCode::Char('k') => {
+                    self.lab.scroll = self.lab.scroll.saturating_sub(2);
+                }
+                KeyCode::Down | KeyCode::Char('j') => {
+                    self.lab.scroll = self.lab.scroll.saturating_add(2);
+                }
+                _ => {}
+            },
+            crate::lab_tools::LabToolTab::DesacucararMacros => {
+                let report = self
+                    .lab
+                    .last_desugar
+                    .clone()
+                    .unwrap_or_else(|| crate::lab_tools::DesugarReport::analyze(&code));
+                let max = report.items.len().saturating_sub(1);
+                match key.code {
+                    KeyCode::Up | KeyCode::Char('k') => {
+                        self.lab.desugar_sel = self.lab.desugar_sel.saturating_sub(1);
+                    }
+                    KeyCode::Down | KeyCode::Char('j') => {
+                        self.lab.desugar_sel = (self.lab.desugar_sel + 1).min(max);
+                    }
+                    KeyCode::Enter => {
+                        if let Some(item) = report.items.get(self.lab.desugar_sel.min(max)) {
+                            self.agent.open = true;
+                            self.lab.open = false;
+                            self.focus = Focus::Agent;
+                            self.agent.messages.push(AgentChatMessage {
+                                role: AgentRole::Agent,
+                                sender: "Desaçucarador RustLab".to_string(),
+                                text: format!(
+                                    "{}\nOriginal: `{}`\nExpansão do compilador:\n```rust\n{}\n```\n{}",
+                                    item.title, item.sugar_snippet, item.expanded_rust, item.explanation
+                                ),
+                            });
+                            self.agent.scroll = u16::MAX;
+                            app.set_status(
+                                "Expansão da macro enviada ao Agente.",
+                                StatusKind::Info,
+                            );
+                        }
+                    }
+                    _ => {}
+                }
+            }
+            crate::lab_tools::LabToolTab::PoliglotaIntuicao => match key.code {
+                KeyCode::Char('t' | 'T' | ' ') => {
+                    self.lab.polyglot_mode_flashcards = !self.lab.polyglot_mode_flashcards;
+                    self.lab.scroll = 0;
+                    app.set_status(
+                        if self.lab.polyglot_mode_flashcards {
+                            "Modo Micro-Treino Flashcards ativado (C = Compila · E = Erro)."
+                        } else {
+                            "Modo Dicionário Poliglota ativado (Python/JS/C++ -> Rust)."
+                        },
+                        StatusKind::Info,
+                    );
+                }
+                KeyCode::Char('f' | 'F') if !self.lab.polyglot_mode_flashcards => {
+                    self.lab.polyglot_lang_filter = (self.lab.polyglot_lang_filter + 1) % 4;
+                }
+                KeyCode::Up | KeyCode::Char('k') => {
+                    if self.lab.polyglot_mode_flashcards {
+                        self.lab.flashcard_sel = self.lab.flashcard_sel.saturating_sub(1);
+                        self.lab.flashcard_feedback = None;
+                    } else {
+                        self.lab.polyglot_sel = self.lab.polyglot_sel.saturating_sub(1);
+                    }
+                }
+                KeyCode::Down | KeyCode::Char('j') => {
+                    if self.lab.polyglot_mode_flashcards {
+                        let max = crate::lab_tools::INTUITION_FLASHCARDS
+                            .len()
+                            .saturating_sub(1);
+                        self.lab.flashcard_sel = (self.lab.flashcard_sel + 1).min(max);
+                        self.lab.flashcard_feedback = None;
+                    } else {
+                        let max = crate::lab_tools::POLYGLOT_DICTIONARY
+                            .len()
+                            .saturating_sub(1);
+                        self.lab.polyglot_sel = (self.lab.polyglot_sel + 1).min(max);
+                    }
+                }
+                KeyCode::Enter if !self.lab.polyglot_mode_flashcards => {
+                    let entry = crate::lab_tools::POLYGLOT_DICTIONARY[self
+                        .lab
+                        .polyglot_sel
+                        .min(crate::lab_tools::POLYGLOT_DICTIONARY.len() - 1)];
+                    self.apply_code_template_to_editor(entry.rust_code, entry.concept, true, app);
+                }
+                KeyCode::Char('c' | 'C' | 'e' | 'E') if self.lab.polyglot_mode_flashcards => {
+                    let user_compiles = matches!(key.code, KeyCode::Char('c' | 'C'));
+                    let card = crate::lab_tools::INTUITION_FLASHCARDS[self
+                        .lab
+                        .flashcard_sel
+                        .min(crate::lab_tools::INTUITION_FLASHCARDS.len() - 1)];
+                    let (ok, msg) =
+                        crate::lab_tools::evaluate_flashcard_answer(&card, user_compiles);
+                    if ok {
+                        self.lab.completed_flashcards.insert(card.id);
+                        let _ = app.award_xp(format!("flashcard:{}", card.id), 25, card.title);
+                        app.progress.record_srs_mastery(card.id, true);
+                        let _ = app.persist_progress();
+                    }
+                    self.lab.flashcard_feedback = Some((ok, msg.clone()));
+                    app.set_status(
+                        msg,
+                        if ok {
+                            StatusKind::Success
+                        } else {
+                            StatusKind::Warning
+                        },
+                    );
                 }
                 _ => {}
             },
@@ -3378,16 +3659,30 @@ fn spawn_external_app(
 }
 
 fn spawn_external_cargo_terminal(workdir: &std::path::Path) -> Result<String, String> {
+    spawn_external_terminal_command(workdir, "cargo", &["run".to_string()])
+}
+
+fn spawn_external_terminal_command(
+    workdir: &std::path::Path,
+    program: &str,
+    cmd_args: &[String],
+) -> Result<String, String> {
+    let preview = if cmd_args.is_empty() {
+        program.to_string()
+    } else {
+        format!("{program} {}", cmd_args.join(" "))
+    };
     if cfg!(test) || std::env::var_os("RUSTLAB_DISABLE_EXTERNAL").is_some() {
         return Ok(format!(
-            "Terminal externo pronto para cargo run em {}",
+            "Terminal externo pronto para `{preview}` em {}",
             workdir.display()
         ));
     }
     #[cfg(target_os = "windows")]
     {
         return std::process::Command::new("cmd")
-            .args(["/C", "start", "cargo", "run"])
+            .args(["/C", "start", program])
+            .args(cmd_args)
             .current_dir(workdir)
             .stdin(std::process::Stdio::null())
             .stdout(std::process::Stdio::null())
@@ -3395,13 +3690,13 @@ fn spawn_external_cargo_terminal(workdir: &std::path::Path) -> Result<String, St
             .spawn()
             .map(|_| {
                 format!(
-                    "Terminal externo iniciado com `cargo run` em {}",
+                    "Terminal externo iniciado com `{preview}` em {}",
                     workdir.display()
                 )
             })
             .map_err(|_| {
                 format!(
-                    "Abra outro terminal e execute: cd \"{}\" && cargo run",
+                    "Abra outro terminal e execute: cd \"{}\" && {preview}",
                     workdir.display()
                 )
             });
@@ -3409,8 +3704,9 @@ fn spawn_external_cargo_terminal(workdir: &std::path::Path) -> Result<String, St
     #[cfg(target_os = "macos")]
     {
         let script = format!(
-            "tell application \"Terminal\" to do script \"cd '{}' && cargo run\"",
-            workdir.display().to_string().replace('\'', "'\\''")
+            "tell application \"Terminal\" to do script \"cd '{}' && {}\"",
+            workdir.display().to_string().replace('\'', "'\\''"),
+            preview.replace('"', "\\\"")
         );
         return std::process::Command::new("osascript")
             .args(["-e", &script])
@@ -3420,13 +3716,13 @@ fn spawn_external_cargo_terminal(workdir: &std::path::Path) -> Result<String, St
             .spawn()
             .map(|_| {
                 format!(
-                    "Terminal.app iniciado com `cargo run` em {}",
+                    "Terminal.app iniciado com `{preview}` em {}",
                     workdir.display()
                 )
             })
             .map_err(|_| {
                 format!(
-                    "Abra outro terminal e execute: cd \"{}\" && cargo run",
+                    "Abra outro terminal e execute: cd \"{}\" && {preview}",
                     workdir.display()
                 )
             });
@@ -3435,24 +3731,26 @@ fn spawn_external_cargo_terminal(workdir: &std::path::Path) -> Result<String, St
     {
         if std::env::var_os("DISPLAY").is_none() && std::env::var_os("WAYLAND_DISPLAY").is_none() {
             return Err(format!(
-                "Sem servidor gráfico ativo. Abra outro terminal paralelo e rode: cd \"{}\" && cargo run",
+                "Sem servidor gráfico ativo. Abra outro terminal paralelo e rode: cd \"{}\" && {preview}",
                 workdir.display()
             ));
         }
         const TERMINALS: &[(&str, &[&str])] = &[
-            ("x-terminal-emulator", &["-e", "cargo", "run"]),
-            ("gnome-terminal", &["--", "cargo", "run"]),
-            ("konsole", &["-e", "cargo", "run"]),
-            ("xfce4-terminal", &["-x", "cargo", "run"]),
-            ("kitty", &["cargo", "run"]),
-            ("alacritty", &["-e", "cargo", "run"]),
-            ("wezterm", &["start", "--", "cargo", "run"]),
-            ("foot", &["cargo", "run"]),
-            ("xterm", &["-e", "cargo", "run"]),
+            ("x-terminal-emulator", &["-e"]),
+            ("gnome-terminal", &["--"]),
+            ("konsole", &["-e"]),
+            ("xfce4-terminal", &["-x"]),
+            ("kitty", &[]),
+            ("alacritty", &["-e"]),
+            ("wezterm", &["start", "--"]),
+            ("foot", &[]),
+            ("xterm", &["-e"]),
         ];
-        for (term, args) in TERMINALS {
+        for (term, prefix) in TERMINALS {
             if std::process::Command::new(term)
-                .args(*args)
+                .args(*prefix)
+                .arg(program)
+                .args(cmd_args)
                 .current_dir(workdir)
                 .stdin(std::process::Stdio::null())
                 .stdout(std::process::Stdio::null())
@@ -3461,13 +3759,13 @@ fn spawn_external_cargo_terminal(workdir: &std::path::Path) -> Result<String, St
                 .is_ok()
             {
                 return Ok(format!(
-                    "`cargo run` iniciado no terminal `{term}` em {}",
+                    "`{preview}` iniciado no terminal `{term}` em {}",
                     workdir.display()
                 ));
             }
         }
         Err(format!(
-            "Nenhum emulador gráfico encontrado. Abra outro terminal e execute: cd \"{}\" && cargo run",
+            "Nenhum emulador gráfico encontrado. Abra outro terminal e execute: cd \"{}\" && {preview}",
             workdir.display()
         ))
     }
@@ -4216,6 +4514,93 @@ mod tests {
                 .to_string_lossy()
                 .contains("rotear_requisicao")
         );
+
+        let _ = std::fs::remove_dir_all(root);
+    }
+
+    #[test]
+    fn hub_novas_ferramentas_lifetimes_layout_macros_poliglota_flashcards_e_gdb() {
+        let root = std::env::temp_dir().join(format!(
+            "rustlab-lab6-test-{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        let _ = std::fs::remove_dir_all(&root);
+        std::fs::create_dir_all(root.join("src")).unwrap();
+        std::fs::write(
+            root.join("Cargo.toml"),
+            "[package]\nname='lab6'\nversion='0.1.0'\nedition='2024'\n",
+        )
+        .unwrap();
+        std::fs::write(root.join("src/main.rs"), "fn main() {}\n").unwrap();
+        let mut app = App::for_snapshot();
+        app.set_config_path(root.join("config.toml"));
+        app.set_storage_path(root.join("prog.toml"));
+        app.screen = Screen::Create;
+        let mut state = CreateState::new();
+        state.open_project(&root, &mut app);
+        assert!(state.project.is_some());
+        state.view = CreateView::Workspace;
+        state.focus = Focus::Editor;
+        state.editor.select_all();
+        state.editor.insert_text(
+            "#[repr(C)]\nstruct Caixa { a: bool, b: u64, c: u8 }\nfn main() {\n    let s = String::from(\"rust\");\n    let r = &s;\n    println!(\"{r}\");\n}\n",
+        );
+
+        // Alt+L abre Mapa de Lifetimes e ativa marcadores na margem
+        state.on_key(
+            &mut app,
+            KeyEvent::new(KeyCode::Char('l'), KeyModifiers::ALT),
+        );
+        assert!(state.lab.open);
+        assert_eq!(state.lab.tab, crate::lab_tools::LabToolTab::MapaLifetimes);
+        assert!(state.lab.lifetime_gutter_enabled);
+
+        // Tecla '8' vai para Layout de Memória e calcula padding
+        state.on_key(&mut app, KeyEvent::from(KeyCode::Char('8')));
+        assert_eq!(state.lab.tab, crate::lab_tools::LabToolTab::LayoutMemoria);
+        let layout = state.lab.last_layout.as_ref().unwrap();
+        assert_eq!(layout.user_types[0].declared_size, 24);
+        assert_eq!(layout.user_types[0].optimal_size, 16);
+
+        // Tecla '9' abre Desaçucarador de Macros
+        state.on_key(&mut app, KeyEvent::from(KeyCode::Char('9')));
+        assert_eq!(
+            state.lab.tab,
+            crate::lab_tools::LabToolTab::DesacucararMacros
+        );
+        assert!(
+            state
+                .lab
+                .last_desugar
+                .as_ref()
+                .unwrap()
+                .items
+                .iter()
+                .any(|i| i.id == "macro-print")
+        );
+
+        // Tecla '0' abre Dicionário Poliglota & Flashcards, e 't' alterna para Flashcards
+        state.on_key(&mut app, KeyEvent::from(KeyCode::Char('0')));
+        assert_eq!(
+            state.lab.tab,
+            crate::lab_tools::LabToolTab::PoliglotaIntuicao
+        );
+        state.on_key(&mut app, KeyEvent::from(KeyCode::Char('t')));
+        assert!(state.lab.polyglot_mode_flashcards);
+        // FLASH-01 não compila -> tecla 'e' acerta e premia +25 XP + SRS
+        state.on_key(&mut app, KeyEvent::from(KeyCode::Char('e')));
+        assert!(state.lab.completed_flashcards.contains("FLASH-01"));
+        assert!(app.xp() >= 25);
+        assert!(app.progress.srs_cards.contains_key("FLASH-01"));
+
+        // Tecla '3' -> 'g' prepara comando de debugger nativo (rust-gdb / lldb)
+        state.on_key(&mut app, KeyEvent::from(KeyCode::Char('3')));
+        state.on_key(&mut app, KeyEvent::from(KeyCode::Char('g')));
+        assert!(state.lab.native_debugger_status.is_some());
 
         let _ = std::fs::remove_dir_all(root);
     }

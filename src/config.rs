@@ -83,6 +83,14 @@ impl ThemeId {
             ThemeId::Oceano => "Oceano",
         }
     }
+
+    pub fn label_for(self, english: bool) -> &'static str {
+        if english && self == ThemeId::Mono {
+            "Mono (no color)"
+        } else {
+            self.label()
+        }
+    }
 }
 
 #[derive(Debug, Default, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -192,9 +200,16 @@ pub enum AiProvider {
     Remote,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Default, Serialize, Deserialize)]
+pub const SUPPORTED_LANGUAGES: [&str; 2] = ["en-US", "pt-BR"];
+
+pub fn default_language() -> String {
+    "en-US".to_string()
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "kebab-case", default)]
 pub struct Config {
+    #[serde(default = "default_language")]
     pub language: String,
     pub ui: UiSettings,
     pub sound: SoundSettings,
@@ -203,12 +218,34 @@ pub struct Config {
     pub workspace: WorkspaceSettings,
 }
 
-impl Config {
-    /// Construção a partir dos padrões; `language` vem do ambiente.
-    pub fn defaults() -> Self {
+impl Default for Config {
+    fn default() -> Self {
         Self {
-            language: detect_language(),
-            ..Self::default()
+            language: default_language(),
+            ui: UiSettings::default(),
+            sound: SoundSettings::default(),
+            ai: AiSettings::default(),
+            execution: ExecSettings::default(),
+            workspace: WorkspaceSettings::default(),
+        }
+    }
+}
+
+impl Config {
+    /// Construção a partir dos padrões; inglês (`en-US`) é o padrão inicial.
+    pub fn defaults() -> Self {
+        Self::default()
+    }
+
+    pub fn is_english(&self) -> bool {
+        !self.language.trim().to_ascii_lowercase().starts_with("pt")
+    }
+
+    pub fn language_label(&self) -> &'static str {
+        if self.is_english() {
+            "English (en-US)"
+        } else {
+            "Português (pt-BR)"
         }
     }
 }
@@ -320,19 +357,6 @@ impl From<toml::ser::Error> for SaveError {
     fn from(e: toml::ser::Error) -> Self {
         SaveError::Serde(e)
     }
-}
-
-fn detect_language() -> String {
-    for var in ["LC_ALL", "LC_MESSAGES", "LANG"] {
-        if let Ok(v) = std::env::var(var)
-            && !v.is_empty()
-        {
-            // Devolvemos apenas o prefixo de idioma ("pt_BR.UTF-8" -> "pt-BR").
-            let base = v.split('.').next().unwrap_or("pt-BR");
-            return base.replace('_', "-");
-        }
-    }
-    "pt-BR".to_string()
 }
 
 /// Detecção de suporte a Unicode/UTF-8 para escolher glifos seguros.
@@ -467,5 +491,23 @@ mod tests {
         let serialized = toml::to_string(&cfg).unwrap();
         let restored: Config = toml::from_str(&serialized).unwrap();
         assert_eq!(cfg.ai, restored.ai);
+    }
+
+    #[test]
+    fn idioma_padrao_e_ingles_na_primeira_abertura() {
+        let cfg = Config::default();
+        assert_eq!(cfg.language, "en-US");
+        assert!(cfg.is_english());
+        assert_eq!(Config::defaults().language, "en-US");
+
+        let partial: Config = toml::from_str("[ui]\nanimations = \"off\"\n").unwrap();
+        assert_eq!(partial.language, "en-US");
+        assert!(partial.is_english());
+
+        let missing =
+            std::env::temp_dir().join(format!("rustlab-missing-{}.toml", std::process::id()));
+        let outcome = load_from_path(&missing);
+        assert_eq!(outcome.config.language, "en-US");
+        assert!(outcome.config.is_english());
     }
 }

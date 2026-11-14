@@ -1445,6 +1445,54 @@ fn practice_key(app: &mut App, key: KeyEvent) {
                 StatusKind::Info,
             );
         }
+        KeyCode::Char('l') if alt => {
+            if let Some(p) = app.lesson_view.as_mut().and_then(|v| v.practice.as_mut()) {
+                let code = p.editor.buf.to_string_lossy();
+                let lt = crate::lab_tools::LifetimeVisualizerReport::analyze(&code);
+                let layout = crate::lab_tools::MemoryLayoutReport::analyze(&code);
+                p.push_output("Mapa de Lifetimes & Layout em Memória:".to_string());
+                for line in lt.summary_lines().into_iter().take(8) {
+                    p.push_output(line);
+                }
+                if let Some(st) = layout.user_types.first() {
+                    p.push_output(format!(
+                        "Layout `struct {}`: {}B (align {}B, padding {}B, ótimo {}B)",
+                        st.name,
+                        st.declared_size,
+                        st.declared_align,
+                        st.total_padding,
+                        st.optimal_size
+                    ));
+                }
+                p.output_scroll = 0;
+            }
+            app.set_status(
+                "Mapa de Lifetimes e Layout exibidos na saída.",
+                StatusKind::Info,
+            );
+        }
+        KeyCode::Char('i') if alt => {
+            if let Some(p) = app.lesson_view.as_mut().and_then(|v| v.practice.as_mut()) {
+                let card_idx =
+                    app.progress.completed.len() % crate::lab_tools::INTUITION_FLASHCARDS.len();
+                let card = crate::lab_tools::INTUITION_FLASHCARDS[card_idx];
+                p.push_output(format!(
+                    "[Flashcard {}] {} ({})",
+                    card.id, card.title, card.topic
+                ));
+                for l in card.snippet.lines() {
+                    p.push_output(format!("  {l}"));
+                }
+                let ans = if card.compiles {
+                    "COMPILA ✔"
+                } else {
+                    card.error_code
+                };
+                p.push_output(format!("Gabarito rápido: {ans} — {}", card.explanation));
+                p.output_scroll = 0;
+            }
+            app.set_status("Flashcard de intuição exibido na saída.", StatusKind::Info);
+        }
         KeyCode::F(1) => reveal_practice_hint(app),
         KeyCode::F(2) => {
             if let Some(p) = app.lesson_view.as_mut().and_then(|v| v.practice.as_mut()) {

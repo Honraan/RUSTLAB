@@ -6,7 +6,6 @@ use ratatui::text::{Line, Span};
 use ratatui::widgets::{Block, BorderType, List, ListState};
 
 use crate::app::{App, MenuAction};
-use crate::i18n::t;
 use crate::ui::titled_block;
 
 pub fn draw(frame: &mut Frame, app: &App, area: Rect) {
@@ -33,7 +32,7 @@ pub fn draw(frame: &mut Frame, app: &App, area: Rect) {
         .highlight_symbol(if app.unicode { "▶ " } else { "> " })
         .highlight_style(theme.selection());
 
-    let menu_title = format!("{} v{}", t("menu.title"), env!("CARGO_PKG_VERSION"));
+    let menu_title = format!("{} v{}", app.t("menu.title"), env!("CARGO_PKG_VERSION"));
     let block = titled_block(&menu_title, theme, true).border_type(border);
     let inner = block.inner(rows[0]);
     frame.render_widget(block, rows[0]);
@@ -47,7 +46,11 @@ pub fn draw(frame: &mut Frame, app: &App, area: Rect) {
     // da lista, nunca sobre os itens.
     if app.menu_index == 0 && app.status.is_none() && rows[0].height >= 9 {
         let hint = Line::from(Span::styled(
-            format!("{} — comece por aqui :)", t("menu.learn")),
+            format!(
+                "{} — {}",
+                app.t("menu.learn"),
+                app.bi("comece por aqui :)", "start here :)")
+            ),
             theme.accent_dim,
         ));
         let hint_area = Rect {
@@ -63,12 +66,24 @@ pub fn draw(frame: &mut Frame, app: &App, area: Rect) {
 fn item_line(app: &App, action: &MenuAction) -> Line<'static> {
     let theme = &app.theme;
     let (glyph, label, note) = match action {
-        MenuAction::Learn => ("◆", t("menu.learn"), "currículo guiado"),
-        MenuAction::Create => ("◆", t("menu.create"), "mini-IDE com Cargo"),
-        MenuAction::Progress => ("◆", t("menu.progress"), "lições, exercícios e dicas"),
-        MenuAction::Settings => ("⚙", t("menu.settings"), ""),
-        MenuAction::Help => ("?", t("menu.help"), ""),
-        MenuAction::Quit => ("x", t("menu.quit"), ""),
+        MenuAction::Learn => (
+            "◆",
+            app.t("menu.learn"),
+            app.bi("currículo guiado", "guided curriculum"),
+        ),
+        MenuAction::Create => (
+            "◆",
+            app.t("menu.create"),
+            app.bi("mini-IDE com Cargo", "Cargo mini-IDE"),
+        ),
+        MenuAction::Progress => (
+            "◆",
+            app.t("menu.progress"),
+            app.bi("lições, exercícios e dicas", "lessons, exercises & hints"),
+        ),
+        MenuAction::Settings => ("⚙", app.t("menu.settings"), ""),
+        MenuAction::Help => ("?", app.t("menu.help"), ""),
+        MenuAction::Quit => ("x", app.t("menu.quit"), ""),
     };
     let glyph = if app.unicode {
         glyph
@@ -101,35 +116,55 @@ fn draw_context_card(frame: &mut Frame, app: &App, area: Rect) {
     let action = app.menu_action();
     let text: Line = match action {
         MenuAction::Learn => Line::from(Span::styled(
-            "Currículo por etapas — comece pela Etapa 1; progresso desta sessão.",
+            app.bi(
+                "Currículo por etapas — comece pela Etapa 1; progresso desta sessão.",
+                "Step-by-step curriculum — start at Stage 1; session progress.",
+            ),
             theme.dim(),
         )),
         MenuAction::Create => Line::from(Span::styled(
-            "Editor multilinha e comandos Cargo reais; execução exige consentimento.",
+            app.bi(
+                "Editor multilinha e comandos Cargo reais; execução exige consentimento.",
+                "Multi-line editor and real Cargo commands; execution asks consent.",
+            ),
             theme.dim(),
         )),
         MenuAction::Progress => {
             if app.config.ui.gamification == crate::config::GamificationVisibility::Visible {
                 Line::from(format!(
-                    "Nível {} · {} XP · {} marcos",
+                    "{} {} · {} XP · {} {}",
+                    app.bi("Nível", "Level"),
                     app.level(),
                     app.xp(),
-                    app.achievement_count()
+                    app.achievement_count(),
+                    app.bi("marcos", "milestones")
                 ))
             } else {
-                Line::from("Resumo de lições e exercícios; gamificação oculta nas configurações.")
+                Line::from(app.bi(
+                    "Resumo de lições e exercícios; gamificação oculta nas configurações.",
+                    "Lessons and exercises summary; gamification hidden in settings.",
+                ))
             }
         }
         MenuAction::Settings => Line::from(Span::styled(
-            "Aparência, movimento, som e IA. Tudo se aplica e se salva na hora.",
+            app.bi(
+                "Aparência, movimento, som e IA. Tudo se aplica e se salva na hora.",
+                "Appearance, motion, sound, language, and AI. Applies and saves immediately.",
+            ),
             theme.dim(),
         )),
         MenuAction::Help => Line::from(Span::styled(
-            "Atalhos de teclado e o estado atual do projeto.",
+            app.bi(
+                "Atalhos de teclado e o estado atual do projeto.",
+                "Keyboard shortcuts and current project status.",
+            ),
             theme.dim(),
         )),
         MenuAction::Quit => Line::from(Span::styled(
-            "Até logo! O terminal volta ao normal.",
+            app.bi(
+                "Até logo! O terminal volta ao normal.",
+                "See you later! Terminal state will be restored.",
+            ),
             theme.dim(),
         )),
     };

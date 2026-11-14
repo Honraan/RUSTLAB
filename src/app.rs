@@ -15,7 +15,6 @@ use crate::animation::{AnimEngine, ScreenFx};
 use crate::audio::{self, AudioReport};
 use crate::config::{self, Config, MotionMode, ThemeId};
 use crate::event::{Event, Events};
-use crate::i18n::t;
 use crate::theme::Theme;
 use crate::ui;
 
@@ -113,16 +112,18 @@ pub enum SettingRow {
     Sound,
     Volume,
     Gamification,
+    Language,
     Ai,
     OllamaModel,
 }
 
-pub const SETTING_ROWS: [SettingRow; 7] = [
+pub const SETTING_ROWS: [SettingRow; 8] = [
     SettingRow::Theme,
     SettingRow::Animations,
     SettingRow::Sound,
     SettingRow::Volume,
     SettingRow::Gamification,
+    SettingRow::Language,
     SettingRow::Ai,
     SettingRow::OllamaModel,
 ];
@@ -199,10 +200,13 @@ impl App {
         }
         // Sem alarme: apenas informa uma vez que o som é opcional.
         if !app.audio_report.available() {
-            app.status = Some(Status::new(
-                "Áudio não detectado; o RustLab funciona normalmente sem som.",
-                StatusKind::Info,
-            ));
+            let msg = app
+                .bi(
+                    "Áudio não detectado; o RustLab funciona normalmente sem som.",
+                    "Audio not detected; RustLab works normally without sound.",
+                )
+                .to_string();
+            app.status = Some(Status::new(msg, StatusKind::Info));
         }
         Ok(app)
     }
@@ -247,6 +251,22 @@ impl App {
         };
         app.anim.play(ScreenFx::Welcome, app.theme.accent);
         app
+    }
+
+    pub fn is_english(&self) -> bool {
+        self.config.is_english()
+    }
+
+    pub fn t(&self, key: &'static str) -> &'static str {
+        crate::i18n::t_for(key, self.is_english())
+    }
+
+    pub fn tf(&self, key: &'static str, args: &[&dyn std::fmt::Display]) -> String {
+        crate::i18n::tf_for(key, self.is_english(), args)
+    }
+
+    pub fn bi<'a>(&self, pt: &'a str, en: &'a str) -> &'a str {
+        crate::i18n::bi(pt, en, self.is_english())
     }
 
     /// Redireciona o arquivo de config (usado por testes; também útil
@@ -426,7 +446,10 @@ impl App {
     /// (usado pelo teste de término de efeitos `fx_finish`).
     pub fn for_snapshot_with_animation() -> Self {
         let mut app = Self::from_config(
-            Config::defaults(),
+            Config {
+                language: "pt-BR".to_string(),
+                ..Config::defaults()
+            },
             None,
             true,
             crate::audio::AudioReport {
@@ -857,14 +880,27 @@ impl App {
             }
             KeyCode::Char('r') => match self.refresh_ollama_models() {
                 Ok(n) if n > 0 => self.set_status(
-                    format!("Ollama: {n} modelo(s) local(is) encontrado(s)."),
+                    if self.is_english() {
+                        format!("Ollama: {n} local model(s) found.")
+                    } else {
+                        format!("Ollama: {n} modelo(s) local(is) encontrado(s).")
+                    },
                     StatusKind::Success,
                 ),
-                Ok(_) => {
-                    self.set_status("Ollama ativo, mas sem modelos baixados.", StatusKind::Info)
-                }
+                Ok(_) => self.set_status(
+                    self.bi(
+                        "Ollama ativo, mas sem modelos baixados.",
+                        "Ollama is running, but no models are downloaded.",
+                    )
+                    .to_string(),
+                    StatusKind::Info,
+                ),
                 Err(err) => self.set_status(
-                    format!("Não consegui consultar modelos do Ollama ({err})."),
+                    if self.is_english() {
+                        format!("Could not query Ollama models ({err}).")
+                    } else {
+                        format!("Não consegui consultar modelos do Ollama ({err}).")
+                    },
                     StatusKind::Warning,
                 ),
             },
@@ -911,6 +947,11 @@ impl App {
                     G::Hidden => G::Visible,
                 };
             }
+            SettingRow::Language => {
+                let cur = usize::from(!self.config.is_english());
+                let next = step(cur, direction, config::SUPPORTED_LANGUAGES.len());
+                self.config.language = config::SUPPORTED_LANGUAGES[next].to_string();
+            }
             SettingRow::Ai => {
                 use crate::config::AiProvider as P;
                 let providers = [P::Disabled, P::Ollama, P::Remote];
@@ -945,9 +986,9 @@ impl App {
             None => config::save(&self.config),
         };
         match result {
-            Ok(()) => self.set_status(t("settings.saved"), StatusKind::Success),
+            Ok(()) => self.set_status(self.t("settings.saved").to_string(), StatusKind::Success),
             Err(err) => self.set_status(
-                format!("{}: {err}", t("settings.save_error")),
+                format!("{}: {err}", self.t("settings.save_error")),
                 StatusKind::Warning,
             ),
         }
@@ -1233,5 +1274,27 @@ mod tests {
         assert_eq!(app.mentor.as_ref().unwrap().return_screen, Screen::Progress);
         app.handle_input(KeyEvent::from(KeyCode::Esc));
         assert_eq!(app.screen, Screen::Progress);
+    }
+
+    #[test]
+    fn idioma_alterna_nas_configuracoes_e_padrao_e_ingles() {
+        let mut app = test_app();
+        assert_eq!(app.config.language, "en-US");
+        assert!(app.is_english());
+        assert_eq!(app.t("settings.title"), "Settings");
+
+        app.screen = Screen::Settings;
+        app.settings_row = SETTING_ROWS
+            .iter()
+            .position(|r| *r == SettingRow::Language)
+            .expect("linha de idioma");
+        app.handle_input(key(KeyCode::Right));
+        assert_eq!(app.config.language, "pt-BR");
+        assert!(!app.is_english());
+        assert_eq!(app.t("settings.title"), "Configurações");
+
+        app.handle_input(key(KeyCode::Left));
+        assert_eq!(app.config.language, "en-US");
+        assert!(app.is_english());
     }
 }

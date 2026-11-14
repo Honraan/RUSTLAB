@@ -99,11 +99,19 @@ pub struct AudioReport {
 
 impl AudioReport {
     pub fn headline(&self) -> &'static str {
-        match self.backend {
-            AudioBackend::PipeWire => "PipeWire detectado",
-            AudioBackend::PulseAudio => "PulseAudio detectado",
-            AudioBackend::Alsa => "ALSA detectada",
-            AudioBackend::None => "Nenhum subsistema de áudio detectado",
+        self.headline_for(false)
+    }
+
+    pub fn headline_for(&self, english: bool) -> &'static str {
+        match (english, &self.backend) {
+            (true, AudioBackend::PipeWire) => "PipeWire detected",
+            (true, AudioBackend::PulseAudio) => "PulseAudio detected",
+            (true, AudioBackend::Alsa) => "ALSA detected",
+            (true, AudioBackend::None) => "No audio subsystem detected",
+            (false, AudioBackend::PipeWire) => "PipeWire detectado",
+            (false, AudioBackend::PulseAudio) => "PulseAudio detectado",
+            (false, AudioBackend::Alsa) => "ALSA detectada",
+            (false, AudioBackend::None) => "Nenhum subsistema de áudio detectado",
         }
     }
 

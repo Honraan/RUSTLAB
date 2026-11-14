@@ -4,9 +4,9 @@
 │    Alertas sonoros           Ativados                                                  │
 │    Volume do som de XP       70% (tom suave)                                           │
 │    Efeitos de gamificação    Visíveis                                                  │
+│    Idioma                    Português (pt-BR)                                         │
 │    Mentor de IA              Desligado (guia local determinístico)                     │
 │    Modelo Ollama (local)     qwen2.5-coder:3b (←/→ alternar · r buscar no Ollama)      │
-│                                                                                        │
 │                                                                                        │
 │                                                                                        │
 │                                                                                        │

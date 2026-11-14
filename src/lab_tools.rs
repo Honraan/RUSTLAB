@@ -19,16 +19,24 @@ pub enum LabToolTab {
     ConserteOCodigo,
     PlaygroundComunidade,
     EcossistemasModernos,
+    MapaLifetimes,
+    LayoutMemoria,
+    DesacucararMacros,
+    PoliglotaIntuicao,
 }
 
 impl LabToolTab {
-    pub const ALL: [Self; 6] = [
+    pub const ALL: [Self; 10] = [
         Self::RaioXMemoria,
         Self::LenteCompilador,
         Self::DebuggerVisual,
         Self::ConserteOCodigo,
         Self::PlaygroundComunidade,
         Self::EcossistemasModernos,
+        Self::MapaLifetimes,
+        Self::LayoutMemoria,
+        Self::DesacucararMacros,
+        Self::PoliglotaIntuicao,
     ];
 
     pub const fn index(self) -> usize {
@@ -39,6 +47,10 @@ impl LabToolTab {
             Self::ConserteOCodigo => 3,
             Self::PlaygroundComunidade => 4,
             Self::EcossistemasModernos => 5,
+            Self::MapaLifetimes => 6,
+            Self::LayoutMemoria => 7,
+            Self::DesacucararMacros => 8,
+            Self::PoliglotaIntuicao => 9,
         }
     }
 
@@ -50,18 +62,26 @@ impl LabToolTab {
             '4' => Some(Self::ConserteOCodigo),
             '5' => Some(Self::PlaygroundComunidade),
             '6' => Some(Self::EcossistemasModernos),
+            '7' => Some(Self::MapaLifetimes),
+            '8' => Some(Self::LayoutMemoria),
+            '9' => Some(Self::DesacucararMacros),
+            '0' => Some(Self::PoliglotaIntuicao),
             _ => None,
         }
     }
 
     pub const fn short_title(self) -> &'static str {
         match self {
-            Self::RaioXMemoria => "1 Raio-X",
-            Self::LenteCompilador => "2 Lente/ELI10",
-            Self::DebuggerVisual => "3 Debugger",
-            Self::ConserteOCodigo => "4 Conserte!",
-            Self::PlaygroundComunidade => "5 Playground",
-            Self::EcossistemasModernos => "6 Ecossistemas",
+            Self::RaioXMemoria => "1:RaioX",
+            Self::LenteCompilador => "2:Lente",
+            Self::DebuggerVisual => "3:Debug",
+            Self::ConserteOCodigo => "4:Fix",
+            Self::PlaygroundComunidade => "5:Play",
+            Self::EcossistemasModernos => "6:Eco",
+            Self::MapaLifetimes => "7:Life",
+            Self::LayoutMemoria => "8:Size",
+            Self::DesacucararMacros => "9:Macro",
+            Self::PoliglotaIntuicao => "0:Polig",
         }
     }
 
@@ -69,12 +89,16 @@ impl LabToolTab {
         match self {
             Self::RaioXMemoria => "Raio-X de Ownership, Stack/Heap & Alocações",
             Self::LenteCompilador => "Lente Socrática do Compilador & Modo 10 Anos (ELI10)",
-            Self::DebuggerVisual => "Debugger Visual Passo a Passo, Breakpoints & Locais",
+            Self::DebuggerVisual => "Debugger Visual & Nativo (rust-gdb / lldb)",
             Self::ConserteOCodigo => "Desafio Gamificado: Conserte o Código & Golfing",
             Self::PlaygroundComunidade => "Rust Playground, Exportação & Soluções da Comunidade",
             Self::EcossistemasModernos => {
                 "Trilhas Modernas: WebAssembly · CLI Tokio · Backend Axum"
             }
+            Self::MapaLifetimes => "Mapa Visual de Lifetimes ('a, 'b) & Escopos",
+            Self::LayoutMemoria => "Raio-X de Tamanho (size_of / align_of), Padding & NPO",
+            Self::DesacucararMacros => "Desaçucarador de Macros & Syntax Sugar",
+            Self::PoliglotaIntuicao => "Dicionário Poliglota (Python/JS/C++) & Flashcards SRS",
         }
     }
 
@@ -105,6 +129,18 @@ pub struct LabState {
     pub last_export_path: Option<PathBuf>,
     pub last_quest_feedback: Option<String>,
     pub debugger: VisualDebuggerState,
+    pub lifetime_gutter_enabled: bool,
+    pub last_lifetimes: Option<LifetimeVisualizerReport>,
+    pub last_layout: Option<MemoryLayoutReport>,
+    pub last_desugar: Option<DesugarReport>,
+    pub desugar_sel: usize,
+    pub polyglot_mode_flashcards: bool,
+    pub polyglot_sel: usize,
+    pub polyglot_lang_filter: usize,
+    pub flashcard_sel: usize,
+    pub flashcard_feedback: Option<(bool, String)>,
+    pub completed_flashcards: HashSet<&'static str>,
+    pub native_debugger_status: Option<String>,
 }
 
 impl LabState {
@@ -123,6 +159,9 @@ impl LabState {
     pub fn refresh(&mut self, code: &str, diags_text: &str) {
         self.last_xray = Some(MemoryXRayReport::analyze(code));
         self.last_lens = Some(SocraticErrorLens::analyze(diags_text, code));
+        self.last_lifetimes = Some(LifetimeVisualizerReport::analyze(code));
+        self.last_layout = Some(MemoryLayoutReport::analyze(code));
+        self.last_desugar = Some(DesugarReport::analyze(code));
     }
 }
 
@@ -1717,6 +1756,1262 @@ pub const MODERN_ECOSYSTEMS: [ModernEcosystemTemplate; 3] = [
     },
 ];
 
+// =========================================================================
+// 7. MAPA VISUAL DE LIFETIMES ('a, 'b) COLORIDO & DETECÇÃO DE ESCOPOS
+// =========================================================================
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum LifetimeKind {
+    Owner,
+    SharedBorrow,
+    MutBorrow,
+    ExplicitAnnotation,
+}
+
+impl LifetimeKind {
+    pub const fn badge(self) -> &'static str {
+        match self {
+            Self::Owner => "DONO",
+            Self::SharedBorrow => "&'a IMUT",
+            Self::MutBorrow => "&'b mut",
+            Self::ExplicitAnnotation => "ANOTAÇÃO 'a",
+        }
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct LifetimeSpan {
+    pub name: String,
+    pub label: String,
+    pub kind: LifetimeKind,
+    pub target: Option<String>,
+    pub birth_line: usize,
+    pub end_line: usize,
+    pub depth: usize,
+    pub timeline_bar: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct LifetimeConflict {
+    pub line: usize,
+    pub error_code: &'static str,
+    pub title: String,
+    pub explanation: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Default)]
+pub struct LifetimeVisualizerReport {
+    pub total_lines: usize,
+    pub explicit_annotations: Vec<(usize, String)>,
+    pub spans: Vec<LifetimeSpan>,
+    pub conflicts: Vec<LifetimeConflict>,
+}
+
+impl LifetimeVisualizerReport {
+    /// Analisa declarações, blocos `{ ... }`, empréstimos `&` / `&mut` e lifetimes explícitos.
+    pub fn analyze(code: &str) -> Self {
+        let raw_lines: Vec<&str> = code.lines().collect();
+        let total_lines = raw_lines.len().max(1);
+        let mut explicit_annotations = Vec::new();
+        let mut spans: Vec<LifetimeSpan> = Vec::new();
+        let mut conflicts: Vec<LifetimeConflict> = Vec::new();
+        let mut depth = 0usize;
+        let mut fn_return_ref_depth: Option<usize> = None;
+
+        for (idx, raw) in raw_lines.iter().enumerate() {
+            let line_no = idx + 1;
+            let code_only = strip_line_comment(raw).trim();
+            if code_only.is_empty() {
+                continue;
+            }
+
+            for lt in extract_lifetime_tokens(code_only) {
+                if !explicit_annotations
+                    .iter()
+                    .any(|(l, t)| *l == line_no && t == &lt)
+                {
+                    explicit_annotations.push((line_no, lt));
+                }
+            }
+
+            if code_only.starts_with("fn ") && code_only.contains("->") && code_only.contains('&') {
+                fn_return_ref_depth = Some(depth + usize::from(code_only.contains('{')));
+            }
+
+            // Fecha escopos que terminam nesta linha antes de abrir novos.
+            let close_count = code_only.matches('}').count();
+            for _ in 0..close_count {
+                let closing_depth = depth;
+                for sp in &mut spans {
+                    if sp.depth >= closing_depth && sp.end_line == 0 {
+                        sp.end_line = line_no;
+                    }
+                }
+                if fn_return_ref_depth == Some(closing_depth) {
+                    fn_return_ref_depth = None;
+                }
+                depth = depth.saturating_sub(1);
+            }
+
+            // Retorno de referência local na função atual.
+            if (fn_return_ref_depth.is_some()
+                || code_only.starts_with("return &")
+                || code_only.starts_with('&'))
+                && let Some(ret_target) = extract_returned_borrow_target(code_only)
+                && spans.iter().any(|sp| {
+                    sp.name == ret_target
+                        && sp.kind == LifetimeKind::Owner
+                        && sp.depth >= fn_return_ref_depth.unwrap_or(1)
+                })
+            {
+                conflicts.push(LifetimeConflict {
+                    line: line_no,
+                    error_code: "E0515",
+                    title: format!("Retorno de referência a valor local `{ret_target}`"),
+                    explanation: format!(
+                        "`{ret_target}` nasce dentro da função e é destruído ao fechar `}}` na saída; retorne o valor com posse (`String` / `T`) ou receba `&'a` por parâmetro."
+                    ),
+                });
+            }
+
+            // Reatribuição de referência já existente apontando para variável de bloco interno (`E0597`).
+            if !code_only.starts_with("let ")
+                && let Some((lhs, rhs)) = code_only.split_once('=')
+                && !lhs.contains('!')
+                && !rhs.starts_with('=')
+            {
+                let lhs_ident = extract_leading_ident(lhs.trim());
+                let rhs_clean = rhs.trim().trim_end_matches(';');
+                if !lhs_ident.is_empty()
+                    && let Some(target_ident) = parse_borrow_target(rhs_clean)
+                    && let Some(outer_ref) = spans.iter().rfind(|sp| sp.name == lhs_ident).cloned()
+                    && let Some(inner_owner) = spans.iter().rfind(|sp| {
+                        sp.name == target_ident
+                            && sp.kind == LifetimeKind::Owner
+                            && sp.depth > outer_ref.depth
+                    })
+                {
+                    conflicts.push(LifetimeConflict {
+                        line: line_no,
+                        error_code: "E0597",
+                        title: format!(
+                            "`{target_ident}` (bloco L{}) vive menos que `{lhs_ident}` (escopo L{})",
+                            inner_owner.birth_line, outer_ref.birth_line
+                        ),
+                        explanation: format!(
+                            "`{target_ident}` será descartado no `}}` interno enquanto `{lhs_ident}` continua vivo no escopo externo."
+                        ),
+                    });
+                }
+            }
+
+            // Declaração `let [mut] nome [: tipo] = rhs;`
+            if let Some(after_let) = code_only.strip_prefix("let ") {
+                let (lhs, rhs) = match after_let.split_once('=') {
+                    Some((l, r)) => (l.trim(), r.trim().trim_end_matches(';').trim()),
+                    None => (after_let.trim_end_matches(';').trim(), ""),
+                };
+                let (ident, _mutable, ty_opt) = parse_let_lhs(lhs);
+                if !ident.is_empty() {
+                    let is_mut_borrow = rhs.starts_with("&mut ");
+                    let is_shared_borrow = !is_mut_borrow && rhs.starts_with('&');
+                    let target = parse_borrow_target(rhs);
+                    let last_use = find_last_mention_line(&raw_lines, idx, &ident, depth);
+
+                    if let Some(tgt) = target.as_deref() {
+                        check_active_borrow_overlap(
+                            &spans,
+                            &raw_lines,
+                            line_no,
+                            tgt,
+                            is_mut_borrow,
+                            &mut conflicts,
+                        );
+                    }
+
+                    let kind = if is_mut_borrow {
+                        LifetimeKind::MutBorrow
+                    } else if is_shared_borrow
+                        || ty_opt.as_deref().is_some_and(|t| t.contains('\''))
+                    {
+                        LifetimeKind::SharedBorrow
+                    } else {
+                        LifetimeKind::Owner
+                    };
+                    let label = match (kind, target.as_deref()) {
+                        (LifetimeKind::MutBorrow, Some(t)) => {
+                            format!("&mut de `{t}` (exclusivo)")
+                        }
+                        (LifetimeKind::SharedBorrow, Some(t)) => {
+                            format!("& de `{t}` (compartilhado)")
+                        }
+                        _ => format!("Posse `{ident}` (stack/escopo)"),
+                    };
+                    spans.push(LifetimeSpan {
+                        name: ident,
+                        label,
+                        kind,
+                        target,
+                        birth_line: line_no,
+                        end_line: last_use.max(line_no),
+                        depth,
+                        timeline_bar: String::new(),
+                    });
+                }
+            }
+
+            // Verifica mutação direta enquanto existe borrow ainda usado abaixo.
+            if !code_only.starts_with("let ")
+                && let Some(mutated) = detect_mutated_target(code_only)
+            {
+                for b in spans.iter().filter(|sp| {
+                    sp.target.as_deref() == Some(mutated.as_str())
+                        && matches!(
+                            sp.kind,
+                            LifetimeKind::SharedBorrow | LifetimeKind::MutBorrow
+                        )
+                        && sp.birth_line < line_no
+                }) {
+                    let borrow_used_later = raw_lines[idx..]
+                        .iter()
+                        .skip(1)
+                        .any(|later| contains_ident(strip_line_comment(later), &b.name));
+                    if borrow_used_later {
+                        conflicts.push(LifetimeConflict {
+                            line: line_no,
+                            error_code: "E0502/E0506",
+                            title: format!(
+                                "Mutação em `{mutated}` com empréstimo `{}` ativo até abaixo",
+                                b.name
+                            ),
+                            explanation: format!(
+                                "`{}` emprestou `{mutated}` em L{} e ainda será lido depois da linha L{line_no}.",
+                                b.name, b.birth_line
+                            ),
+                        });
+                        break;
+                    }
+                }
+            }
+
+            let open_count = code_only.matches('{').count();
+            depth = depth.saturating_add(open_count);
+        }
+
+        for sp in &mut spans {
+            if sp.end_line == 0 || sp.end_line < sp.birth_line {
+                sp.end_line = total_lines;
+            }
+            sp.timeline_bar = render_timeline_bar(sp.birth_line, sp.end_line, total_lines, 18);
+        }
+
+        Self {
+            total_lines,
+            explicit_annotations,
+            spans,
+            conflicts,
+        }
+    }
+
+    pub fn gutter_marker_for_line(&self, line_1based: usize) -> Option<(&'static str, bool, bool)> {
+        if self.conflicts.iter().any(|c| c.line == line_1based) {
+            return Some(("✘", true, false));
+        }
+        if let Some(sp) = self
+            .spans
+            .iter()
+            .find(|s| s.birth_line == line_1based && s.kind != LifetimeKind::Owner)
+        {
+            return Some(("┣", false, sp.kind == LifetimeKind::MutBorrow));
+        }
+        if let Some(sp) = self.spans.iter().find(|s| {
+            s.kind != LifetimeKind::Owner && line_1based > s.birth_line && line_1based <= s.end_line
+        }) {
+            return Some(("┃", false, sp.kind == LifetimeKind::MutBorrow));
+        }
+        None
+    }
+
+    pub fn summary_lines(&self) -> Vec<String> {
+        let mut out = Vec::new();
+        out.push(format!(
+            "Lifetimes explícitos detectados: {}",
+            if self.explicit_annotations.is_empty() {
+                "nenhum (elision automática do compilador)".to_string()
+            } else {
+                self.explicit_annotations
+                    .iter()
+                    .map(|(l, t)| format!("{t} @ L{l}"))
+                    .collect::<Vec<_>>()
+                    .join(", ")
+            }
+        ));
+        if self.conflicts.is_empty() {
+            out.push("Status do Borrow Checker: ✓ Nenhum conflito estrutural de tempo de vida detectado.".to_string());
+        } else {
+            out.push(format!("Conflitos de Lifetime ({}):", self.conflicts.len()));
+            for c in &self.conflicts {
+                out.push(format!("  ✘ L{} [{}] {}", c.line, c.error_code, c.title));
+                out.push(format!("    {}", c.explanation));
+            }
+        }
+        out.push(String::new());
+        out.push("Linha do Tempo dos Escopos (Origem ──▶ Fim):".to_string());
+        if self.spans.is_empty() {
+            out.push("  (nenhum binding/empréstimo mapeado neste arquivo)".to_string());
+        } else {
+            for sp in &self.spans {
+                out.push(format!(
+                    "  [{}] {:<10} {}  L{}-L{} · {}",
+                    sp.kind.badge(),
+                    sp.name,
+                    sp.timeline_bar,
+                    sp.birth_line,
+                    sp.end_line,
+                    sp.label
+                ));
+            }
+        }
+        out
+    }
+}
+
+fn extract_lifetime_tokens(line: &str) -> Vec<String> {
+    let mut found = Vec::new();
+    let bytes = line.as_bytes();
+    let mut i = 0;
+    while i < bytes.len() {
+        if bytes[i] == b'\'' && i + 1 < bytes.len() && bytes[i + 1].is_ascii_alphabetic() {
+            let start = i;
+            let mut end = i + 2;
+            while end < bytes.len() && (bytes[end].is_ascii_alphanumeric() || bytes[end] == b'_') {
+                end += 1;
+            }
+            // Ignora literais de char como `'a'`.
+            if bytes.get(end) != Some(&b'\'') {
+                let tok = line[start..end].to_string();
+                if !found.contains(&tok) {
+                    found.push(tok);
+                }
+            }
+            i = end;
+            continue;
+        }
+        i += 1;
+    }
+    found
+}
+
+fn extract_returned_borrow_target(code_only: &str) -> Option<String> {
+    let rest = if let Some(r) = code_only.strip_prefix("return ") {
+        r.trim()
+    } else if code_only.starts_with('&') {
+        code_only
+    } else {
+        return None;
+    };
+    let ident = parse_borrow_target(rest.trim_end_matches(';'))?;
+    Some(ident)
+}
+
+fn parse_borrow_target(rhs: &str) -> Option<String> {
+    let trimmed = rhs.trim();
+    let after_amp = trimmed
+        .strip_prefix("&mut ")
+        .or_else(|| trimmed.strip_prefix('&'))?
+        .trim();
+    let ident = extract_leading_ident(after_amp);
+    if ident.is_empty() || ident == "self" {
+        None
+    } else {
+        Some(ident.to_string())
+    }
+}
+
+fn find_last_mention_line(
+    raw_lines: &[&str],
+    start_idx: usize,
+    ident: &str,
+    decl_depth: usize,
+) -> usize {
+    let mut depth = decl_depth;
+    let mut last = start_idx + 1;
+    for (offset, raw) in raw_lines.iter().enumerate().skip(start_idx) {
+        let line_no = offset + 1;
+        let code = strip_line_comment(raw).trim();
+        if offset > start_idx {
+            let closes = code.matches('}').count();
+            if closes > 0 && depth <= decl_depth {
+                return last.max(line_no);
+            }
+            if contains_ident(code, ident) {
+                last = line_no;
+            }
+            depth = depth
+                .saturating_sub(closes)
+                .saturating_add(code.matches('{').count());
+        } else {
+            depth = depth.saturating_add(code.matches('{').count());
+        }
+    }
+    last
+}
+
+fn check_active_borrow_overlap(
+    spans: &[LifetimeSpan],
+    raw_lines: &[&str],
+    line_no: usize,
+    target: &str,
+    new_is_mut: bool,
+    conflicts: &mut Vec<LifetimeConflict>,
+) {
+    let idx = line_no.saturating_sub(1);
+    for prev in spans.iter().filter(|s| {
+        s.target.as_deref() == Some(target)
+            && matches!(s.kind, LifetimeKind::SharedBorrow | LifetimeKind::MutBorrow)
+            && s.birth_line < line_no
+    }) {
+        let prev_still_used = raw_lines[idx..]
+            .iter()
+            .skip(1)
+            .any(|later| contains_ident(strip_line_comment(later), &prev.name));
+        if !prev_still_used {
+            continue;
+        }
+        match (prev.kind, new_is_mut) {
+            (LifetimeKind::MutBorrow, true) => conflicts.push(LifetimeConflict {
+                line: line_no,
+                error_code: "E0499",
+                title: format!(
+                    "Segundo `&mut` em `{target}` enquanto `{}` (L{}) segue ativo",
+                    prev.name, prev.birth_line
+                ),
+                explanation: "Em Rust só pode haver UMA referência `&mut` ativa ao mesmo dado por vez."
+                    .to_string(),
+            }),
+            (LifetimeKind::SharedBorrow, true) | (LifetimeKind::MutBorrow, false) => {
+                conflicts.push(LifetimeConflict {
+                    line: line_no,
+                    error_code: "E0502",
+                    title: format!(
+                        "Conflito `&` vs `&mut` em `{target}` com `{}` (L{}) ainda em uso",
+                        prev.name, prev.birth_line
+                    ),
+                    explanation: "Não é possível misturar empréstimo compartilhado `&` com mutável `&mut` simultaneamente."
+                        .to_string(),
+                })
+            }
+            _ => {}
+        }
+    }
+}
+
+fn contains_ident(haystack: &str, ident: &str) -> bool {
+    if ident.is_empty() {
+        return false;
+    }
+    haystack
+        .split(|c: char| !(c.is_ascii_alphanumeric() || c == '_'))
+        .any(|tok| tok == ident)
+}
+
+fn detect_mutated_target(code_only: &str) -> Option<String> {
+    if let Some((lhs, rhs)) = code_only.split_once('=')
+        && !lhs.contains('!')
+        && !rhs.starts_with('=')
+    {
+        let clean = lhs.trim_end_matches(|c: char| "+-*/|&^ ".contains(c));
+        let ident = extract_leading_ident(clean);
+        if !ident.is_empty() && clean == ident {
+            return Some(ident.to_string());
+        }
+    }
+    for method in [
+        ".push(",
+        ".push_str(",
+        ".clear(",
+        ".insert(",
+        ".pop(",
+        ".sort(",
+    ] {
+        if let Some((recv, _)) = code_only.split_once(method) {
+            let ident = extract_leading_ident(recv);
+            if !ident.is_empty() {
+                return Some(ident.to_string());
+            }
+        }
+    }
+    None
+}
+
+fn render_timeline_bar(birth: usize, end: usize, total: usize, width: usize) -> String {
+    let denom = total.saturating_sub(1).max(1);
+    let start_col = (birth.saturating_sub(1) * (width - 1)) / denom;
+    let end_col = ((end.saturating_sub(1) * (width - 1)) / denom).max(start_col);
+    let mut bar = String::with_capacity(width + 2);
+    bar.push('[');
+    for col in 0..width {
+        if col == start_col && col == end_col {
+            bar.push('◆');
+        } else if col == start_col {
+            bar.push('┣');
+        } else if col == end_col {
+            bar.push('┫');
+        } else if col > start_col && col < end_col {
+            bar.push('━');
+        } else {
+            bar.push('·');
+        }
+    }
+    bar.push(']');
+    bar
+}
+
+// =========================================================================
+// 8. RAIO-X DE TAMANHO E LAYOUT NA STACK (size_of / align_of / NPO)
+// =========================================================================
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct FieldLayoutInfo {
+    pub name: String,
+    pub ty: String,
+    pub size: usize,
+    pub align: usize,
+    pub offset: usize,
+    pub padding_before: usize,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct StructLayoutAnalysis {
+    pub name: String,
+    pub is_repr_c: bool,
+    pub declared_size: usize,
+    pub declared_align: usize,
+    pub total_padding: usize,
+    pub optimal_size: usize,
+    pub bytes_saved: usize,
+    pub fields: Vec<FieldLayoutInfo>,
+    pub reordered_preview: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct StandardLayoutFact {
+    pub type_expr: &'static str,
+    pub size_bytes: usize,
+    pub align_bytes: usize,
+    pub note: &'static str,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Default)]
+pub struct MemoryLayoutReport {
+    pub user_types: Vec<StructLayoutAnalysis>,
+    pub npo_facts: Vec<StandardLayoutFact>,
+}
+
+impl MemoryLayoutReport {
+    pub fn analyze(code: &str) -> Self {
+        let mut user_types: Vec<StructLayoutAnalysis> = Vec::new();
+        let mut known_structs: HashMap<String, (usize, usize)> = HashMap::new();
+        let lines: Vec<&str> = code.lines().collect();
+        let mut i = 0;
+
+        while i < lines.len() {
+            let trimmed = strip_line_comment(lines[i]).trim();
+            let is_repr_c = i > 0 && strip_line_comment(lines[i - 1]).contains("repr(C)");
+            let after_vis = trimmed.strip_prefix("pub ").unwrap_or(trimmed).trim();
+            if let Some(rest) = after_vis.strip_prefix("struct ")
+                && let Some((name_raw, tail)) = rest.split_once('{')
+            {
+                let struct_name = extract_leading_ident(name_raw).to_string();
+                let mut body = tail.to_string();
+                while !body.contains('}') && i + 1 < lines.len() {
+                    i += 1;
+                    body.push('\n');
+                    body.push_str(strip_line_comment(lines[i]));
+                }
+                let body_inside = body.split('}').next().unwrap_or("");
+                let raw_fields = parse_struct_fields(body_inside);
+                if !struct_name.is_empty() && !raw_fields.is_empty() {
+                    let analysis =
+                        compute_struct_layout(&struct_name, is_repr_c, &raw_fields, &known_structs);
+                    let effective_size = if is_repr_c {
+                        analysis.declared_size
+                    } else {
+                        analysis.optimal_size
+                    };
+                    known_structs.insert(struct_name, (effective_size, analysis.declared_align));
+                    user_types.push(analysis);
+                }
+            }
+            i += 1;
+        }
+
+        let npo_facts = vec![
+            StandardLayoutFact {
+                type_expr: "&T  /  Option<&T>",
+                size_bytes: 8,
+                align_bytes: 8,
+                note: "NPO (Null Pointer Optimization): ponteiro não-nulo usa endereço 0 como `None` sem gastar 1 byte extra!",
+            },
+            StandardLayoutFact {
+                type_expr: "Box<T>  /  Option<Box<T>>",
+                size_bytes: 8,
+                align_bytes: 8,
+                note: "Mesmo tamanho (8 bytes): `Box` nunca é nulo em memória válida.",
+            },
+            StandardLayoutFact {
+                type_expr: "u64  (8B)  →  Option<u64>",
+                size_bytes: 16,
+                align_bytes: 8,
+                note: "Precisa de tag discriminante + 7 bytes de padding, dobrando de 8B para 16B.",
+            },
+            StandardLayoutFact {
+                type_expr: "&str  (fat pointer)",
+                size_bytes: 16,
+                align_bytes: 8,
+                note: "Armazena apenas ponteiro (8B) + tamanho `len` (8B) na Stack, zero alocação Heap.",
+            },
+            StandardLayoutFact {
+                type_expr: "String  /  Vec<T>",
+                size_bytes: 24,
+                align_bytes: 8,
+                note: "Cabeçalho na Stack de 24 bytes (ptr + len + capacity) apontando para o buffer na Heap.",
+            },
+        ];
+
+        Self {
+            user_types,
+            npo_facts,
+        }
+    }
+}
+
+fn parse_struct_fields(body: &str) -> Vec<(String, String)> {
+    let mut fields = Vec::new();
+    for entry in body.split(',') {
+        let clean = entry.trim();
+        if clean.is_empty() {
+            continue;
+        }
+        let no_vis = clean.strip_prefix("pub ").unwrap_or(clean).trim();
+        if let Some((name, ty)) = no_vis.split_once(':') {
+            let fname = extract_leading_ident(name);
+            let fty = ty.trim();
+            if !fname.is_empty() && !fty.is_empty() {
+                fields.push((fname.to_string(), fty.to_string()));
+            }
+        }
+    }
+    fields
+}
+
+fn compute_struct_layout(
+    name: &str,
+    is_repr_c: bool,
+    raw_fields: &[(String, String)],
+    known: &HashMap<String, (usize, usize)>,
+) -> StructLayoutAnalysis {
+    let typed: Vec<(String, String, usize, usize)> = raw_fields
+        .iter()
+        .map(|(n, ty)| {
+            let (sz, al) = type_size_align(ty, known);
+            (n.clone(), ty.clone(), sz, al)
+        })
+        .collect();
+
+    let (declared_size, declared_align, total_padding, fields) = layout_sequence(&typed);
+
+    let mut sorted = typed.clone();
+    sorted.sort_by(|a, b| b.3.cmp(&a.3).then_with(|| b.2.cmp(&a.2)));
+    let (optimal_size, _, _, _) = layout_sequence(&sorted);
+    let bytes_saved = declared_size.saturating_sub(optimal_size);
+
+    let mut reordered_preview = format!("struct {name} {{\n");
+    for (fnm, fty, _, _) in &sorted {
+        reordered_preview.push_str(&format!("    {fnm}: {fty},\n"));
+    }
+    reordered_preview.push('}');
+
+    StructLayoutAnalysis {
+        name: name.to_string(),
+        is_repr_c,
+        declared_size,
+        declared_align,
+        total_padding,
+        optimal_size,
+        bytes_saved,
+        fields,
+        reordered_preview,
+    }
+}
+
+fn layout_sequence(
+    items: &[(String, String, usize, usize)],
+) -> (usize, usize, usize, Vec<FieldLayoutInfo>) {
+    let mut offset = 0usize;
+    let mut max_align = 1usize;
+    let mut padding = 0usize;
+    let mut fields = Vec::with_capacity(items.len());
+    for (name, ty, size, align) in items {
+        let a = (*align).max(1);
+        max_align = max_align.max(a);
+        let aligned = round_up(offset, a);
+        let pad = aligned.saturating_sub(offset);
+        padding += pad;
+        fields.push(FieldLayoutInfo {
+            name: name.clone(),
+            ty: ty.clone(),
+            size: *size,
+            align: a,
+            offset: aligned,
+            padding_before: pad,
+        });
+        offset = aligned + size;
+    }
+    let final_size = round_up(offset, max_align);
+    padding += final_size.saturating_sub(offset);
+    (final_size, max_align, padding, fields)
+}
+
+const fn round_up(value: usize, align: usize) -> usize {
+    if align <= 1 {
+        return value;
+    }
+    let rem = value % align;
+    if rem == 0 {
+        value
+    } else {
+        value + (align - rem)
+    }
+}
+
+pub fn type_size_align(ty: &str, known: &HashMap<String, (usize, usize)>) -> (usize, usize) {
+    let t = ty.trim();
+    if let Some(&pair) = known.get(t) {
+        return pair;
+    }
+    if t == "&str" || t.starts_with("&[") || t.contains(" str") {
+        return (16, 8);
+    }
+    if t.starts_with('&') || t.starts_with("*const ") || t.starts_with("*mut ") {
+        return (8, 8);
+    }
+    if let Some(inner) = t.strip_prefix("Option<").and_then(|s| s.strip_suffix('>')) {
+        let inner = inner.trim();
+        if inner.starts_with('&')
+            || inner.starts_with("Box<")
+            || inner.starts_with("NonNull<")
+            || inner == "bool"
+        {
+            return type_size_align(inner, known);
+        }
+        let (isz, ial) = type_size_align(inner, known);
+        let tag_plus_val = round_up(1, ial) + isz;
+        return (round_up(tag_plus_val, ial), ial);
+    }
+    if t.starts_with("Box<")
+        || t.starts_with("NonNull<")
+        || t.starts_with("Arc<")
+        || t.starts_with("Rc<")
+    {
+        return (8, 8);
+    }
+    if t == "String" || t.starts_with("Vec<") {
+        return (24, 8);
+    }
+    match t {
+        "()" => (0, 1),
+        "bool" | "u8" | "i8" => (1, 1),
+        "u16" | "i16" => (2, 2),
+        "u32" | "i32" | "f32" | "char" => (4, 4),
+        "u64" | "i64" | "f64" | "usize" | "isize" => (8, 8),
+        "u128" | "i128" => (16, 16),
+        _ => (8, 8),
+    }
+}
+
+// =========================================================================
+// 9. DESAÇUCARADOR DE MACROS & SYNTAX SUGAR
+// =========================================================================
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct DesugarItem {
+    pub id: &'static str,
+    pub title: &'static str,
+    pub line_1based: Option<usize>,
+    pub sugar_snippet: String,
+    pub expanded_rust: String,
+    pub explanation: &'static str,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Default)]
+pub struct DesugarReport {
+    pub detected_from_editor: bool,
+    pub items: Vec<DesugarItem>,
+}
+
+impl DesugarReport {
+    pub fn analyze(code: &str) -> Self {
+        let mut items = Vec::new();
+        for (idx, raw) in code.lines().enumerate() {
+            let line_no = idx + 1;
+            let t = strip_line_comment(raw).trim();
+            if t.is_empty() {
+                continue;
+            }
+            if (t.contains("println!(") || t.contains("format!("))
+                && !items.iter().any(|i: &DesugarItem| i.id == "macro-print")
+            {
+                items.push(DesugarItem {
+                    id: "macro-print",
+                    title: "Macro println! / format!",
+                    line_1based: Some(line_no),
+                    sugar_snippet: t.to_string(),
+                    expanded_rust: "{\n    ::std::io::_print(::core::format_args_nl!(\"...\"));\n}".to_string(),
+                    explanation: "Macros terminadas em `!` rodam em tempo de compilação: `println!` valida a string de formato na compilação e gera chamadas diretas a `format_args!` sem alocar `String`!",
+                });
+            }
+            if t.contains("vec![") && !items.iter().any(|i| i.id == "macro-vec") {
+                items.push(DesugarItem {
+                    id: "macro-vec",
+                    title: "Macro vec![...]",
+                    line_1based: Some(line_no),
+                    sugar_snippet: t.to_string(),
+                    expanded_rust: "<[_]>::into_vec(\n    #[rustc_box]\n    ::alloc::boxed::Box::new([...])\n)".to_string(),
+                    explanation: "`vec![a, b, c]` não é mágico: aloca um array exato na Heap em um único bloco via `Box<[T]>` e converte para `Vec<T>` sem realocar `push` por `push`.",
+                });
+            }
+            if contains_question_mark_op(t) && !items.iter().any(|i| i.id == "sugar-qmark") {
+                items.push(DesugarItem {
+                    id: "sugar-qmark",
+                    title: "Operador `?` (Try trait)",
+                    line_1based: Some(line_no),
+                    sugar_snippet: t.to_string(),
+                    expanded_rust: "match Try::branch(expr) {\n    ControlFlow::Continue(val) => val,\n    ControlFlow::Break(err) => return FromResidual::from_residual(err),\n}".to_string(),
+                    explanation: "`?` desaçucara em um `match`: se deu `Ok(v)`/`Some(v)`, extrai `v`; se falhou, converte o erro com `From::from` e retorna antecipadamente.",
+                });
+            }
+            if t.starts_with("for ")
+                && t.contains(" in ")
+                && !items.iter().any(|i| i.id == "sugar-for")
+            {
+                items.push(DesugarItem {
+                    id: "sugar-for",
+                    title: "Laço `for x in colecao`",
+                    line_1based: Some(line_no),
+                    sugar_snippet: t.to_string(),
+                    expanded_rust: "let mut __iter = ::core::iter::IntoIterator::into_iter(colecao);\nloop {\n    match ::core::iter::Iterator::next(&mut __iter) {\n        Some(x) => { /* corpo */ }\n        None => break,\n    }\n}".to_string(),
+                    explanation: "Todo `for` em Rust vira um `loop` chamando `Iterator::next(&mut iter)` sobre qualquer tipo que implemente `IntoIterator`.",
+                });
+            }
+            if t.starts_with("#[derive(") && !items.iter().any(|i| i.id == "attr-derive") {
+                items.push(DesugarItem {
+                    id: "attr-derive",
+                    title: "Macro de Atributo #[derive(...)]",
+                    line_1based: Some(line_no),
+                    sugar_snippet: t.to_string(),
+                    expanded_rust: "impl ::core::fmt::Debug for SuaStruct {\n    fn fmt(&self, f: &mut ::core::fmt::Formatter<'_>) -> ::core::fmt::Result {\n        f.debug_struct(\"SuaStruct\") /* campos... */ .finish()\n    }\n}".to_string(),
+                    explanation: "`#[derive(...)]` injeta implementações padrão automáticas dos traits pedidos no mesmo arquivo em tempo de compilação.",
+                });
+            }
+            if t.starts_with("if let ") && !items.iter().any(|i| i.id == "sugar-iflet") {
+                items.push(DesugarItem {
+                    id: "sugar-iflet",
+                    title: "Syntax Sugar `if let`",
+                    line_1based: Some(line_no),
+                    sugar_snippet: t.to_string(),
+                    expanded_rust: "match valor {\n    Padrao(x) => { /* ramo then */ }\n    _ => {}\n}".to_string(),
+                    explanation: "`if let` é literalmente um `match` que trata apenas uma variante específica e descarta todo o resto com `_ => {}`.",
+                });
+            }
+            if (t.contains("async fn ") || t.contains(".await"))
+                && !items.iter().any(|i| i.id == "sugar-async")
+            {
+                items.push(DesugarItem {
+                    id: "sugar-async",
+                    title: "Assíncrono `async fn` / `.await`",
+                    line_1based: Some(line_no),
+                    sugar_snippet: t.to_string(),
+                    expanded_rust: "fn minha_fn() -> impl ::core::future::Future<Output = T> {\n    enum __Estado { Inicio, Aguardando(SubFuture), Concluido }\n    /* máquina de estados poll(&mut self, cx) */\n}".to_string(),
+                    explanation: "`async fn` NÃO cria thread: o compilador gera uma máquina de estados compacta na memória que avança quando o runtime chama `.poll()`.",
+                });
+            }
+        }
+
+        let detected_from_editor = !items.is_empty();
+        if items.len() < 2 {
+            for fallback in classic_desugar_examples() {
+                if !items.iter().any(|i| i.id == fallback.id) {
+                    items.push(fallback);
+                }
+            }
+        }
+
+        Self {
+            detected_from_editor,
+            items,
+        }
+    }
+}
+
+fn contains_question_mark_op(line: &str) -> bool {
+    let mut in_quotes = false;
+    let mut prev = '\0';
+    for ch in line.chars() {
+        if ch == '"' && prev != '\\' {
+            in_quotes = !in_quotes;
+        } else if ch == '?' && !in_quotes {
+            return true;
+        }
+        prev = ch;
+    }
+    false
+}
+
+fn classic_desugar_examples() -> Vec<DesugarItem> {
+    vec![
+        DesugarItem {
+            id: "macro-vec",
+            title: "Macro vec![1, 2, 3] (Exemplo clássico)",
+            line_1based: None,
+            sugar_snippet: "let v = vec![1, 2, 3];".to_string(),
+            expanded_rust: "let v = <[_]>::into_vec(::alloc::boxed::Box::new([1, 2, 3]));".to_string(),
+            explanation: "Cria um array na Heap com tamanho exato e entrega um `Vec` pronto sem realocações.",
+        },
+        DesugarItem {
+            id: "sugar-for",
+            title: "Laço `for item in lista` (Exemplo clássico)",
+            line_1based: None,
+            sugar_snippet: "for item in &lista { println!(\"{item}\"); }".to_string(),
+            expanded_rust: "let mut __it = (&lista).into_iter();\nwhile let Some(item) = __it.next() {\n    ::std::io::_print(format_args_nl!(\"{item}\"));\n}".to_string(),
+            explanation: "Açúcar sintático sobre o trait `Iterator::next` — por isso funciona igualmente para arrays, ranges `0..10` e coleções.",
+        },
+        DesugarItem {
+            id: "sugar-qmark",
+            title: "Operador `?` (Exemplo clássico)",
+            line_1based: None,
+            sugar_snippet: "let n: i32 = texto.parse()?;".to_string(),
+            expanded_rust: "let n: i32 = match texto.parse() {\n    Ok(v) => v,\n    Err(e) => return Err(From::from(e)),\n};".to_string(),
+            explanation: "Substitui blocos repetitivos de tratamento de erro mantendo propagação totalmente explícita no tipo de retorno.",
+        },
+    ]
+}
+
+// =========================================================================
+// 10. DICIONÁRIO POLIGLOTA (PYTHON/JS/C++) & FLASHCARDS DE INTUIÇÃO SRS
+// =========================================================================
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct PolyglotEntry {
+    pub id: &'static str,
+    pub concept: &'static str,
+    pub from_python: &'static str,
+    pub from_js: &'static str,
+    pub from_cpp: &'static str,
+    pub idiomatic_rust: &'static str,
+    pub why_rust_differs: &'static str,
+    pub rust_code: &'static str,
+}
+
+pub const POLYGLOT_DICTIONARY: [PolyglotEntry; 6] = [
+    PolyglotEntry {
+        id: "POLY-01",
+        concept: "Ausência de Valor (Null / None / undefined)",
+        from_python: "val = None  # só falha em runtime com AttributeError",
+        from_js: "const val = null ?? 'default';  // undefined vs null",
+        from_cpp: "std::optional<T> / nullptr  // desreferenciar nulo é UB",
+        idiomatic_rust: "Option<T> (Some(x) | None) — NullPointer não compila!",
+        why_rust_differs: "Em Rust não existe `null`: você é obrigado pelo tipo `Option<T>` a tratar `None` com `match`, `if let`, `.unwrap_or()` ou `?`.",
+        rust_code: "pub fn encontrar_porta(env: Option<&str>) -> u16 {\n    env.and_then(|s| s.parse().ok()).unwrap_or(8080)\n}\n\nfn main() {\n    println!(\"Porta default: {}\", encontrar_porta(None));\n    println!(\"Porta config : {}\", encontrar_porta(Some(\"3000\")));\n}\n\n#[cfg(test)]\nmod tests {\n    use super::encontrar_porta;\n    #[test]\n    fn trata_ausencia_sem_null() {\n        assert_eq!(encontrar_porta(None), 8080);\n        assert_eq!(encontrar_porta(Some(\"9000\")), 9000);\n    }\n}\n",
+    },
+    PolyglotEntry {
+        id: "POLY-02",
+        concept: "Tratamento de Erros (try/catch -> Result + ?)",
+        from_python: "try: x = int(s)\nexcept ValueError as e: ...",
+        from_js: "try { JSON.parse(s) } catch (err) { ... }",
+        from_cpp: "throw std::runtime_error(...) / códigos negativos",
+        idiomatic_rust: "Result<T, E> + operador `?` — erros visíveis na assinatura!",
+        why_rust_differs: "Exceções invisíveis pulam fluxos escondidos; `Result` força caminhos de falha explícitos sem custo de stack unwinding.",
+        rust_code: "pub fn dividir_seguro(a: i32, b: i32) -> Result<i32, &'static str> {\n    if b == 0 { return Err(\"divisão por zero\"); }\n    Ok(a / b)\n}\n\npub fn calcular(x: i32) -> Result<i32, &'static str> {\n    let metade = dividir_seguro(x, 2)?;\n    Ok(metade + 1)\n}\n\nfn main() {\n    println!(\"{:?}\", calcular(10));\n}\n\n#[cfg(test)]\nmod tests {\n    use super::{calcular, dividir_seguro};\n    #[test]\n    fn propaga_erro_sem_excecao() {\n        assert_eq!(calcular(10), Ok(6));\n        assert!(dividir_seguro(5, 0).is_err());\n    }\n}\n",
+    },
+    PolyglotEntry {
+        id: "POLY-03",
+        concept: "Transformação de Listas (map / filter / comprehension)",
+        from_python: "[x * 2 for x in nums if x > 0]  # aloca nova lista",
+        from_js: "nums.filter(x => x > 0).map(x => x * 2)  // cria 2 arrays!",
+        from_cpp: "std::ranges::views::filter | views::transform",
+        idiomatic_rust: "slice.iter().copied().filter(...).map(...).sum()",
+        why_rust_differs: "Iterators em Rust são lazy e monomorfizados: `.filter().map().sum()` compila em um único loop de máquina com ZERO alocação intermediária.",
+        rust_code: "pub fn soma_positivos_dobrados(nums: &[i32]) -> i32 {\n    nums.iter().copied().filter(|&x| x > 0).map(|x| x * 2).sum()\n}\n\nfn main() {\n    println!(\"Soma: {}\", soma_positivos_dobrados(&[-3, 2, 5]));\n}\n\n#[cfg(test)]\nmod tests {\n    use super::soma_positivos_dobrados;\n    #[test]\n    fn zero_alloc_iterator() {\n        assert_eq!(soma_positivos_dobrados(&[-3, 2, 5]), 14);\n    }\n}\n",
+    },
+    PolyglotEntry {
+        id: "POLY-04",
+        concept: "Classes & Herança -> Struct + Trait + Composição",
+        from_python: "class Bot(Entidade): def agir(self): ...",
+        from_js: "class Bot extends Entidade { agir() {} }",
+        from_cpp: "class Bot : public Entidade { virtual void agir(); };",
+        idiomatic_rust: "struct Dados + trait Comportamento + impl Trait for Dados",
+        why_rust_differs: "Sem herança de implementação profunda; composição e traits dão despacho estático (`impl Trait`) zero-cost ou dinâmico explícito (`&dyn Trait`).",
+        rust_code: "pub trait Desenhavel { fn nome(&self) -> &'static str; }\npub struct Jogador;\nimpl Desenhavel for Jogador { fn nome(&self) -> &'static str { \"Heroi\" } }\n\npub fn renderizar(item: &impl Desenhavel) -> String {\n    format!(\"[Sprite: {}]\", item.nome())\n}\n\nfn main() { println!(\"{}\", renderizar(&Jogador)); }\n\n#[cfg(test)]\nmod tests {\n    use super::{Jogador, renderizar};\n    #[test]\n    fn despacho_por_trait() { assert_eq!(renderizar(&Jogador), \"[Sprite: Heroi]\"); }\n}\n",
+    },
+    PolyglotEntry {
+        id: "POLY-05",
+        concept: "Memória & Ponteiros (GC / Smart Pointers -> Ownership)",
+        from_python: "GC + refcount automático em tudo (GIL)",
+        from_js: "Garbage Collector gerenciado pela engine V8",
+        from_cpp: "std::unique_ptr (move) / std::shared_ptr / raw ptrs",
+        idiomatic_rust: "Posse única (T), empréstimo (&T / &mut T) e Box/Arc",
+        why_rust_differs: "Sem pausa de Garbage Collector e sem dangling pointers: o compilador insere `drop()` deterministicamente onde o dono sai de escopo.",
+        rust_code: "pub fn contar_bytes(texto: &str) -> usize {\n    texto.len()\n}\n\nfn main() {\n    let dono = String::from(\"Ownership\");\n    let tamanho = contar_bytes(&dono);\n    println!(\"{dono} tem {tamanho} bytes e continua válido!\");\n}\n\n#[cfg(test)]\nmod tests {\n    use super::contar_bytes;\n    #[test]\n    fn empresta_sem_clonar() { assert_eq!(contar_bytes(\"Rust\"), 4); }\n}\n",
+    },
+    PolyglotEntry {
+        id: "POLY-06",
+        concept: "Concorrência Segura (Threads / Promises -> Send + Sync)",
+        from_python: "threading limitado por GIL / asyncio",
+        from_js: "Event loop single-thread com Promise.all",
+        from_cpp: "std::thread + std::mutex (data race possível!)",
+        idiomatic_rust: "Mutex<T> envolve o dado + Send/Sync impedem data races!",
+        why_rust_differs: "Em C++ o mutex fica ao lado do dado; em Rust o `Mutex<T>` GUARDA o dado dentro dele — é impossível acessar `T` sem trancar antes.",
+        rust_code: "use std::sync::{Arc, Mutex};\nuse std::thread;\n\npub fn somar_em_threads() -> i32 {\n    let total = Arc::new(Mutex::new(0));\n    let mut handles = Vec::new();\n    for v in [10, 20, 12] {\n        let t = Arc::clone(&total);\n        handles.push(thread::spawn(move || { *t.lock().unwrap() += v; }));\n    }\n    for h in handles { h.join().unwrap(); }\n    let res = *total.lock().unwrap(); res\n}\n\nfn main() { println!(\"Total concorrente: {}\", somar_em_threads()); }\n\n#[cfg(test)]\nmod tests {\n    use super::somar_em_threads;\n    #[test]\n    fn sem_data_race() { assert_eq!(somar_em_threads(), 42); }\n}\n",
+    },
+];
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct IntuitionFlashcard {
+    pub id: &'static str,
+    pub title: &'static str,
+    pub topic: &'static str,
+    pub snippet: &'static str,
+    pub compiles: bool,
+    pub error_code: &'static str,
+    pub explanation: &'static str,
+}
+
+pub const INTUITION_FLASHCARDS: [IntuitionFlashcard; 8] = [
+    IntuitionFlashcard {
+        id: "FLASH-01",
+        title: "Move de String seguido de leitura",
+        topic: "Ownership",
+        snippet: "let a = String::from(\"oi\");\nlet b = a;\nprintln!(\"{a}\");",
+        compiles: false,
+        error_code: "E0382",
+        explanation: "`String` não implementa `Copy`; `let b = a` transfere a posse para `b`, invalidando `a`.",
+    },
+    IntuitionFlashcard {
+        id: "FLASH-02",
+        title: "Copy de i32 após atribuição",
+        topic: "Stack & Copy",
+        snippet: "let x = 42;\nlet y = x;\nprintln!(\"{x} + {y}\");",
+        compiles: true,
+        error_code: "COMPILA",
+        explanation: "`i32` vive inteiramente na Stack e implementa `Copy`; ambos `x` e `y` permanecem válidos.",
+    },
+    IntuitionFlashcard {
+        id: "FLASH-03",
+        title: "NLL: último uso de `&v` antes de `v.push`",
+        topic: "Non-Lexical Lifetimes",
+        snippet: "let mut v = vec![1, 2];\nlet primeiro = v[0];\nprintln!(\"{primeiro}\");\nv.push(3);",
+        compiles: true,
+        error_code: "COMPILA",
+        explanation: "`v[0]` copia um `i32` e, mesmo se fosse `let r = &v[0]`, quando `r` não é mais usado após o `println!`, o empréstimo termina antes de `v.push(3)` (NLL)!",
+    },
+    IntuitionFlashcard {
+        id: "FLASH-04",
+        title: "Dois `&mut` ativos ao mesmo tempo",
+        topic: "Exclusividade",
+        snippet: "let mut x = 5;\nlet r1 = &mut x;\nlet r2 = &mut x;\nprintln!(\"{r1} {r2}\");",
+        compiles: false,
+        error_code: "E0499",
+        explanation: "Ambos `r1` e `r2` continuam vivos até o `println!`: não é permitido ter dois empréstimos mutáveis simultâneos.",
+    },
+    IntuitionFlashcard {
+        id: "FLASH-05",
+        title: "Retornar `&String` criado dentro da função",
+        topic: "Dangling Reference",
+        snippet: "fn criar() -> &String {\n    let s = String::from(\"tmp\");\n    &s\n}",
+        compiles: false,
+        error_code: "E0106/E0515",
+        explanation: "`s` é destruído ao final de `criar()`, deixando `&s` apontando para memória inválida. Retorne `String` direto!",
+    },
+    IntuitionFlashcard {
+        id: "FLASH-06",
+        title: "Deref Coercion: passar `&String` para `&str`",
+        topic: "Slices & Deref",
+        snippet: "fn saudar(nome: &str) { println!(\"{nome}\"); }\nlet dono = String::from(\"Ferris\");\nsaudar(&dono);",
+        compiles: true,
+        error_code: "COMPILA",
+        explanation: "`String` implementa `Deref<Target = str>`, permitindo passar `&String` onde `&str` é esperado sem clonar!",
+    },
+    IntuitionFlashcard {
+        id: "FLASH-07",
+        title: "Modificar variável enquanto slice é lido depois",
+        topic: "Borrow Conflict",
+        snippet: "let mut s = String::from(\"rust\");\nlet slice = &s[..2];\ns.push('!');\nprintln!(\"{slice}\");",
+        compiles: false,
+        error_code: "E0502",
+        explanation: "`s.push('!')` pode realocar o buffer da Heap, invalidando `slice` que ainda é usado na última linha.",
+    },
+    IntuitionFlashcard {
+        id: "FLASH-08",
+        title: "Multiple `&T` imutáveis simultâneos",
+        topic: "Shared Borrowing",
+        snippet: "let s = String::from(\"seguro\");\nlet r1 = &s;\nlet r2 = &s;\nprintln!(\"{r1} e {r2}\");",
+        compiles: true,
+        error_code: "COMPILA",
+        explanation: "Várias referências compartilhadas `&T` simultâneas são 100% seguras porque ninguém modifica os dados.",
+    },
+];
+
+pub fn evaluate_flashcard_answer(
+    card: &IntuitionFlashcard,
+    user_says_compiles: bool,
+) -> (bool, String) {
+    let correct = card.compiles == user_says_compiles;
+    let verdict = if card.compiles {
+        "COMPILA ✔"
+    } else {
+        card.error_code
+    };
+    let msg = if correct {
+        format!(
+            "✔ Acertou! ({verdict}) — {} (+25 XP se inédito)",
+            card.explanation
+        )
+    } else {
+        format!(
+            "✘ Quase! O resultado real é {verdict} — {}",
+            card.explanation
+        )
+    };
+    (correct, msg)
+}
+
+// =========================================================================
+// 11. INTEGRAÇÃO OPCIONAL COM DEBUGGER NATIVO (rust-gdb / lldb)
+// =========================================================================
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum NativeDebuggerKind {
+    RustGdb,
+    Gdb,
+    RustLldb,
+    Lldb,
+    SimulatedOnly,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct NativeDebuggerProbe {
+    pub kind: NativeDebuggerKind,
+    pub binary_name: &'static str,
+    pub available: bool,
+    pub install_hint: &'static str,
+}
+
+pub fn detect_native_debugger() -> NativeDebuggerProbe {
+    if let Ok(forced) = std::env::var("RUSTLAB_FAKE_DEBUGGER") {
+        return match forced.trim() {
+            "rust-gdb" => NativeDebuggerProbe {
+                kind: NativeDebuggerKind::RustGdb,
+                binary_name: "rust-gdb",
+                available: true,
+                install_hint: "",
+            },
+            "rust-lldb" => NativeDebuggerProbe {
+                kind: NativeDebuggerKind::RustLldb,
+                binary_name: "rust-lldb",
+                available: true,
+                install_hint: "",
+            },
+            _ => NativeDebuggerProbe {
+                kind: NativeDebuggerKind::SimulatedOnly,
+                binary_name: "simulado",
+                available: false,
+                install_hint: "Instale gdb ou lldb no sistema para depuração nativa.",
+            },
+        };
+    }
+
+    for (kind, bin) in [
+        (NativeDebuggerKind::RustGdb, "rust-gdb"),
+        (NativeDebuggerKind::RustLldb, "rust-lldb"),
+        (NativeDebuggerKind::Gdb, "gdb"),
+        (NativeDebuggerKind::Lldb, "lldb"),
+    ] {
+        if find_executable_in_path(bin) {
+            return NativeDebuggerProbe {
+                kind,
+                binary_name: bin,
+                available: true,
+                install_hint: "",
+            };
+        }
+    }
+
+    NativeDebuggerProbe {
+        kind: NativeDebuggerKind::SimulatedOnly,
+        binary_name: "simulado",
+        available: false,
+        install_hint: "Instale `gdb`/`lldb` (e `rust-gdb`) para anexar depuração nativa; enquanto isso, o Debugger Visual didático funciona 100% offline.",
+    }
+}
+
+fn find_executable_in_path(name: &str) -> bool {
+    let Some(path_var) = std::env::var_os("PATH") else {
+        return false;
+    };
+    std::env::split_paths(&path_var).any(|dir| dir.join(name).is_file())
+}
+
+pub fn build_native_debugger_args(
+    probe: &NativeDebuggerProbe,
+    binary_path: &Path,
+    source_file: &str,
+    breakpoints: &BTreeSet<usize>,
+) -> Vec<String> {
+    let mut args = Vec::new();
+    match probe.kind {
+        NativeDebuggerKind::RustGdb | NativeDebuggerKind::Gdb => {
+            args.push("-q".to_string());
+            for line in breakpoints {
+                args.push("-ex".to_string());
+                args.push(format!("break {source_file}:{line}"));
+            }
+            args.push(binary_path.display().to_string());
+        }
+        NativeDebuggerKind::RustLldb | NativeDebuggerKind::Lldb => {
+            for line in breakpoints {
+                args.push("-o".to_string());
+                args.push(format!("breakpoint set --file {source_file} --line {line}"));
+            }
+            args.push(binary_path.display().to_string());
+        }
+        NativeDebuggerKind::SimulatedOnly => {
+            args.push("rust-gdb".to_string());
+            args.push("-q".to_string());
+            for line in breakpoints {
+                args.push("-ex".to_string());
+                args.push(format!("break {source_file}:{line}"));
+            }
+            args.push(binary_path.display().to_string());
+        }
+    }
+    args
+}
+
+pub fn format_native_debugger_command(
+    probe: &NativeDebuggerProbe,
+    binary_path: &Path,
+    source_file: &str,
+    breakpoints: &BTreeSet<usize>,
+) -> String {
+    let args = build_native_debugger_args(probe, binary_path, source_file, breakpoints);
+    if probe.available {
+        format!("{} {}", probe.binary_name, args.join(" "))
+    } else {
+        args.join(" ")
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -1851,5 +3146,150 @@ fn main() {
         let text = std::fs::read_to_string(&exported).unwrap();
         assert!(text.contains("https://play.rust-lang.org/"));
         let _ = std::fs::remove_dir_all(dir);
+    }
+
+    #[test]
+    fn mapa_lifetimes_detecta_escopos_e_conflitos() {
+        let code = r#"
+fn retornar_dangling<'a>(ok: &'a str) -> &str {
+    let local = String::from("ops");
+    let r = &local;
+    &local
+}
+
+fn conflito_bloco() {
+    let r;
+    {
+        let x = String::from("curto");
+        r = &x;
+    }
+    println!("{r}");
+}
+"#;
+        let rep = LifetimeVisualizerReport::analyze(code);
+        assert!(rep.explicit_annotations.iter().any(|(_, t)| t == "'a"));
+        assert!(rep.spans.iter().any(|s| s.name == "local"));
+        assert!(
+            rep.conflicts.iter().any(|c| c.error_code == "E0515"),
+            "deveria detectar retorno de referência local: {:?}",
+            rep.conflicts
+        );
+        assert!(
+            rep.conflicts.iter().any(|c| c.error_code == "E0597"),
+            "deveria detectar vida curta de bloco interno: {:?}",
+            rep.conflicts
+        );
+        assert!(rep.gutter_marker_for_line(4).is_some());
+    }
+
+    #[test]
+    fn layout_memoria_calcula_padding_reordenacao_e_npo() {
+        let code = r#"
+#[repr(C)]
+pub struct Desalinhada {
+    flag: bool,
+    grande: u64,
+    pequeno: u8,
+}
+"#;
+        let report = MemoryLayoutReport::analyze(code);
+        assert_eq!(report.user_types.len(), 1);
+        let st = &report.user_types[0];
+        assert!(st.is_repr_c);
+        assert_eq!(st.declared_size, 24);
+        assert_eq!(st.optimal_size, 16);
+        assert_eq!(st.bytes_saved, 8);
+        assert!(st.total_padding >= 14);
+
+        let mut known = HashMap::new();
+        assert_eq!(type_size_align("Option<&str>", &known), (16, 8));
+        assert_eq!(type_size_align("Option<Box<u64>>", &known), (8, 8));
+        known.insert("Desalinhada".to_string(), (24, 8));
+        assert_eq!(type_size_align("Desalinhada", &known), (24, 8));
+        assert!(
+            report
+                .npo_facts
+                .iter()
+                .any(|f| f.type_expr.contains("Option<&T>"))
+        );
+    }
+
+    #[test]
+    fn desacucarador_expande_macros_e_syntax_sugar() {
+        let code = r#"
+#[derive(Debug, Clone)]
+struct Ponto { x: i32 }
+
+fn ler(s: &str) -> Result<i32, std::num::ParseIntError> {
+    let itens = vec![1, 2, 3];
+    for item in &itens {
+        println!("{item}");
+    }
+    let n = s.parse()?;
+    Ok(n)
+}
+"#;
+        let rep = DesugarReport::analyze(code);
+        assert!(rep.detected_from_editor);
+        assert!(rep.items.iter().any(|i| i.id == "attr-derive"));
+        assert!(rep.items.iter().any(|i| i.id == "macro-vec"));
+        assert!(rep.items.iter().any(|i| i.id == "sugar-for"));
+        assert!(rep.items.iter().any(|i| i.id == "macro-print"));
+        assert!(rep.items.iter().any(|i| i.id == "sugar-qmark"));
+    }
+
+    #[test]
+    fn dicionario_poliglota_e_flashcards_intuicao_funcionam() {
+        assert_eq!(POLYGLOT_DICTIONARY.len(), 6);
+        for entry in POLYGLOT_DICTIONARY {
+            assert!(entry.rust_code.contains("fn main()"));
+            assert!(entry.rust_code.contains("#[cfg(test)]"));
+        }
+        assert_eq!(INTUITION_FLASHCARDS.len(), 8);
+        let c1 = &INTUITION_FLASHCARDS[0]; // E0382 (não compila)
+        assert!(!c1.compiles);
+        let (ok, msg) = evaluate_flashcard_answer(c1, false);
+        assert!(ok);
+        assert!(msg.contains("E0382"));
+        let (bad, _) = evaluate_flashcard_answer(c1, true);
+        assert!(!bad);
+    }
+
+    #[test]
+    fn debugger_nativo_gera_comandos_gdb_e_lldb_com_breakpoints() {
+        let mut bps = BTreeSet::new();
+        bps.insert(5);
+        bps.insert(12);
+
+        let gdb = NativeDebuggerProbe {
+            kind: NativeDebuggerKind::RustGdb,
+            binary_name: "rust-gdb",
+            available: true,
+            install_hint: "",
+        };
+        let cmd_gdb = format_native_debugger_command(
+            &gdb,
+            Path::new("target/debug/app"),
+            "src/main.rs",
+            &bps,
+        );
+        assert!(cmd_gdb.starts_with("rust-gdb -q"));
+        assert!(cmd_gdb.contains("break src/main.rs:5"));
+        assert!(cmd_gdb.contains("break src/main.rs:12"));
+
+        let lldb = NativeDebuggerProbe {
+            kind: NativeDebuggerKind::RustLldb,
+            binary_name: "rust-lldb",
+            available: true,
+            install_hint: "",
+        };
+        let cmd_lldb = format_native_debugger_command(
+            &lldb,
+            Path::new("target/debug/app"),
+            "src/main.rs",
+            &bps,
+        );
+        assert!(cmd_lldb.starts_with("rust-lldb"));
+        assert!(cmd_lldb.contains("breakpoint set --file src/main.rs --line 5"));
     }
 }

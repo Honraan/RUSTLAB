@@ -262,6 +262,21 @@ fn draw_workspace(
             ("▶", theme.success())
         } else if state.lab.debugger.breakpoints.contains(&line_1based) {
             ("●", theme.error())
+        } else if state.lab.lifetime_gutter_enabled
+            && let Some((lt_mark, is_conflict, is_mut)) = state
+                .lab
+                .last_lifetimes
+                .as_ref()
+                .and_then(|r| r.gutter_marker_for_line(line_1based))
+        {
+            let st = if is_conflict {
+                theme.error()
+            } else if is_mut {
+                theme.warning()
+            } else {
+                theme.title()
+            };
+            (lt_mark, st)
         } else {
             match state.diagnostic_level_for_open_line(line_1based as u32) {
                 Some(crate::execution::DiagLevel::Error) => ("!", theme.error()),
@@ -946,8 +961,9 @@ fn draw_lab_modal(
     if inner_area.height < 8 || inner_area.width < 30 {
         return;
     }
+    let tab_bar_height = if inner_area.width < 82 { 2 } else { 1 };
     let parts = Layout::vertical([
-        Constraint::Length(1),
+        Constraint::Length(tab_bar_height),
         Constraint::Min(5),
         Constraint::Length(1),
     ])
@@ -960,7 +976,7 @@ fn draw_lab_modal(
             let label = if active {
                 format!("[{}]", tab.short_title())
             } else {
-                format!(" {} ", tab.short_title())
+                tab.short_title().to_string()
             };
             let style = if active {
                 theme.selection()
@@ -970,12 +986,15 @@ fn draw_lab_modal(
             vec![Span::styled(label, style), Span::raw(" ")]
         })
         .collect();
-    frame.render_widget(Paragraph::new(Line::from(tab_spans)), parts[0]);
+    frame.render_widget(
+        Paragraph::new(Line::from(tab_spans)).wrap(Wrap { trim: false }),
+        parts[0],
+    );
 
     let footer_hint = match state.lab.tab {
         crate::lab_tools::LabToolTab::RaioXMemoria => {
             draw_lab_xray(frame, theme, state, parts[1]);
-            "R recalcula · 1-6/Tab troca ferramenta · PgUp/PgDn rola · Esc fecha"
+            "R recalcula · 1-9/0/Tab troca ferramenta · PgUp/PgDn rola · Esc fecha"
         }
         crate::lab_tools::LabToolTab::LenteCompilador => {
             draw_lab_lens(frame, theme, state, parts[1]);
@@ -983,7 +1002,7 @@ fn draw_lab_modal(
         }
         crate::lab_tools::LabToolTab::DebuggerVisual => {
             draw_lab_debugger(frame, theme, state, parts[1]);
-            "N/F10 step over · S step into · C breakpoint · B marca ● · R reinicia · X para"
+            "N/F10 over · S into · C bp · B ● · G gdb/lldb nativo · R reinicia · X para"
         }
         crate::lab_tools::LabToolTab::ConserteOCodigo => {
             draw_lab_quests(frame, theme, state, parts[1]);
@@ -996,6 +1015,26 @@ fn draw_lab_modal(
         crate::lab_tools::LabToolTab::EcossistemasModernos => {
             draw_lab_ecosystems(frame, theme, state, parts[1]);
             "↑↓ trilha · Enter/T insere template completo · D adiciona dep ao Cargo.toml"
+        }
+        crate::lab_tools::LabToolTab::MapaLifetimes => {
+            draw_lab_lifetimes(frame, theme, state, parts[1]);
+            "L alterna marcadores ┣/┃/✘ na margem · R recalcula · PgUp/PgDn rola · Esc fecha"
+        }
+        crate::lab_tools::LabToolTab::LayoutMemoria => {
+            draw_lab_layout(frame, theme, state, parts[1]);
+            "R recalcula · O/Enter envia ordem otimizada de campos ao Agente · Esc fecha"
+        }
+        crate::lab_tools::LabToolTab::DesacucararMacros => {
+            draw_lab_desugar(frame, theme, state, parts[1]);
+            "↑↓ escolhe macro/syntax sugar · Enter envia expansão ao Agente · Esc fecha"
+        }
+        crate::lab_tools::LabToolTab::PoliglotaIntuicao => {
+            draw_lab_polyglot_intuition(frame, theme, state, parts[1]);
+            if state.lab.polyglot_mode_flashcards {
+                "T Dicionário · ↑↓ card · C Compila ✔ · E Dá Erro ✘ (+25 XP/SRS) · Esc fecha"
+            } else {
+                "T Flashcards · ↑↓ tópico · F filtro py/js/c++ · Enter carrega exemplo Rust"
+            }
         }
     };
 
@@ -1177,6 +1216,25 @@ fn draw_lab_debugger(
             "Pressione N/F10 ou R para iniciar a execução passo a passo do arquivo aberto.",
         ));
     }
+    let probe = crate::lab_tools::detect_native_debugger();
+    lines.push(Line::default());
+    lines.push(Line::from(Span::styled(
+        format!(
+            "Debugger Nativo (opcional [G]): {} ({})",
+            if probe.available {
+                "DISPONÍVEL"
+            } else {
+                "não encontrado no PATH"
+            },
+            probe.binary_name
+        ),
+        theme.title(),
+    )));
+    if let Some(native_msg) = &state.lab.native_debugger_status {
+        lines.push(Line::from(Span::styled(native_msg.clone(), theme.dim())));
+    } else if !probe.available {
+        lines.push(Line::from(Span::styled(probe.install_hint, theme.dim())));
+    }
     render_scrolled_lines(frame, lines, &mut state.lab.scroll, area);
 }
 
@@ -1339,6 +1397,332 @@ fn draw_lab_ecosystems(
         Paragraph::new(lines)
             .wrap(Wrap { trim: true })
             .block(Block::bordered().title(" Arquitetura & Template ")),
+        cols[1],
+    );
+}
+
+fn draw_lab_lifetimes(
+    frame: &mut Frame,
+    theme: &crate::theme::Theme,
+    state: &mut CreateState,
+    area: Rect,
+) {
+    let report = state.lab.last_lifetimes.clone().unwrap_or_else(|| {
+        crate::lab_tools::LifetimeVisualizerReport::analyze(&state.editor.buf.to_string_lossy())
+    });
+    let mut lines = vec![Line::from(Span::styled(
+        format!(
+            "Marcadores na margem [L]: {}  (┣ nascimento · ┃ vivo · ✘ conflito)",
+            if state.lab.lifetime_gutter_enabled {
+                "ATIVADOS"
+            } else {
+                "desligados"
+            }
+        ),
+        theme.title(),
+    ))];
+    lines.push(Line::default());
+    for raw in report.summary_lines() {
+        let style = if raw.contains("✘") || raw.contains("Conflitos") {
+            theme.error()
+        } else if raw.contains("✓") || raw.contains("&'a") {
+            theme.success()
+        } else if raw.contains("&'b mut") {
+            theme.warning()
+        } else if raw.starts_with("Linha do Tempo") || raw.starts_with("Lifetimes") {
+            theme.title()
+        } else {
+            theme.base()
+        };
+        lines.push(Line::from(Span::styled(raw, style)));
+    }
+    render_scrolled_lines(frame, lines, &mut state.lab.scroll, area);
+}
+
+fn draw_lab_layout(
+    frame: &mut Frame,
+    theme: &crate::theme::Theme,
+    state: &mut CreateState,
+    area: Rect,
+) {
+    let report = state.lab.last_layout.clone().unwrap_or_else(|| {
+        crate::lab_tools::MemoryLayoutReport::analyze(&state.editor.buf.to_string_lossy())
+    });
+    let mut lines = Vec::new();
+    if report.user_types.is_empty() {
+        lines.push(Line::from(Span::styled(
+            "Nenhuma `struct` com campos encontrada no arquivo aberto.",
+            theme.dim(),
+        )));
+    } else {
+        for st in &report.user_types {
+            let mode = if st.is_repr_c {
+                "#[repr(C)] (ordem fixa)"
+            } else {
+                "#[repr(Rust)] (compilador pode reordenar)"
+            };
+            lines.push(Line::from(Span::styled(
+                format!(
+                    "struct {} · {} · size_of = {}B · align_of = {}B · Padding = {}B · Ótimo = {}B (-{}B)",
+                    st.name,
+                    mode,
+                    st.declared_size,
+                    st.declared_align,
+                    st.total_padding,
+                    st.optimal_size,
+                    st.bytes_saved
+                ),
+                theme.title(),
+            )));
+            for f in &st.fields {
+                lines.push(Line::from(format!(
+                    "  +{:<3}B  {:<12}: {:<16} size={}B align={}B  (padding antes: {}B)",
+                    f.offset, f.name, f.ty, f.size, f.align, f.padding_before
+                )));
+            }
+            lines.push(Line::default());
+        }
+    }
+    lines.push(Line::from(Span::styled(
+        "Null Pointer Optimization (NPO) & Tipos da Biblioteca Padrão:",
+        theme.title(),
+    )));
+    for fact in &report.npo_facts {
+        lines.push(Line::from(vec![
+            Span::styled(
+                format!(
+                    "  {:<28} {:>2}B (align {}B) · ",
+                    fact.type_expr, fact.size_bytes, fact.align_bytes
+                ),
+                theme.success(),
+            ),
+            Span::raw(fact.note),
+        ]));
+    }
+    render_scrolled_lines(frame, lines, &mut state.lab.scroll, area);
+}
+
+fn draw_lab_desugar(
+    frame: &mut Frame,
+    theme: &crate::theme::Theme,
+    state: &mut CreateState,
+    area: Rect,
+) {
+    let report = state.lab.last_desugar.clone().unwrap_or_else(|| {
+        crate::lab_tools::DesugarReport::analyze(&state.editor.buf.to_string_lossy())
+    });
+    let cols = Layout::horizontal([Constraint::Length(34), Constraint::Min(20)]).split(area);
+    let sel = state
+        .lab
+        .desugar_sel
+        .min(report.items.len().saturating_sub(1));
+    let list_items: Vec<ListItem> = report
+        .items
+        .iter()
+        .enumerate()
+        .map(|(i, item)| {
+            let line_tag = item
+                .line_1based
+                .map(|l| format!("L{l} "))
+                .unwrap_or_default();
+            ListItem::new(Line::from(Span::styled(
+                format!(
+                    "{} {line_tag}{}",
+                    if i == sel { "▶" } else { " " },
+                    item.title
+                ),
+                if i == sel {
+                    theme.selection()
+                } else {
+                    theme.base()
+                },
+            )))
+        })
+        .collect();
+    frame.render_widget(
+        List::new(list_items).block(Block::bordered().title(if report.detected_from_editor {
+            " Detectados no Editor "
+        } else {
+            " Exemplos Clássicos "
+        })),
+        cols[0],
+    );
+    if let Some(item) = report.items.get(sel) {
+        let mut detail = vec![
+            Line::from(Span::styled(
+                "Você escreve (Syntax Sugar / Macro):",
+                theme.title(),
+            )),
+            Line::from(Span::styled(
+                format!("  {}", item.sugar_snippet),
+                theme.warning(),
+            )),
+            Line::default(),
+            Line::from(Span::styled(
+                "O compilador expande por baixo dos panos:",
+                theme.title(),
+            )),
+        ];
+        for l in item.expanded_rust.lines() {
+            detail.push(Line::from(Span::styled(format!("  {l}"), theme.success())));
+        }
+        detail.push(Line::default());
+        detail.push(Line::from(item.explanation));
+        frame.render_widget(
+            Paragraph::new(detail)
+                .wrap(Wrap { trim: true })
+                .block(Block::bordered().title(" Código Expandido ")),
+            cols[1],
+        );
+    }
+}
+
+fn draw_lab_polyglot_intuition(
+    frame: &mut Frame,
+    theme: &crate::theme::Theme,
+    state: &mut CreateState,
+    area: Rect,
+) {
+    if state.lab.polyglot_mode_flashcards {
+        let cards = crate::lab_tools::INTUITION_FLASHCARDS;
+        let sel = state.lab.flashcard_sel.min(cards.len() - 1);
+        let card = cards[sel];
+        let cols = Layout::horizontal([Constraint::Length(32), Constraint::Min(20)]).split(area);
+        let list_items: Vec<ListItem> = cards
+            .iter()
+            .enumerate()
+            .map(|(i, c)| {
+                let done = if state.lab.completed_flashcards.contains(c.id) {
+                    "✓"
+                } else {
+                    " "
+                };
+                ListItem::new(Line::from(Span::styled(
+                    format!(
+                        "{} [{done}] {} · {}",
+                        if i == sel { "▶" } else { " " },
+                        c.id,
+                        c.title
+                    ),
+                    if i == sel {
+                        theme.selection()
+                    } else {
+                        theme.base()
+                    },
+                )))
+            })
+            .collect();
+        frame.render_widget(
+            List::new(list_items).block(Block::bordered().title(format!(
+                " Flashcards ({}/{}) ",
+                state.lab.completed_flashcards.len(),
+                cards.len()
+            ))),
+            cols[0],
+        );
+        let mut right = vec![
+            Line::from(Span::styled(
+                format!(
+                    "{} · Tema: {} — Esse código compila ou dá Borrow Error?",
+                    card.id, card.topic
+                ),
+                theme.title(),
+            )),
+            Line::default(),
+        ];
+        for l in card.snippet.lines() {
+            right.push(Line::from(Span::styled(format!("  {l}"), theme.warning())));
+        }
+        right.push(Line::default());
+        right.push(Line::from(Span::styled(
+            "Responda: [C] Compila ✔   ou   [E] Dá Erro de Compilação/Borrow ✘",
+            theme.base(),
+        )));
+        if let Some((ok, msg)) = &state.lab.flashcard_feedback {
+            right.push(Line::default());
+            right.push(Line::from(Span::styled(
+                msg.clone(),
+                if *ok { theme.success() } else { theme.error() },
+            )));
+        }
+        frame.render_widget(
+            Paragraph::new(right)
+                .wrap(Wrap { trim: true })
+                .block(Block::bordered().title(" Desafio Rápido (+25 XP + SRS) ")),
+            cols[1],
+        );
+        return;
+    }
+
+    let entries = crate::lab_tools::POLYGLOT_DICTIONARY;
+    let sel = state.lab.polyglot_sel.min(entries.len() - 1);
+    let cols = Layout::horizontal([Constraint::Length(34), Constraint::Min(20)]).split(area);
+    let list_items: Vec<ListItem> = entries
+        .iter()
+        .enumerate()
+        .map(|(i, e)| {
+            ListItem::new(Line::from(Span::styled(
+                format!(
+                    "{} {} · {}",
+                    if i == sel { "▶" } else { " " },
+                    e.id,
+                    e.concept
+                ),
+                if i == sel {
+                    theme.selection()
+                } else {
+                    theme.base()
+                },
+            )))
+        })
+        .collect();
+    frame.render_widget(
+        List::new(list_items).block(Block::bordered().title(" Dicionário Poliglota ")),
+        cols[0],
+    );
+    let entry = entries[sel];
+    let filter_name = match state.lab.polyglot_lang_filter {
+        1 => "Python",
+        2 => "JavaScript/TS",
+        3 => "C++",
+        _ => "Python + JS + C++",
+    };
+    let mut right = vec![Line::from(Span::styled(
+        format!("{} · Comparação ({filter_name}) [F filtra]:", entry.concept),
+        theme.title(),
+    ))];
+    if matches!(state.lab.polyglot_lang_filter, 0 | 1) {
+        right.push(Line::from(vec![
+            Span::styled("  Python : ", theme.dim()),
+            Span::raw(entry.from_python),
+        ]));
+    }
+    if matches!(state.lab.polyglot_lang_filter, 0 | 2) {
+        right.push(Line::from(vec![
+            Span::styled("  JS/TS  : ", theme.dim()),
+            Span::raw(entry.from_js),
+        ]));
+    }
+    if matches!(state.lab.polyglot_lang_filter, 0 | 3) {
+        right.push(Line::from(vec![
+            Span::styled("  C++    : ", theme.dim()),
+            Span::raw(entry.from_cpp),
+        ]));
+    }
+    right.push(Line::from(vec![
+        Span::styled("  Rust   : ", theme.success()),
+        Span::styled(entry.idiomatic_rust, theme.success()),
+    ]));
+    right.push(Line::default());
+    right.push(Line::from(entry.why_rust_differs));
+    right.push(Line::default());
+    for l in entry.rust_code.lines().take(5) {
+        right.push(Line::from(Span::styled(format!("  {l}"), theme.dim())));
+    }
+    frame.render_widget(
+        Paragraph::new(right)
+            .wrap(Wrap { trim: true })
+            .block(Block::bordered().title(" Enter carrega exemplo Rust ")),
         cols[1],
     );
 }

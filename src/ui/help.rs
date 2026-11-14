@@ -6,7 +6,6 @@ use ratatui::text::{Line, Span};
 use ratatui::widgets::{Block, BorderType, Paragraph};
 
 use crate::app::App;
-use crate::i18n::t;
 use crate::ui::titled_block;
 
 pub fn draw(frame: &mut Frame, app: &App, area: Rect) {
@@ -15,41 +14,104 @@ pub fn draw(frame: &mut Frame, app: &App, area: Rect) {
     let arrow2 = if app.unicode { "↓" } else { "v" };
 
     let keys: &[(&str, &str)] = &[
-        (t("help.k_nav"), &format!("{arrow}/{arrow2} · k/j")),
-        (t("help.k_enter"), "confirmar / abrir"),
-        ("Esc", "voltar uma tela"),
-        ("q", "sair (no menu) / voltar (em telas)"),
-        ("Ctrl+C", "sair de qualquer lugar"),
-        ("F4–F8", "build / run / test / check / fmt no Modo Criar"),
+        (app.t("help.k_nav"), &format!("{arrow}/{arrow2} · k/j")),
+        (
+            app.t("help.k_enter"),
+            app.bi("confirmar / abrir", "confirm / open"),
+        ),
+        ("Esc", app.bi("voltar uma tela", "go back one screen")),
+        (
+            "q",
+            app.bi(
+                "sair (no menu) / voltar (em telas)",
+                "quit (menu) / back (screens)",
+            ),
+        ),
+        (
+            "Ctrl+C",
+            app.bi("sair de qualquer lugar", "quit from anywhere"),
+        ),
+        (
+            "F4–F8",
+            app.bi(
+                "build / run / test / check / fmt no Modo Criar",
+                "build / run / test / check / fmt in Create Mode",
+            ),
+        ),
         (
             "F1/F11/Ctrl+G",
-            "doc / definição / busca global no Modo Criar",
+            app.bi(
+                "doc / definição / busca global no Modo Criar",
+                "docs / definition / global search in Create Mode",
+            ),
         ),
         (
             "Ctrl+L/Alt+M",
-            "rodar cargo clippy / gerar PLANO.md (Etapa 10)",
+            app.bi(
+                "rodar cargo clippy / gerar PLANO.md (Etapa 10)",
+                "run cargo clippy / generate PLANO.md (Stage 10)",
+            ),
         ),
-        ("Ctrl+S/K", "salvar / cancelar execução"),
+        (
+            "Ctrl+S/K",
+            app.bi("salvar / cancelar execução", "save / cancel execution"),
+        ),
         (
             "Ctrl+T / m",
-            "abrir Mentor opcional (guia local / Ollama / API)",
+            app.bi(
+                "abrir Mentor opcional (guia local / Ollama / API)",
+                "open optional Mentor (local guide / Ollama / API)",
+            ),
         ),
         (
             "Alt+A / Ctrl+T",
-            "abrir/fechar Agente IA lateral no Modo Criar",
+            app.bi(
+                "abrir/fechar Agente IA lateral no Modo Criar",
+                "toggle side AI Agent in Create Mode",
+            ),
         ),
-        ("Alt+O", "escolher modelo Ollama no Agente (o/m no Mentor)"),
-        ("Alt+Enter", "aplicar código sugerido pelo Agente no editor"),
+        (
+            "Alt+O",
+            app.bi(
+                "escolher modelo Ollama no Agente (o/m no Mentor)",
+                "pick Ollama model in Agent (o/m in Mentor)",
+            ),
+        ),
+        (
+            "Alt+Enter",
+            app.bi(
+                "aplicar código sugerido pelo Agente no editor",
+                "apply Agent suggested code to editor",
+            ),
+        ),
         (
             "Alt+D / d",
-            "definir pasta padrão dos novos projetos (Criar)",
+            app.bi(
+                "definir pasta padrão dos novos projetos (Criar)",
+                "set default directory for new projects (Create)",
+            ),
         ),
         (
             "e (Aprender)",
-            "abrir exercícios com testes Cargo determinísticos",
+            app.bi(
+                "abrir exercícios com testes Cargo determinísticos",
+                "open exercises with deterministic Cargo tests",
+            ),
         ),
-        ("F1 exercício", "revelar a próxima dica progressiva"),
-        (t("help.k_adjust"), "←/→ ou h/l, na tela Configurações"),
+        (
+            "F1 exercício",
+            app.bi(
+                "revelar a próxima dica progressiva",
+                "reveal next progressive hint",
+            ),
+        ),
+        (
+            app.t("help.k_adjust"),
+            app.bi(
+                "←/→ ou h/l, na tela Configurações",
+                "←/→ or h/l, on the Settings screen",
+            ),
+        ),
     ];
 
     let rows = Layout::vertical([Constraint::Min(5), Constraint::Length(6)]).split(area);
@@ -57,13 +119,13 @@ pub fn draw(frame: &mut Frame, app: &App, area: Rect) {
     let compact = rows[0].height < 11;
 
     // --- atalhos -------------------------------------------------------
-    let block = titled_block(t("help.title"), theme, true);
+    let block = titled_block(app.t("help.title"), theme, true);
     let inner = block.inner(rows[0]);
     frame.render_widget(block, rows[0]);
 
     let mut lines = Vec::new();
     if !compact {
-        lines.push(Line::from(Span::styled(t("help.intro"), theme.dim())));
+        lines.push(Line::from(Span::styled(app.t("help.intro"), theme.dim())));
         lines.push(Line::default());
     }
     for (key, desc) in keys {
@@ -76,24 +138,39 @@ pub fn draw(frame: &mut Frame, app: &App, area: Rect) {
 
     // --- situação do projeto --------------------------------------------
     let mut status = vec![
-        Line::from(Span::styled("  Situação do projeto", theme.title())),
         Line::from(Span::styled(
-            "  Fases 1-9: etapas 1-10 (pt-BR), 12 exercícios Cargo e widgets visuais.",
+            app.bi("  Situação do projeto", "  Project status"),
+            theme.title(),
+        )),
+        Line::from(Span::styled(
+            app.bi(
+                "  Fases 1-9: etapas 1-10 (pt-BR), 12 exercícios Cargo e widgets visuais.",
+                "  Phases 1-9: stages 1-10 (pt-BR), 12 Cargo exercises and visual widgets.",
+            ),
             theme.base(),
         )),
     ];
     if compact {
         status.push(Line::from(Span::styled(
-            "  Console: entrada por linha/EOF; Shift+Tab troca foco (não é PTY).",
+            app.bi(
+                "  Console: entrada por linha/EOF; Shift+Tab troca foco (não é PTY).",
+                "  Console: line/EOF input; Shift+Tab switches focus (not a full PTY).",
+            ),
             theme.base(),
         )));
     } else {
         status.push(Line::from(Span::styled(
-            "  Criar: rust-analyzer/índice local, Clippy, Alt+M plano; Cargo sem sandbox.",
+            app.bi(
+                "  Criar: rust-analyzer/índice local, Clippy, Alt+M plano; Cargo sem sandbox.",
+                "  Create: rust-analyzer/local index, Clippy, Alt+M plan; unsandboxed Cargo.",
+            ),
             theme.base(),
         )));
     }
-    status.push(Line::from(Span::styled(t("help.audio_note"), theme.dim())));
+    status.push(Line::from(Span::styled(
+        app.t("help.audio_note"),
+        theme.dim(),
+    )));
 
     let block2 = Block::bordered()
         .border_type(if app.unicode {

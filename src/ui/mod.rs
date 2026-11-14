@@ -21,7 +21,6 @@ use ratatui::widgets::{Block, BorderType, Paragraph, Wrap};
 
 use crate::app::{App, Screen, StatusKind};
 use crate::config::ThemeId;
-use crate::i18n::t;
 use crate::theme::Theme;
 
 pub fn draw(frame: &mut Frame, app: &mut App) {
@@ -30,8 +29,11 @@ pub fn draw(frame: &mut Frame, app: &mut App) {
     // Terminal ridiculamente pequeno: mensagem em vez de layout quebrado.
     if area.width < 40 || area.height < 8 {
         let tiny = Theme::for_id(ThemeId::Cuia);
-        let p = Paragraph::new("Terminal muito pequeno.\nAmplie a janela (mín. 40x8).")
-            .style(tiny.error());
+        let p = Paragraph::new(app.bi(
+            "Terminal muito pequeno.\nAmplie a janela (mín. 40x8).",
+            "Terminal too small.\nResize window (min 40x8).",
+        ))
+        .style(tiny.error());
         frame.render_widget(p, area);
         // IMPORTANTE: mesmo aqui os efeitos precisam avançar — se
         // saltássemos o tick, um efeito em andamento nunca completaria e
@@ -106,23 +108,31 @@ fn draw_footer(frame: &mut Frame, app: &App, area: Rect) {
 fn footer(app: &App) -> Paragraph<'static> {
     let theme = &app.theme;
     let keys: &[&str] = match app.screen {
-        Screen::Welcome => &[t("footer.quit"), t("welcome.prompt")],
-        Screen::Menu => &[t("footer.nav"), t("footer.enter"), t("footer.quit")],
-        Screen::Settings => &[t("footer.nav"), "←/→ ou h/l ajustar", t("footer.esc")],
+        Screen::Welcome => &[app.t("footer.quit"), app.t("welcome.prompt")],
+        Screen::Menu => &[
+            app.t("footer.nav"),
+            app.t("footer.enter"),
+            app.t("footer.quit"),
+        ],
+        Screen::Settings => &[
+            app.t("footer.nav"),
+            app.bi("←/→ ou h/l ajustar", "←/→ or h/l adjust"),
+            app.t("footer.esc"),
+        ],
         Screen::Browser => {
             if app.browser.v3_mode {
                 &[
-                    t("footer.nav"),
-                    t("footer.enter"),
+                    app.t("footer.nav"),
+                    app.t("footer.enter"),
                     "Tab trocar · v 10 caps · Alt+V prévia · r revisar",
-                    t("footer.esc"),
+                    app.t("footer.esc"),
                 ]
             } else {
                 &[
-                    t("footer.nav"),
-                    t("footer.enter"),
+                    app.t("footer.nav"),
+                    app.t("footer.enter"),
                     "Tab trocar · e exercícios · v Trilha V3 · r revisar",
-                    t("footer.esc"),
+                    app.t("footer.esc"),
                 ]
             }
         }
@@ -143,7 +153,7 @@ fn footer(app: &App) -> Paragraph<'static> {
                     "d demo",
                     "m mentor",
                     "←/→ lição",
-                    t("footer.esc"),
+                    app.t("footer.esc"),
                 ]
             }
         }
@@ -165,7 +175,7 @@ fn footer(app: &App) -> Paragraph<'static> {
                 "Shift+Tab Foco",
                 "Esc Fechar projeto",
             ],
-            None => &["Esc voltar"],
+            None => &[app.t("footer.esc")],
         },
         Screen::Exercises if app.exercises.as_ref().is_some_and(|s| s.consent_pending) => &[
             "Enter autorizar execução local",
@@ -190,7 +200,7 @@ fn footer(app: &App) -> Paragraph<'static> {
             "Ctrl+K cancelar",
             "Esc voltar",
         ],
-        Screen::Help | Screen::Placeholder(_) => &[t("footer.esc")],
+        Screen::Help | Screen::Placeholder(_) => &[app.t("footer.esc")],
         Screen::Progress => &[
             "↑↓ rolar",
             "Home início",
@@ -210,7 +220,10 @@ fn footer(app: &App) -> Paragraph<'static> {
     };
     let mut spans = Vec::new();
     if !matches!(app.screen, Screen::Create) {
-        spans.push(Span::styled(format!(" {} ", t("menu.title")), theme.dim()));
+        spans.push(Span::styled(
+            format!(" {} ", app.t("menu.title")),
+            theme.dim(),
+        ));
     }
     for key in keys {
         spans.push(Span::styled(format!(" · {key} "), theme.dim()));
@@ -252,7 +265,10 @@ pub(crate) mod tests_util {
     /// App isolado para testes: sem animação, sem escrever config real.
     pub fn test_app() -> App {
         let mut app = App::from_config(
-            Config::default(),
+            Config {
+                language: "pt-BR".to_string(),
+                ..Config::default()
+            },
             None,
             true,
             AudioReport {
@@ -291,6 +307,7 @@ mod tests {
 
     #[test]
     fn smoke_render_por_tela_e_tamanho() {
+        use crate::i18n::t;
         for (w, h) in [(90, 30), (60, 14), (42, 9)] {
             let (mut terminal, mut app) = harness(w, h);
             // Em todos os tamanhos desenhar nunca pode entrar em pânico.

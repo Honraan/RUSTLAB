@@ -10,7 +10,6 @@ use ratatui::widgets::{List, ListItem, ListState};
 
 use crate::app::{App, SETTING_ROWS, SettingRow};
 use crate::config::{AiProvider, GamificationVisibility};
-use crate::i18n::{t, tf};
 use crate::ui::titled_block;
 
 pub fn draw(frame: &mut Frame, app: &App, area: Rect) {
@@ -33,7 +32,7 @@ pub fn draw(frame: &mut Frame, app: &App, area: Rect) {
         .highlight_symbol(if app.unicode { "▶ " } else { "> " })
         .highlight_style(theme.selection());
 
-    let block = titled_block(t("settings.title"), theme, true);
+    let block = titled_block(app.t("settings.title"), theme, true);
     let inner = block.inner(rows[0]);
     frame.render_widget(block, rows[0]);
     let mut state = ListState::default().with_selected(Some(app.settings_row));
@@ -46,15 +45,15 @@ pub fn draw(frame: &mut Frame, app: &App, area: Rect) {
     } else {
         Span::styled(if app.unicode { "○ " } else { "[--] " }, theme.dim())
     };
-    let audio_block = titled_block(t("settings.audio_report"), theme, false);
+    let audio_block = titled_block(app.t("settings.audio_report"), theme, false);
     let audio_inner = audio_block.inner(rows[1]);
     frame.render_widget(audio_block, rows[1]);
     let report_line = Line::from(vec![
         mark,
-        Span::styled(report.headline(), theme.base()),
+        Span::styled(report.headline_for(app.is_english()), theme.base()),
         Span::styled(format!(" — {}", report.detail), theme.dim()),
     ]);
-    let note = Line::from(Span::styled(t("help.audio_note"), theme.dim()));
+    let note = Line::from(Span::styled(app.t("help.audio_note"), theme.dim()));
     frame.render_widget(
         ratatui::widgets::Paragraph::new(vec![report_line, note])
             .wrap(ratatui::widgets::Wrap { trim: true }),
@@ -63,7 +62,7 @@ pub fn draw(frame: &mut Frame, app: &App, area: Rect) {
 
     // ---- legenda --------------------------------------------------------
     let legend = Line::from(Span::styled(
-        tf(
+        app.tf(
             "settings.legend",
             &[&if app.unicode { "←/→" } else { "<->" }],
         ),
@@ -74,71 +73,94 @@ pub fn draw(frame: &mut Frame, app: &App, area: Rect) {
 
 fn setting_line(app: &App, row: SettingRow, selected: bool) -> Line<'static> {
     let theme = &app.theme;
+    let english = app.is_english();
     let (label, value, value_style) = match row {
         SettingRow::Theme => {
-            let name = app.config.ui.theme.label();
+            let name = app.config.ui.theme.label_for(english);
             (
-                t("settings.theme").to_string(),
+                app.t("settings.theme").to_string(),
                 name.to_string(),
                 theme.base(),
             )
         }
         SettingRow::Animations => (
-            t("settings.animations").to_string(),
-            t(app.config.ui.animations.label_key()).to_string(),
+            app.t("settings.animations").to_string(),
+            app.t(app.config.ui.animations.label_key()).to_string(),
             theme.base(),
         ),
         SettingRow::Sound => (
-            t("settings.sound").to_string(),
+            app.t("settings.sound").to_string(),
             if app.config.sound.enabled {
-                t("settings.sound_on").to_string()
+                app.t("settings.sound_on").to_string()
             } else {
-                t("settings.sound_off").to_string()
+                app.t("settings.sound_off").to_string()
             },
             theme.base(),
         ),
         SettingRow::Volume => (
-            t("settings.volume").to_string(),
-            format!("{}% (tom suave)", app.config.sound.volume),
+            app.t("settings.volume").to_string(),
+            format!(
+                "{}% ({})",
+                app.config.sound.volume,
+                app.bi("tom suave", "soft tone")
+            ),
             theme.base(),
         ),
         SettingRow::Gamification => (
-            t("settings.gamification").to_string(),
+            app.t("settings.gamification").to_string(),
             match app.config.ui.gamification {
-                GamificationVisibility::Visible => t("settings.gam_on").to_string(),
-                GamificationVisibility::Hidden => t("settings.gam_off").to_string(),
+                GamificationVisibility::Visible => app.t("settings.gam_on").to_string(),
+                GamificationVisibility::Hidden => app.t("settings.gam_off").to_string(),
             },
             theme.base(),
         ),
+        SettingRow::Language => (
+            app.t("settings.language").to_string(),
+            app.config.language_label().to_string(),
+            theme.base(),
+        ),
         SettingRow::Ai => (
-            t("settings.ai_provider").to_string(),
+            app.t("settings.ai_provider").to_string(),
             match app.config.ai.provider {
-                AiProvider::Disabled => "Desligado (guia local determinístico)".to_string(),
+                AiProvider::Disabled => app
+                    .bi(
+                        "Desligado (guia local determinístico)",
+                        "Disabled (deterministic local guide)",
+                    )
+                    .to_string(),
                 AiProvider::Ollama => format!("Ollama ({})", app.config.ai.ollama_model),
                 AiProvider::Remote => format!(
-                    "API remota ({} · {})",
+                    "{} ({} · {})",
+                    app.bi("API remota", "Remote API"),
                     app.config.ai.remote_model,
                     match app.config.ai.remote_consent {
-                        crate::config::RemoteAiConsent::Granted => "autorizada",
-                        crate::config::RemoteAiConsent::Ask => "pedir consentimento",
-                        crate::config::RemoteAiConsent::Denied => "recusada",
+                        crate::config::RemoteAiConsent::Granted =>
+                            app.bi("autorizada", "authorized"),
+                        crate::config::RemoteAiConsent::Ask =>
+                            app.bi("pedir consentimento", "ask consent"),
+                        crate::config::RemoteAiConsent::Denied => app.bi("recusada", "denied"),
                     }
                 ),
             },
             theme.base(),
         ),
         SettingRow::OllamaModel => (
-            t("settings.ollama_model").to_string(),
+            app.t("settings.ollama_model").to_string(),
             if app.ollama_models.is_empty() {
                 format!(
-                    "{} (←/→ alternar · r buscar no Ollama)",
-                    app.config.ai.ollama_model
+                    "{} ({})",
+                    app.config.ai.ollama_model,
+                    app.bi(
+                        "←/→ alternar · r buscar no Ollama",
+                        "←/→ switch · r query Ollama"
+                    )
                 )
             } else {
                 format!(
-                    "{} ({} no Ollama · r atualiza)",
+                    "{} ({} {})",
                     app.config.ai.ollama_model,
-                    app.ollama_models.len()
+                    app.ollama_models.len(),
+                    app.bi("no Ollama · r atualiza", "in Ollama · r refreshes")
                 )
             },
             theme.base(),
@@ -166,8 +188,8 @@ fn setting_line(app: &App, row: SettingRow, selected: bool) -> Line<'static> {
 
 #[cfg(test)]
 mod tests {
-    use super::*;
     use crate::config::{MotionMode, ThemeId};
+    use crate::i18n::t_for;
     use ratatui::Terminal;
     use ratatui::backend::TestBackend;
 
@@ -180,7 +202,16 @@ mod tests {
         let content = crate::ui::tests_util::buffer_text(terminal.backend().buffer());
         assert!(content.contains("Tema"));
         assert!(content.contains("Animações"));
+        assert!(content.contains("Idioma"));
         assert!(content.contains("Cuia"));
+
+        app.config.language = "en-US".to_string();
+        terminal.draw(|f| crate::ui::draw(f, &mut app)).unwrap();
+        let content_en = crate::ui::tests_util::buffer_text(terminal.backend().buffer());
+        assert!(content_en.contains("Language"));
+        assert!(content_en.contains("English (en-US)"));
+        assert!(content_en.contains("Animations"));
+        assert!(content_en.contains("Full"));
     }
 
     #[test]
@@ -188,9 +219,11 @@ mod tests {
         // A UI de configurações deve sempre conseguir nomear todas as opções.
         for id in ThemeId::ALL {
             assert!(!id.label().is_empty());
+            assert!(!id.label_for(true).is_empty());
         }
         for m in MotionMode::ALL {
-            assert_ne!(t(m.label_key()), m.label_key()); // chave existe
+            assert_ne!(t_for(m.label_key(), false), m.label_key());
+            assert_ne!(t_for(m.label_key(), true), m.label_key());
         }
     }
 }

@@ -7,7 +7,6 @@ use ratatui::text::{Line, Span};
 use ratatui::widgets::{Block, Paragraph};
 
 use crate::app::App;
-use crate::i18n::t;
 
 pub fn draw(frame: &mut Frame, app: &App, area: Rect) {
     let theme = &app.theme;
@@ -32,15 +31,15 @@ pub fn draw(frame: &mut Frame, app: &App, area: Rect) {
             "R U S T L A B",
             theme.title().add_modifier(Modifier::BOLD),
         )),
-        Line::from(Span::styled(t("app.tagline"), theme.dim())),
-        Line::from(Span::styled(t("welcome.caption"), theme.dim())),
+        Line::from(Span::styled(app.t("app.tagline"), theme.dim())),
+        Line::from(Span::styled(app.t("welcome.caption"), theme.dim())),
     ])
     .centered();
     frame.render_widget(logo, rows[0]);
 
     // --- prompt ----------------------------------------------------------
     let prompt = Paragraph::new(Line::from(Span::styled(
-        format!("· {} ·", t("welcome.prompt")),
+        format!("· {} ·", app.t("welcome.prompt")),
         theme.accent_dim,
     )))
     .centered();
