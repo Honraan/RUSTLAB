@@ -6,10 +6,11 @@
 //! - Nunca envia dados à rede sem consentimento explícito (`RemoteAiConsent::Granted`).
 //! - Código e diagnósticos do usuário são isolados em `<dados_nao_confiaveis>`.
 
+mod https;
+
+use https::http_curl_https_for;
 use std::io::{Read, Write};
 use std::net::{TcpStream, ToSocketAddrs};
-use std::path::PathBuf;
-use std::process::{Command, Stdio};
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::mpsc::{self, Receiver};
@@ -2609,95 +2610,6 @@ fn decode_chunked_body(raw: &str) -> String {
         rest = after[len..].strip_prefix("\r\n").unwrap_or(&after[len..]);
     }
     out
-}
-
-fn http_curl_https_for(
-    method: &str,
-    url: &str,
-    bearer_token: Option<&str>,
-    json_body: Option<&str>,
-    max_time_secs: u32,
-    english: bool,
-) -> Result<String, String> {
-    let mut body_path: Option<PathBuf> = None;
-    let mut config = format!(
-        "url = \"{}\"\nrequest = \"{}\"\nsilent\nshow-error\nfail-with-body\nmax-time = {}\n",
-        url.replace('"', ""),
-        method,
-        max_time_secs,
-    );
-    if let Some(body) = json_body {
-        let p = temp_payload_file();
-        if let Err(err) = std::fs::write(&p, body.as_bytes()) {
-            return Err(if english {
-                format!("failed to prepare JSON body: {err}")
-            } else {
-                format!("falha ao preparar corpo JSON: {err}")
-            });
-        }
-        config.push_str("header = \"Content-Type: application/json\"\n");
-        config.push_str(&format!("data-binary = \"@{}\"\n", p.display()));
-        body_path = Some(p);
-    }
-    if let Some(tok) = bearer_token {
-        config.push_str(&format!("header = \"Authorization: Bearer {tok}\"\n"));
-    }
-
-    let mut child = Command::new("/usr/bin/curl")
-        .args(["--config", "-"])
-        .stdin(Stdio::piped())
-        .stdout(Stdio::piped())
-        .stderr(Stdio::piped())
-        .spawn()
-        .map_err(|err| {
-            if let Some(p) = &body_path {
-                let _ = std::fs::remove_file(p);
-            }
-            if english {
-                format!("could not start /usr/bin/curl for HTTPS: {err}")
-            } else {
-                format!("não consegui iniciar /usr/bin/curl para HTTPS: {err}")
-            }
-        })?;
-    if let Some(mut stdin) = child.stdin.take() {
-        let _ = stdin.write_all(config.as_bytes());
-    }
-    let output = child.wait_with_output();
-    if let Some(p) = &body_path {
-        let _ = std::fs::remove_file(p);
-    }
-
-    let output = output.map_err(|err| {
-        if english {
-            format!("error waiting for curl: {err}")
-        } else {
-            format!("erro aguardando curl: {err}")
-        }
-    })?;
-    if !output.status.success() {
-        let err_msg = String::from_utf8_lossy(&output.stderr).trim().to_string();
-        return Err(if err_msg.is_empty() {
-            if english {
-                format!("curl failed with exit code {:?}", output.status.code())
-            } else {
-                format!("curl falhou com código {:?}", output.status.code())
-            }
-        } else {
-            err_msg
-        });
-    }
-    Ok(String::from_utf8_lossy(&output.stdout).to_string())
-}
-
-fn temp_payload_file() -> PathBuf {
-    let nanos = std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)
-        .map(|d| d.as_nanos())
-        .unwrap_or(0);
-    std::env::temp_dir().join(format!(
-        "rustlab-mentor-{}-{nanos}.json",
-        std::process::id()
-    ))
 }
 
 // ---------------------------------------------------------------------------

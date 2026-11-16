@@ -116,9 +116,7 @@ impl LabToolTab {
             (Self::MapaLifetimes, true) => "Visual Lifetime Map ('a, 'b) & Scopes",
             (Self::LayoutMemoria, true) => "Memory Size X-Ray (size_of / align_of), Padding & NPO",
             (Self::DesacucararMacros, true) => "Macro & Syntax Sugar Desugarer",
-            (Self::PoliglotaIntuicao, true) => {
-                "Polyglot Dictionary (Python/JS/C++) & SRS Flashcards"
-            }
+            (Self::PoliglotaIntuicao, true) => "Polyglot Dictionary (Python/JS/C++) & Flashcards",
             (Self::RaioXMemoria, false) => "Raio-X de Ownership, Stack/Heap & Alocações",
             (Self::LenteCompilador, false) => {
                 "Lente Socrática do Compilador & Modo 10 Anos (ELI10)"
@@ -134,9 +132,7 @@ impl LabToolTab {
             (Self::MapaLifetimes, false) => "Mapa Visual de Lifetimes ('a, 'b) & Escopos",
             (Self::LayoutMemoria, false) => "Raio-X de Tamanho (size_of / align_of), Padding & NPO",
             (Self::DesacucararMacros, false) => "Desaçucarador de Macros & Syntax Sugar",
-            (Self::PoliglotaIntuicao, false) => {
-                "Dicionário Poliglota (Python/JS/C++) & Flashcards SRS"
-            }
+            (Self::PoliglotaIntuicao, false) => "Dicionário Poliglota (Python/JS/C++) & Flashcards",
         }
     }
 
@@ -3541,7 +3537,7 @@ fn classic_desugar_examples_for(english: bool) -> Vec<DesugarItem> {
 }
 
 // =========================================================================
-// 10. DICIONÁRIO POLIGLOTA (PYTHON/JS/C++) & FLASHCARDS DE INTUIÇÃO SRS
+// 10. DICIONÁRIO POLIGLOTA (PYTHON/JS/C++) & FLASHCARDS DE INTUIÇÃO
 // =========================================================================
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

@@ -3,7 +3,7 @@ name = "rustlab"
 version = "0.3.2"
 edition = "2024"
 description = "RustLab — ambiente terminal para aprender Rust com lições, exercícios e mini-IDE"
-license = "MIT"
+license = "GPL-3.0-only"
 
 [dependencies]
 # Mesmo algoritmo do renderer para contar linhas quebradas nos painéis roláveis.
