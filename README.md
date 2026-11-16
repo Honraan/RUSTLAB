@@ -3,10 +3,6 @@
 Aprenda Rust no terminal com lições, exercícios e uma mini-IDE.
 O mentor é opcional: o guia local funciona sem serviço de IA.
 
-![Prévia da lição com prática integrada](docs/images/lesson-preview.svg)
-
-Prévia renderizada a partir de um snapshot de teste; cores ilustrativas.
-
 ## Começar
 
 Instale [Rust stable](https://rustup.rs) com Cargo e use um terminal interativo.
