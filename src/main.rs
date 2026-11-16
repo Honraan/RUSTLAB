@@ -30,6 +30,29 @@ fn main() -> ExitCode {
 }
 
 fn run() -> io::Result<ExitCode> {
+    if let Some(arg) = std::env::args_os().nth(1) {
+        if arg == "--doctor" {
+            return rustlab::doctor::report(&mut io::stdout()).map(|ok| {
+                if ok {
+                    ExitCode::SUCCESS
+                } else {
+                    ExitCode::FAILURE
+                }
+            });
+        }
+        if arg == "--help" || arg == "-h" {
+            println!(
+                "RustLab\n\nUso / Usage: rustlab [--doctor | --help | --version]\n  --doctor  Diagnóstico local de instalação / Local installation diagnostics"
+            );
+            return Ok(ExitCode::SUCCESS);
+        }
+        if arg == "--version" || arg == "-V" {
+            println!("rustlab {}", env!("CARGO_PKG_VERSION"));
+            return Ok(ExitCode::SUCCESS);
+        }
+        eprintln!("rustlab: argumento desconhecido / unknown argument: {arg:?}; use --help");
+        return Ok(ExitCode::FAILURE);
+    }
     // Verifica se parece ser um terminal interativo antes de assumir a
     // tela — assim `rustlab` com saída redirecionada não quebra a TUI.
     use std::io::IsTerminal;

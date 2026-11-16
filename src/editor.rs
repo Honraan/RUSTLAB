@@ -184,8 +184,8 @@ impl TextBuffer {
             // colapsa: remove linhas start+1..=end, mantém conteúdo restante
             // da última na primeira
             let rest: Vec<char> = self.lines[end.line].clone();
-            self.lines.truncate(start.line + 1);
             self.lines[start.line].extend(rest);
+            self.lines.drain(start.line + 1..=end.line);
         }
         (removed, start)
     }
@@ -790,6 +790,40 @@ mod tests {
         assert_eq!(removed, "aa\nbbb\nc");
         assert_eq!(pos, Pos::new(0, 1));
         assert_eq!(b.to_string_lossy(), "acc");
+    }
+
+    #[test]
+    fn delete_range_preserva_linhas_apos_selecao() {
+        let mut b = TextBuffer::from_text("aaa\nbbb\nccc\nddd\neee");
+        let (removed, pos) = b.delete_range(Pos::new(2, 1), Pos::new(0, 1));
+        assert_eq!(removed, "aa\nbbb\nc");
+        assert_eq!(pos, Pos::new(0, 1));
+        assert_eq!(b.to_string_lossy(), "acc\nddd\neee");
+    }
+
+    #[test]
+    fn recortar_linha_intermediaria_preserva_restante_e_undo() {
+        let mut e = ed("a\nb\nc\nd");
+        e.cursor = Pos::new(1, 0);
+        e.cut();
+        assert_eq!(e.buf.to_string_lossy(), "a\nc\nd");
+        e.undo();
+        assert_eq!(e.buf.to_string_lossy(), "a\nb\nc\nd");
+        e.redo();
+        assert_eq!(e.buf.to_string_lossy(), "a\nc\nd");
+    }
+
+    #[test]
+    fn substituir_selecao_multilinha_unicode_preserva_sufixo_e_undo() {
+        let mut e = ed("ação\nmeio\nfim\npreservar");
+        e.anchor = Some(Pos::new(0, 1));
+        e.cursor = Pos::new(2, 1);
+        e.insert_text("Ω");
+        assert_eq!(e.buf.to_string_lossy(), "aΩim\npreservar");
+        e.undo();
+        assert_eq!(e.buf.to_string_lossy(), "ação\nmeio\nfim\npreservar");
+        e.redo();
+        assert_eq!(e.buf.to_string_lossy(), "aΩim\npreservar");
     }
 
     #[test]

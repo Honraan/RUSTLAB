@@ -12,6 +12,7 @@ pub mod config;
 pub mod create;
 pub mod curriculum;
 pub mod doc_hint;
+pub mod doctor;
 pub mod editor;
 pub mod event;
 pub mod execution;

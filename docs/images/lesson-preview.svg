@@ -1,0 +1,37 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1120" height="650" viewBox="0 0 1120 650" role="img" aria-labelledby="title desc">
+<title id="title">RustLab: lição com prática integrada</title>
+<desc id="desc">Prévia textual do snapshot de teste: explicação de Olá, mundo!, editor, saída e painel Ferris. Cores ilustrativas.</desc>
+<rect width="1120" height="650" rx="12" fill="#151922"/>
+<g fill="#e6e8ee" font-family="DejaVu Sans Mono, monospace" font-size="15" xml:space="preserve">
+<text x="20" y="30"> Olá, mundo! — seu primeiro programa · Etapa 1 — Primeiro contato · ~7 min</text>
+<text x="20" y="50">↑↓ rolar · 1-9 responder · d demonstração · ←→ lições · esc voltar</text>
+<text x="20" y="70">┌ Explicação · ↑↓ rolar ─────────────────────────────────────────────────────────────────┐</text>
+<text x="20" y="90">│Todo curso de programação começa igual: fazemos o computador dizer                      │</text>
+<text x="20" y="110">│&quot;Olá, mundo!&quot;. É o &quot;ola&quot; do programa ao mundo — e prova que as três                     │</text>
+<text x="20" y="130">│peças funcionam: você escreveu, o compilador tradziu, a máquina executou.               │</text>
+<text x="20" y="150">│                                                                                        │</text>
+<text x="20" y="170">│Em Rust, um programa mínimo tem exatamente esta forma:                                  │</text>
+<text x="20" y="190">│                                                                                        │</text>
+<text x="20" y="210">│  ▚ src/main.rs                                                                         │</text>
+<text x="20" y="230">│  1 │ fn main() {                                                                       │</text>
+<text x="20" y="250">│  2 │     println!(&quot;Olá, mundo!&quot;);                                                      │</text>
+<text x="20" y="270">│  3 │ }                                                                                 │</text>
+<text x="20" y="290">│                                                                                        │</text>
+<text x="20" y="310">└────────────────────────────────────────────────────────────────────────────────────────┘</text>
+<text x="20" y="330">┌ B-P01 · F5 Cargo run · Ctrl+S salvar · Tab leitura ──────────┐┌ Ferris ────────────────┐</text>
+<text x="20" y="350">│  1 │ fn main() {                                             ││c(o.o)c  Ferris         │</text>
+<text x="20" y="370">│  2 │     // Escreva sua mensagem abaixo e aperte F5 para comp││observando              │</text>
+<text x="20" y="390">│  3 │     println!(&quot;...&quot;);                                    ││Leia a lição e pratique │</text>
+<text x="20" y="410">│  4 │ }                                                       ││abaixo.                 │</text>
+<text x="20" y="430">│  5 │                                                         ││XP possível: 100+100    │</text>
+<text x="20" y="450">└──────────────────────────────────────────────────────────────┘│(sem dicas)             │</text>
+<text x="20" y="470">┌ Saída &amp; Dicas · F1 (0/4) · PgUp/PgDn ────────────────────────┐│                        │</text>
+<text x="20" y="490">│Objetivo: Substitua o placeholder `&quot;...&quot;` por uma mensagem sua││                        │</text>
+<text x="20" y="510">│em português usando `println!`, salve e rode com `F5`.        ││                        │</text>
+<text x="20" y="530">│                                                              ││                        │</text>
+<text x="20" y="550">└──────────────────────────────────────────────────────────────┘└────────────────────────┘</text>
+<text x="20" y="570">                                    4/30 · leitura 0%</text>
+<text x="20" y="590">  Mini-IDE embutida focada · digite seu código e rode com F5 (Tab volta).</text>
+<text x="20" y="610">RustLab  · F5 Executar  · Ctrl+S Salvar  · F1..F3 Dicas  · Tab Leitura/Quiz  · Esc Voltar</text>
+</g>
+</svg>
