@@ -178,6 +178,7 @@ pub struct LessonPractice {
     pub compile_error_seen: bool,
     pub consent_pending: bool,
     pub pending_dir: Option<PathBuf>,
+    pub clippy_tips: Vec<String>,
 }
 
 impl LessonPractice {
@@ -202,6 +203,7 @@ impl LessonPractice {
             compile_error_seen: false,
             consent_pending: false,
             pending_dir: None,
+            clippy_tips: Vec::new(),
         })
     }
 
@@ -1052,11 +1054,49 @@ pub struct Progress {
     pub xp_events: HashMap<String, u32>,
     pub project_milestones: HashSet<String>,
     pub srs_cards: HashMap<String, crate::storage::SrsCard>,
+    pub error_counts: HashMap<String, u32>,
+    pub onboarding_completed: bool,
 }
 
 impl Progress {
     pub fn is_completed(&self, id: &str) -> bool {
         self.completed.contains(id)
+    }
+
+    /// Extrai códigos `E0xxx` da saída do compilador, contabiliza recorrência e retorna os códigos vistos.
+    pub fn record_compiler_errors(&mut self, output: &str) -> Vec<String> {
+        let mut seen = Vec::new();
+        let bytes = output.as_bytes();
+        let mut i = 0;
+        while i + 5 <= bytes.len() {
+            if bytes[i] == b'E'
+                && bytes[i + 1..i + 5].iter().all(|b| b.is_ascii_digit())
+                && (i == 0 || !bytes[i - 1].is_ascii_alphanumeric())
+                && (i + 5 == bytes.len() || !bytes[i + 5].is_ascii_alphanumeric())
+            {
+                let code = output[i..i + 5].to_string();
+                if !seen.contains(&code) {
+                    *self.error_counts.entry(code.clone()).or_insert(0) += 1;
+                    seen.push(code);
+                }
+                i += 5;
+                continue;
+            }
+            i += 1;
+        }
+        seen
+    }
+
+    /// Retorna os códigos de erro mais frequentes em ordem decrescente de contagem.
+    pub fn top_recurring_errors(&self, limit: usize) -> Vec<(String, u32)> {
+        let mut items: Vec<(String, u32)> = self
+            .error_counts
+            .iter()
+            .map(|(k, v)| (k.clone(), *v))
+            .collect();
+        items.sort_by(|a, b| b.1.cmp(&a.1).then_with(|| a.0.cmp(&b.0)));
+        items.truncate(limit);
+        items
     }
 
     /// Relógio lógico monotônico derivado das revisões concluídas pelo aluno.
@@ -1113,6 +1153,8 @@ impl Progress {
             xp_events: data.xp_events.into_iter().collect(),
             project_milestones: data.project_milestones.into_iter().collect(),
             srs_cards: data.srs_cards.into_iter().collect(),
+            error_counts: data.error_counts.into_iter().collect(),
+            onboarding_completed: data.onboarding_completed,
         }
     }
 
@@ -1143,6 +1185,12 @@ impl Progress {
                 .iter()
                 .map(|(k, v)| (k.clone(), v.clone()))
                 .collect(),
+            error_counts: self
+                .error_counts
+                .iter()
+                .map(|(k, v)| (k.clone(), *v))
+                .collect(),
+            onboarding_completed: self.onboarding_completed,
         }
     }
 }
@@ -2160,6 +2208,7 @@ pub fn on_lesson_exec_event(app: &mut App, ev: ExecEvent) {
 
     let en = app.is_english();
     let mut post = PostAction::None;
+    let mut recorded_error_output: Option<String> = None;
     if let Some(view) = app.lesson_view.as_mut()
         && let Some(p) = view.practice.as_mut()
     {
@@ -2179,7 +2228,9 @@ pub fn on_lesson_exec_event(app: &mut App, ev: ExecEvent) {
                 if !success {
                     if p.compile_error_seen {
                         p.outcome = PracticeOutcome::CompileFailed;
-                        if let Some(help) = explain_compiler_error_for(&p.output.join("\n"), en) {
+                        let out_text = p.output.join("\n");
+                        recorded_error_output = Some(out_text.clone());
+                        if let Some(help) = explain_compiler_error_for(&out_text, en) {
                             p.push_output(if en {
                                 format!("Ferris explains: {help}")
                             } else {
@@ -2212,6 +2263,11 @@ pub fn on_lesson_exec_event(app: &mut App, ev: ExecEvent) {
                     match validate_practice_run_for(p.spec.id, &code, &stdout_joined, en) {
                         Ok(()) => {
                             p.outcome = PracticeOutcome::Passed;
+                            let tips = crate::exercises::pedagogical_clippy_for(&code, en);
+                            p.clippy_tips = tips.clone();
+                            for tip in tips {
+                                p.push_output(format!("Clippy: {tip}"));
+                            }
                             view.ferris = FerrisMood::Happy;
                             let (base_xp, bonus_xp) =
                                 calculate_v3_practice_xp(p.shown_hints, p.ai_used);
@@ -2299,6 +2355,11 @@ pub fn on_lesson_exec_event(app: &mut App, ev: ExecEvent) {
             }
             ExecEvent::Started { .. } => {}
         }
+    }
+
+    if let Some(out) = recorded_error_output {
+        app.progress.record_compiler_errors(&out);
+        let _ = app.persist_progress();
     }
 
     match post {
@@ -3536,5 +3597,23 @@ mod tests {
             PracticeOutcome::CompileFailed.status_badge(),
             "[Erro de compilação]"
         );
+    }
+
+    #[test]
+    fn progresso_contabiliza_erros_recorrentes_e_onboarding() {
+        let mut prog = Progress::default();
+        assert!(!prog.onboarding_completed);
+        let seen1 = prog.record_compiler_errors("error[E0382]: borrow of moved value\nerror[E0308]: mismatched types\nerror[E0382]: duplicate on same output");
+        assert_eq!(seen1, vec!["E0382".to_string(), "E0308".to_string()]);
+        prog.record_compiler_errors("error[E0382]: moved value again");
+        let top = prog.top_recurring_errors(2);
+        assert_eq!(
+            top,
+            vec![("E0382".to_string(), 2), ("E0308".to_string(), 1)]
+        );
+        prog.onboarding_completed = true;
+        let roundtrip = Progress::from_data(prog.to_data());
+        assert_eq!(roundtrip.error_counts, prog.error_counts);
+        assert!(roundtrip.onboarding_completed);
     }
 }

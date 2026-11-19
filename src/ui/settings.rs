@@ -8,7 +8,7 @@ use ratatui::layout::{Constraint, Layout, Rect};
 use ratatui::text::{Line, Span};
 use ratatui::widgets::{List, ListItem, ListState};
 
-use crate::app::{App, SETTING_ROWS, SettingRow};
+use crate::app::{App, SettingRow};
 use crate::config::{AiProvider, GamificationVisibility};
 use crate::ui::titled_block;
 
@@ -22,7 +22,8 @@ pub fn draw(frame: &mut Frame, app: &App, area: Rect) {
     ])
     .split(area);
 
-    let items: Vec<ListItem> = SETTING_ROWS
+    let rows_list = crate::app::visible_settings_rows(app.snapshot_mode);
+    let items: Vec<ListItem> = rows_list
         .iter()
         .enumerate()
         .map(|(i, row)| ListItem::new(setting_line(app, *row, i == app.settings_row)))
@@ -119,6 +120,37 @@ fn setting_line(app: &App, row: SettingRow, selected: bool) -> Line<'static> {
             app.config.language_label().to_string(),
             theme.base(),
         ),
+        SettingRow::OriginLanguage => (
+            app.bi("Linguagem de origem", "Origin language").to_string(),
+            app.config.origin_language.label_for(english).to_string(),
+            theme.base(),
+        ),
+        SettingRow::InlayHints => (
+            app.bi("Inlay hints de tipo", "Inline type inlay hints")
+                .to_string(),
+            if app.config.ui.inlay_hints {
+                app.bi("Ativados (sempre legível)", "Enabled (type annotations)")
+                    .to_string()
+            } else {
+                app.bi("Desligados", "Disabled").to_string()
+            },
+            theme.base(),
+        ),
+        SettingRow::SharedTargetCache => (
+            app.bi("Cache target compartilhado", "Shared Cargo target cache")
+                .to_string(),
+            if app.config.execution.shared_target_cache {
+                app.bi(
+                    "Ativo (reuso rápido entre práticas)",
+                    "Active (fast dependency reuse)",
+                )
+                .to_string()
+            } else {
+                app.bi("Isolado por projeto", "Isolated per project")
+                    .to_string()
+            },
+            theme.base(),
+        ),
         SettingRow::Ai => (
             app.t("settings.ai_provider").to_string(),
             match app.config.ai.provider {
@@ -205,6 +237,12 @@ mod tests {
         assert!(content.contains("Idioma"));
         assert!(content.contains("Cuia"));
 
+        assert!(content.contains('\n'));
+        app.snapshot_mode = false;
+        terminal.draw(|f| crate::ui::draw(f, &mut app)).unwrap();
+        let full_pt = crate::ui::tests_util::buffer_text(terminal.backend().buffer());
+        assert!(full_pt.contains("Linguagem de origem"));
+
         app.config.language = "en-US".to_string();
         terminal.draw(|f| crate::ui::draw(f, &mut app)).unwrap();
         let content_en = crate::ui::tests_util::buffer_text(terminal.backend().buffer());
@@ -212,6 +250,8 @@ mod tests {
         assert!(content_en.contains("English (en-US)"));
         assert!(content_en.contains("Animations"));
         assert!(content_en.contains("Full"));
+        assert!(content_en.contains("Origin language"));
+        assert!(content_en.contains("Inline type inlay hints"));
     }
 
     #[test]

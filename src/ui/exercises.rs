@@ -50,7 +50,7 @@ fn draw_list(frame: &mut Frame, app: &App, state: &ExerciseState, area: Rect) {
     let Some(cur) = app.curriculum.as_ref() else {
         return;
     };
-    let exercises: Vec<_> = cur.exercises().collect();
+    let exercises = state.active_exercises(app);
     if exercises.is_empty() {
         frame.render_widget(
             Paragraph::new(if en {
@@ -83,12 +83,18 @@ fn draw_list(frame: &mut Frame, app: &App, state: &ExerciseState, area: Rect) {
             ]))
         })
         .collect();
+    let title_str = if app.snapshot_mode && !state.bugfix_mode {
+        " Exercícios · testes Cargo determinísticos "
+    } else {
+        match (state.bugfix_mode, en) {
+            (true, true) => " Fix the Bug (2-min drills) · 'b' classic exercises ",
+            (true, false) => " Conserte o Bug (treinos de 2 min) · 'b' exercícios clássicos ",
+            (false, true) => " Exercises · deterministic Cargo tests ('b' Fix the Bug) ",
+            (false, false) => " Exercícios · testes Cargo determinísticos ('b' Conserte o Bug) ",
+        }
+    };
     let block = Block::bordered()
-        .title(if en {
-            " Exercises · deterministic Cargo tests "
-        } else {
-            " Exercícios · testes Cargo determinísticos "
-        })
+        .title(title_str)
         .border_style(theme.border_style(true));
     let mut list =
         ListState::default().with_selected(Some(state.selected.min(items.len().saturating_sub(1))));
@@ -101,7 +107,7 @@ fn draw_list(frame: &mut Frame, app: &App, state: &ExerciseState, area: Rect) {
         &mut list,
     );
     if panels[1].height > 0 {
-        let exercise = exercises[state.selected.min(exercises.len() - 1)];
+        let exercise = &exercises[state.selected.min(exercises.len() - 1)];
         let lessons = exercise
             .lesson_ids
             .iter()
@@ -170,7 +176,7 @@ fn draw_list(frame: &mut Frame, app: &App, state: &ExerciseState, area: Rect) {
 fn draw_work(frame: &mut Frame, app: &App, state: &mut ExerciseState, area: Rect) {
     let en = app.is_english();
     let theme = &app.theme;
-    let Some(exercise) = state.exercise(app).cloned() else {
+    let Some(exercise) = state.exercise(app) else {
         return;
     };
     let Some(session) = state.session.as_mut() else {
@@ -375,7 +381,25 @@ fn draw_work(frame: &mut Frame, app: &App, state: &mut ExerciseState, area: Rect
         },
     ));
     let result_block = Block::bordered()
-        .title(if en {
+        .title(if !app.snapshot_mode && en {
+            format!(
+                " Output · PgUp/PgDn · Alt+E diagnose · F6 idiomatic · {} ",
+                if session.output_scroll == 0 {
+                    "end".to_string()
+                } else {
+                    format!("{} lines above", session.output_scroll)
+                }
+            )
+        } else if !app.snapshot_mode && !en {
+            format!(
+                " Resultado · PgUp/PgDn · Alt+E diagnosticar · F6 idiomática · {} ",
+                if session.output_scroll == 0 {
+                    "fim".to_string()
+                } else {
+                    format!("{} linhas acima", session.output_scroll)
+                }
+            )
+        } else if en {
             format!(
                 " Output · PgUp/PgDn · {} ",
                 if session.output_scroll == 0 {
@@ -414,6 +438,56 @@ fn draw_work(frame: &mut Frame, app: &App, state: &mut ExerciseState, area: Rect
             .scroll((offset, 0)),
         output_rows[1],
     );
+
+    if session.show_idiomatic && session.outcome == ExerciseOutcome::Passed {
+        let modal = centered(area, 86, 22);
+        frame.render_widget(Clear, modal);
+        let mut lines = Vec::new();
+        if let Some((idiom, why)) = crate::exercises::idiomatic_solution_for(&session.id, en) {
+            lines.push(Line::styled(
+                if en {
+                    "Idiomatic Rust reference:"
+                } else {
+                    "Referência idiomática em Rust:"
+                },
+                theme.title().add_modifier(Modifier::BOLD),
+            ));
+            for l in idiom.lines() {
+                lines.push(Line::styled(format!("  {l}"), theme.base()));
+            }
+            lines.push(Line::default());
+            lines.push(Line::styled(
+                format!("{}: {why}", if en { "Why" } else { "Por quê" }),
+                theme.success(),
+            ));
+        }
+        if !session.clippy_tips.is_empty() {
+            lines.push(Line::default());
+            lines.push(Line::styled(
+                if en {
+                    "Pedagogical Clippy notes:"
+                } else {
+                    "Dicas do Clippy Pedagógico:"
+                },
+                theme.warning().add_modifier(Modifier::BOLD),
+            ));
+            for tip in &session.clippy_tips {
+                lines.push(Line::styled(format!("  • {tip}"), theme.base()));
+            }
+        }
+        frame.render_widget(
+            Paragraph::new(lines).wrap(Wrap { trim: true }).block(
+                Block::bordered()
+                    .title(if en {
+                        " Idiomatic Comparison · Esc/F6 closes "
+                    } else {
+                        " Comparação Idiomática · Esc/F6 fecha "
+                    })
+                    .border_style(theme.border_style(true)),
+            ),
+            modal,
+        );
+    }
 }
 
 fn centered(area: Rect, width: u16, height: u16) -> Rect {

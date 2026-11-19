@@ -3360,6 +3360,116 @@ pub fn build_v3_practice_spec_for(
             ],
             "use super::altura_terreno;\n#[test]\nfn testa_terreno_deterministico() {\n    let a = altura_terreno(4, -7, 42);\n    let b = altura_terreno(4, -7, 42);\n    assert_eq!(a, b);\n    assert!((2..=12).contains(&a));\n}\n",
         )),
+        "D01-P02" => Some((
+            "pub fn classificar_temp(celsius: i32) -> &'static str {\n    let _ = celsius;\n    todo!(\"retorne 'frio' (< 15), 'ameno' (15..=25) ou 'quente' (> 25)\")\n}\n",
+            [
+                "Nível 1: Use `match celsius` ou `if/else if/else` cobrindo toda a reta numérica.",
+                "Nível 2: Teste as fronteiras exatas `14`, `15`, `25` e `26`.",
+                "Nível 3: Com `match`, use intervalos inclusivos `15..=25`.",
+                "Nível 4: `if celsius < 15 { \"frio\" } else if celsius <= 25 { \"ameno\" } else { \"quente\" }`.",
+            ],
+            "use super::classificar_temp;\n#[test]\nfn testa_classificar_temp() {\n    assert_eq!(classificar_temp(-5), \"frio\");\n    assert_eq!(classificar_temp(15), \"ameno\");\n    assert_eq!(classificar_temp(25), \"ameno\");\n    assert_eq!(classificar_temp(30), \"quente\");\n}\n",
+        )),
+        "D02-P01" => Some((
+            "pub fn fatorial_seguro(n: u64) -> Option<u64> {\n    let _ = n;\n    todo!(\"retorne Some(n!) sem panic usando checked_mul, ou None se estourar u64\")\n}\n",
+            [
+                "Nível 1: `0!` e `1!` valem `Some(1)`.",
+                "Nível 2: Use `checked_mul` num acumulador mutável ou `try_fold` em `(1..=n)`.",
+                "Nível 3: Valores como `21` estouram `u64` — `checked_mul` retorna `None` naturalmente.",
+                "Nível 4: `(1..=n).try_fold(1u64, |acc, x| acc.checked_mul(x))`.",
+            ],
+            "use super::fatorial_seguro;\n#[test]\nfn testa_fatorial_seguro() {\n    assert_eq!(fatorial_seguro(0), Some(1));\n    assert_eq!(fatorial_seguro(5), Some(120));\n    assert_eq!(fatorial_seguro(21), None);\n}\n",
+        )),
+        "D02-P02" => Some((
+            "pub fn tamanho_sem_mover(texto: &str) -> usize {\n    let _ = texto;\n    todo!(\"conte os caracteres Unicode (.chars().count()) emprestando apenas &str\")\n}\n",
+            [
+                "Nível 1: `.len()` conta bytes UTF-8; `.chars().count()` conta caracteres reais.",
+                "Nível 2: Receber `&str` permite contar sem mover nem alocar `String`.",
+                "Nível 3: Em string vazia `\"\"` o retorno deve ser `0`.",
+                "Nível 4: `texto.chars().count()`.",
+            ],
+            "use super::tamanho_sem_mover;\n#[test]\nfn testa_unicode_len() {\n    assert_eq!(tamanho_sem_mover(\"\"), 0);\n    assert_eq!(tamanho_sem_mover(\"olá\"), 3);\n}\n",
+        )),
+        "D03-P02" => Some((
+            "pub fn normalizar_nome(s: &mut String) {\n    let _ = s;\n    todo!(\"remova espaços nas pontas in-place sem realocar outra String no retorno\")\n}\n",
+            [
+                "Nível 1: Calcule `let trimmed = s.trim().to_string();` e atualize `*s = trimmed;` (ou `.drain`).",
+                "Nível 2: Alterações via `&mut String` refletem direto no dono original.",
+                "Nível 3: Teste strings com espaços antes/depois e strings vazias.",
+                "Nível 4: `*s = s.trim().to_string();`.",
+            ],
+            "use super::normalizar_nome;\n#[test]\nfn testa_normalizar() {\n    let mut s = \"  RustLab  \".to_string();\n    normalizar_nome(&mut s);\n    assert_eq!(s, \"RustLab\");\n}\n",
+        )),
+        "D04-P02" => Some((
+            "pub fn menor_maior(nums: &[i32]) -> Option<(i32, i32)> {\n    let _ = nums;\n    todo!(\"retorne Some((min, max)) ou None se a fatia estiver vazia\")\n}\n",
+            [
+                "Nível 1: Trate `&[]` retornando `None` antes de iterar.",
+                "Nível 2: Use `nums.iter().copied().min()` e `.max()` (ou um loop único).",
+                "Nível 3: Para um único elemento `[7]`, retorne `Some((7, 7))`.",
+                "Nível 4: `Some((*nums.iter().min()?, *nums.iter().max()?))`.",
+            ],
+            "use super::menor_maior;\n#[test]\nfn testa_menor_maior() {\n    assert_eq!(menor_maior(&[]), None);\n    assert_eq!(menor_maior(&[7]), Some((7, 7)));\n    assert_eq!(menor_maior(&[5, -2, 9, 1]), Some((-2, 9)));\n}\n",
+        )),
+        "D05-P02" => Some((
+            "#[derive(Debug, Clone, Copy, PartialEq, Eq)]\npub struct Ponto2D { pub x: i32, pub y: i32 }\n\nimpl Ponto2D {\n    pub fn manhattan(&self, outro: &Self) -> i32 {\n        let _ = outro;\n        todo!(\"calcule |self.x - outro.x| + |self.y - outro.y|\")\n    }\n}\n",
+            [
+                "Nível 1: Distância de Manhattan soma o valor absoluto da diferença em X e em Y.",
+                "Nível 2: Use `(self.x - outro.x).abs() + (self.y - outro.y).abs()`.",
+                "Nível 3: Funciona igual para coordenadas negativas.",
+                "Nível 4: `(self.x - outro.x).abs() + (self.y - outro.y).abs()`.",
+            ],
+            "use super::Ponto2D;\n#[test]\nfn testa_manhattan() {\n    let a = Ponto2D { x: 1, y: 2 };\n    let b = Ponto2D { x: -2, y: 6 };\n    assert_eq!(a.manhattan(&b), 7);\n}\n",
+        )),
+        "D06-P02" => Some((
+            "#[derive(Debug, Clone, Copy, PartialEq, Eq)]\npub enum StatusPedido { Aberto, Pago, Cancelado }\n\npub fn pode_enviar(status: StatusPedido) -> bool {\n    let _ = status;\n    todo!(\"retorne true apenas para Pago usando match exaustivo\")\n}\n",
+            [
+                "Nível 1: Use `matches!(status, StatusPedido::Pago)` ou `match status`.",
+                "Nível 2: `Aberto` e `Cancelado` retornam `false`.",
+                "Nível 3: Evite `_` para manter exaustividade se novas variantes surgirem.",
+                "Nível 4: `match status { StatusPedido::Pago => true, StatusPedido::Aberto | StatusPedido::Cancelado => false }`.",
+            ],
+            "use super::{StatusPedido, pode_enviar};\n#[test]\nfn testa_status() {\n    assert!(!pode_enviar(StatusPedido::Aberto));\n    assert!(pode_enviar(StatusPedido::Pago));\n    assert!(!pode_enviar(StatusPedido::Cancelado));\n}\n",
+        )),
+        "D09-P02" => Some((
+            "pub fn primeira_nao_vazia<'a>(lista: &'a [&'a str]) -> Option<&'a str> {\n    let _ = lista;\n    todo!(\"retorne a primeira fatia que contenha texto não-vazio após .trim()\")\n}\n",
+            [
+                "Nível 1: Percorra `lista.iter().copied()` procurando `!s.trim().is_empty()`.",
+                "Nível 2: Use `.find(|s| !s.trim().is_empty())`.",
+                "Nível 3: Strings só com espaços `\"   \"` devem ser ignoradas.",
+                "Nível 4: `lista.iter().copied().find(|s| !s.trim().is_empty())`.",
+            ],
+            "use super::primeira_nao_vazia;\n#[test]\nfn testa_primeira_nao_vazia() {\n    assert_eq!(primeira_nao_vazia(&[\"  \", \"rust\", \"go\"]), Some(\"rust\"));\n    assert_eq!(primeira_nao_vazia(&[\"\", \" \"]), None);\n}\n",
+        )),
+        "D11-P01" => Some((
+            "use std::collections::HashMap;\n\npub fn contar_frequencia(palavras: &[&str]) -> HashMap<String, usize> {\n    let _ = palavras;\n    todo!(\"conte quantas vezes cada palavra aparece usando entry().or_insert(0)\")\n}\n",
+            [
+                "Nível 1: Crie `let mut map = HashMap::new();`.",
+                "Nível 2: Para cada palavra `p`, faça `*map.entry((*p).to_string()).or_insert(0) += 1;`.",
+                "Nível 3: Entrada vazia devolve `HashMap` vazio.",
+                "Nível 4: Use o padrão `.entry(key).or_insert(0)` para evitar busca dupla.",
+            ],
+            "use super::contar_frequencia;\n#[test]\nfn testa_freq() {\n    let m = contar_frequencia(&[\"a\", \"b\", \"a\"]);\n    assert_eq!(m.get(\"a\"), Some(&2));\n    assert_eq!(m.get(\"b\"), Some(&1));\n}\n",
+        )),
+        "D12-P01" => Some((
+            "pub fn parse_porta(raw: &str) -> Result<u16, String> {\n    let _ = raw;\n    todo!(\"faça parse para u16 e recuse porta 0 retornando Err\")\n}\n",
+            [
+                "Nível 1: Use `raw.trim().parse::<u16>()` tratando erro com `.map_err(...)`.",
+                "Nível 2: Valide `if port == 0 { return Err(...); }` após o parse.",
+                "Nível 3: Entradas inválidas como `\"abc\"` ou `\"70000\"` devem retornar `Err`.",
+                "Nível 4: `let p: u16 = raw.trim().parse().map_err(|e| format!(\"{e}\"))?; if p == 0 { Err(\"0\".into()) } else { Ok(p) }`.",
+            ],
+            "use super::parse_porta;\n#[test]\nfn testa_parse_porta() {\n    assert_eq!(parse_porta(\" 8080 \"), Ok(8080));\n    assert!(parse_porta(\"0\").is_err());\n    assert!(parse_porta(\"abc\").is_err());\n}\n",
+        )),
+        "F01-P02" | "F02-P01" | "F03-P01" | "F04-P02" | "F05-P01" | "F06-P01" => Some((
+            "pub fn somar_pares_ate(nums: &[i32], limite: i32) -> i32 {\n    let _ = (nums, limite);\n    todo!(\"filtre pares <= limite e some seus valores usando iteradores\")\n}\n",
+            [
+                "Nível 1: Combine `.iter().copied()`, `.filter(...)` e `.sum()`.",
+                "Nível 2: Cheque `n % 2 == 0 && n <= limite` dentro do filtro.",
+                "Nível 3: Números negativos pares também obedecem `n % 2 == 0`.",
+                "Nível 4: `nums.iter().copied().filter(|&n| n % 2 == 0 && n <= limite).sum()`.",
+            ],
+            "use super::somar_pares_ate;\n#[test]\nfn testa_somar_pares_ate() {\n    assert_eq!(somar_pares_ate(&[-2, 1, 2, 4, 6], 4), 4);\n    assert_eq!(somar_pares_ate(&[], 10), 0);\n}\n",
+        )),
         _ => None,
     };
 
@@ -3388,6 +3498,76 @@ pub fn build_v3_practice_spec_for(
     }
     base.lesson_id = entry.id;
     Some(base)
+}
+
+/// Gera prática executável sob demanda para qualquer entrada V3 (inclusive teoria).
+pub fn build_v3_practice_for_any_entry(
+    entry: &V3Entry,
+    english: bool,
+) -> crate::learn::PracticeSpec {
+    if let Some(spec) = build_v3_practice_spec_for(entry, english) {
+        return spec;
+    }
+    let canonical = canonical_lesson_for_v3_entry(entry);
+    let mut base =
+        crate::learn::practice_spec_for_lesson_for(canonical, english).unwrap_or_else(|| {
+            crate::learn::practice_spec_for_lesson_for("hello-world", english).unwrap()
+        });
+    base.id = entry.id;
+    base.lesson_id = entry.id;
+    base.title = entry.title_for(english);
+    base.prompt = entry.learning_goal_for(english);
+    base
+}
+
+/// Estratégia "Erro primeiro, teoria depois": mostra um erro real de compilador antes da regra formal.
+pub fn error_first_callout_for(canonical_id: &str, english: bool) -> Option<String> {
+    let msg = match (canonical_id, english) {
+        ("mutabilidade", true) => {
+            "Error-First Challenge [E0384]: What happens if you write `let x = 5; x = 6;`? `rustc` rejects it (`cannot assign twice to immutable variable`). Try seeing that error first, then opt into `let mut x = 5;` intentionally."
+        }
+        ("mutabilidade", false) => {
+            "Erro Primeiro, Teoria Depois [E0384]: O que acontece ao escrever `let x = 5; x = 6;`? O `rustc` recusa (`cannot assign twice to immutable variable`). Observe o erro primeiro e só então adicione `mut`."
+        }
+        ("ownership-na-pratica", true) => {
+            "Error-First Challenge [E0382]: Try passing `let s = String::from(\"hi\");` into `drop_it(s); println!(\"{s}\");` — `rustc` stops you with `borrow of moved value: s`. That single error reveals why Move semantics prevent double-free!"
+        }
+        ("ownership-na-pratica", false) => {
+            "Erro Primeiro, Teoria Depois [E0382]: Ao fazer `let s = String::from(\"oi\"); consome(s); println!(\"{s}\");`, o `rustc` bloqueia com `borrow of moved value: s`. Esse erro mostra na prática como Move evita double-free!"
+        }
+        ("borrowing-e-referencias", true) => {
+            "Error-First Challenge [E0502]: Holding `let r = &v[0];` while calling `v.push(9)` triggers `cannot borrow v as mutable because it is also borrowed as immutable`. Rust stops iterator invalidation at compile time!"
+        }
+        ("borrowing-e-referencias", false) => {
+            "Erro Primeiro, Teoria Depois [E0502]: Segurar `let r = &v[0];` enquanto chama `v.push(9)` gera `cannot borrow v as mutable because it is also borrowed as immutable` — evitando ponteiro inválido por realocação!"
+        }
+        ("tempo-de-vida-introducao", true) => {
+            "Error-First Challenge [E0106]: Writing `fn pick(a: &str, b: &str) -> &str` triggers `missing lifetime specifier` because the compiler refuses to guess whether the return borrows `a` or `b`."
+        }
+        ("tempo-de-vida-introducao", false) => {
+            "Erro Primeiro, Teoria Depois [E0106]: Escrever `fn escolhe(a: &str, b: &str) -> &str` gera `missing lifetime specifier` porque o compilador se recusa a adivinhar se o retorno vem de `a` ou `b`."
+        }
+        ("enums-e-pattern-matching", true) => {
+            "Error-First Challenge [E0004]: Forgetting one variant inside `match color { ... }` produces `non-exhaustive patterns` — turning forgotten edge cases into compile-time guarantees."
+        }
+        ("enums-e-pattern-matching", false) => {
+            "Erro Primeiro, Teoria Depois [E0004]: Esquecer uma variante em `match cor { ... }` causa `non-exhaustive patterns` — transformando casos esquecidos em segurança na compilação."
+        }
+        ("option-e-ausencia" | "result-e-propagacao", true) => {
+            "Error-First Challenge [E0308]: Treating a `Result<i32, _>` directly as `i32` triggers `mismatched types`, nudging you to unwrap safely with `?`, `match`, or `.unwrap_or(...)`."
+        }
+        ("option-e-ausencia" | "result-e-propagacao", false) => {
+            "Erro Primeiro, Teoria Depois [E0308]: Usar `Result<i32, _>` direto como `i32` gera `mismatched types`, guiando você a extrair com segurança via `?`, `match` ou `.unwrap_or(...)`."
+        }
+        ("traits-modulos-e-cargo", true) => {
+            "Error-First Challenge [E0277 / E0599]: Calling a generic helper `fn print_it<T: Display>(x: T)` without implementing the trait fails fast with `the trait Display is not implemented`."
+        }
+        ("traits-modulos-e-cargo", false) => {
+            "Erro Primeiro, Teoria Depois [E0277 / E0599]: Chamar um genérico `<T: Display>` sem o trait implementado falha na hora com `the trait Display is not implemented`."
+        }
+        _ => return None,
+    };
+    Some(msg.to_string())
 }
 
 /// Constrói uma lição completa e navegável no idioma pedido (`pt-BR` ou `en-US`) para
@@ -3446,6 +3626,13 @@ pub fn build_v3_lesson_for(entry: &V3Entry, base_cur: &Curriculum, english: bool
             )
         },
     });
+
+    if let Some(error_first) = error_first_callout_for(canonical, english) {
+        blocks.push(Block::Callout {
+            kind: CalloutKind::Warning,
+            text: error_first,
+        });
+    }
 
     if let Some(base) = base_lesson {
         for b in &base.blocks {
@@ -4160,5 +4347,39 @@ mod tests {
             }
         }
         assert_eq!(practice_count, 89);
+    }
+
+    #[test]
+    fn erro_primeiro_e_praticas_expandidas_v3_funcionam() {
+        assert!(
+            error_first_callout_for("ownership-na-pratica", true)
+                .unwrap()
+                .contains("E0382")
+        );
+        assert!(
+            error_first_callout_for("ownership-na-pratica", false)
+                .unwrap()
+                .contains("E0382")
+        );
+
+        let cur = Curriculum::embedded_for(true).unwrap();
+        let entry = find_v3_entry("M05-T01").unwrap(); // ownership theory -> error-first callout + on-demand practice
+        let lesson = build_v3_lesson_for(entry, &cur, true);
+        assert!(lesson.blocks.iter().any(|b| matches!(
+            b,
+            Block::Callout { text, .. } if text.contains("E0382")
+        )));
+        let any_spec = build_v3_practice_for_any_entry(entry, true);
+        assert_eq!(any_spec.id, "M05-T01");
+        assert!(!any_spec.starter.trim().is_empty());
+
+        for id in [
+            "D01-P02", "D02-P01", "D03-P02", "D12-P01", "F01-P02", "F06-P01",
+        ] {
+            let e = find_v3_entry(id).unwrap();
+            let spec_pt = build_v3_practice_spec_for(e, false).unwrap();
+            let spec_en = build_v3_practice_spec_for(e, true).unwrap();
+            assert_ne!(spec_pt.prompt, spec_en.prompt, "{id}");
+        }
     }
 }

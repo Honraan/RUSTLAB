@@ -375,6 +375,7 @@ fn pratica_interativa_stdin_d09_p01_executa_cargo_real() {
             compile_error_seen: false,
             consent_pending: false,
             pending_dir: None,
+            clippy_tips: Vec::new(),
         });
         view.practice_focused = true;
     }
@@ -559,6 +560,91 @@ fn templates_ecossistemas_modernos_e_quests_v3_compilam_no_cargo_real() {
     assert!(
         output_log.contains("3 passed"),
         "esperava 3 testes dos ecossistemas modernos aprovados:\n{output_log}"
+    );
+
+    let _ = std::fs::remove_dir_all(root);
+}
+
+#[test]
+fn bugfixes_e_checkpoints_guiados_passam_cargo_test_real() {
+    let root = std::env::temp_dir().join(format!("rustlab-v04-real-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&root);
+    std::fs::create_dir_all(root.join("src")).unwrap();
+
+    std::fs::write(
+        root.join("Cargo.toml"),
+        "[package]\nname = \"rustlab_v04_real\"\nversion = \"0.1.0\"\nedition = \"2024\"\n\n[lib]\ndoctest = false\n\n[workspace]\n",
+    )
+    .unwrap();
+
+    let mut lib_src = String::from("#![allow(dead_code)]\n\n");
+    for (idx, ex) in rustlab::exercises::bugfix_challenges(true)
+        .iter()
+        .enumerate()
+    {
+        let (idiom, _) = rustlab::exercises::idiomatic_solution_for(&ex.id, true)
+            .unwrap_or_else(|| panic!("missing idiomatic for {}", ex.id));
+        lib_src.push_str(&format!(
+            "pub mod bug_{idx} {{\n{idiom}\n\n#[cfg(test)]\nmod tests {{\n{}\n}}\n}}\n\n",
+            ex.tests
+        ));
+    }
+    for (t_idx, track) in rustlab::lab_tools::guided_project_tracks(true)
+        .iter()
+        .enumerate()
+    {
+        for (c_idx, cp) in track.checkpoints.iter().enumerate() {
+            lib_src.push_str(&format!(
+                "pub mod guided_{t_idx}_{c_idx} {{\n{}\n}}\n\n",
+                cp.starter_code
+            ));
+        }
+    }
+    std::fs::write(root.join("src/lib.rs"), lib_src).unwrap();
+
+    let mut exec = rustlab::execution::ExecutionManager::new();
+    exec.submit(rustlab::execution::ToolCommand::Test, root.clone())
+        .unwrap();
+
+    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(90);
+    let mut events = Vec::new();
+    let mut output_log = String::new();
+    let mut finished_ok = None;
+    while exec.running && std::time::Instant::now() < deadline {
+        exec.poll_events(&mut events);
+        for ev in events.drain(..) {
+            match ev {
+                rustlab::execution::ExecEvent::Chunk { text, .. } => {
+                    output_log.push_str(&text);
+                    output_log.push('\n');
+                }
+                rustlab::execution::ExecEvent::Finished { success, .. } => {
+                    finished_ok = Some(success);
+                }
+                rustlab::execution::ExecEvent::TimedOut { .. }
+                | rustlab::execution::ExecEvent::Cancelled { .. }
+                | rustlab::execution::ExecEvent::SpawnFailed { .. } => {
+                    finished_ok = Some(false);
+                }
+                rustlab::execution::ExecEvent::Started { .. } => {}
+            }
+        }
+        std::thread::sleep(std::time::Duration::from_millis(20));
+    }
+    exec.poll_events(&mut events);
+    for ev in events {
+        if let rustlab::execution::ExecEvent::Finished { success, .. } = ev {
+            finished_ok = Some(success);
+        }
+    }
+    assert_eq!(
+        finished_ok,
+        Some(true),
+        "bugfixes/guided checkpoints falharam no cargo test real:\n{output_log}"
+    );
+    assert!(
+        output_log.contains("20 passed"),
+        "esperava 8 bugfix + 12 checkpoint = 20 testes aprovados:\n{output_log}"
     );
 
     let _ = std::fs::remove_dir_all(root);

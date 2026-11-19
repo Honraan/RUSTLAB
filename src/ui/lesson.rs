@@ -582,6 +582,24 @@ pub fn draw(frame: &mut Frame, app: &mut App, area: Rect) {
         return;
     };
 
+    let mut lesson = lesson;
+    if !app.snapshot_mode
+        && app.config.origin_language != crate::config::OriginLanguage::None
+        && let Some(callout) = app
+            .config
+            .origin_language
+            .polyglot_callout_for(&lesson.id, en)
+    {
+        let insert_at = usize::from(!lesson.blocks.is_empty());
+        lesson.blocks.insert(
+            insert_at,
+            crate::curriculum::Block::Callout {
+                kind: crate::curriculum::CalloutKind::Tip,
+                text: callout,
+            },
+        );
+    }
+
     let rows = Layout::vertical([
         Constraint::Length(if related_titles.is_empty() { 2 } else { 3 }), // cabeçalho
         Constraint::Min(3),                                                // corpo

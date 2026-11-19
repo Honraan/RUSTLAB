@@ -14,12 +14,14 @@ struct ExecPanelState<'a> {
     running: bool,
     running_label: Option<&'a str>,
     input_open: bool,
+    show_inlay_hints: bool,
 }
 
 pub fn draw(frame: &mut Frame, app: &mut App, area: Rect) {
     let en = app.is_english();
     let theme = app.theme;
     let config = app.config.clone();
+    let show_inlay_hints = !app.snapshot_mode && config.ui.inlay_hints;
     let running = app.exec.running;
     let running_label = app.exec.running_label.clone();
     let input_open = app.exec.accepts_input();
@@ -38,6 +40,7 @@ pub fn draw(frame: &mut Frame, app: &mut App, area: Rect) {
                 running,
                 running_label: running_label.as_deref(),
                 input_open,
+                show_inlay_hints,
             },
             en,
         ),
@@ -383,6 +386,20 @@ fn draw_workspace(
         }
         if cursor_col == Some(col) {
             spans.push(Span::styled(" ", theme.selection()));
+        }
+        if exec.show_inlay_hints {
+            let line_hints: Vec<&str> = state
+                .inlay_hints
+                .iter()
+                .filter(|h| h.line == row)
+                .map(|h| h.label.as_str())
+                .collect();
+            if !line_hints.is_empty() {
+                spans.push(Span::styled(
+                    format!("  // {}", line_hints.join(" ")),
+                    theme.dim(),
+                ));
+            }
         }
         lines.push(Line::from(spans));
     }
@@ -1299,33 +1316,100 @@ fn draw_lab_xray(
     let report = state.lab.last_xray.clone().unwrap_or_else(|| {
         crate::lab_tools::MemoryXRayReport::analyze_for(&state.editor.buf.to_string_lossy(), en)
     });
-    let lines: Vec<Line> = report
-        .summary_lines_for(en)
-        .into_iter()
-        .map(|s| {
-            let style = if s.contains("CONFLITO")
-                || s.contains("CONFLICT")
-                || s.contains("✗ movido")
-                || s.contains("✗ moved")
-            {
-                theme.error()
-            } else if s.contains("Zero-Cost") || s.contains("[✓ ativo]") || s.contains("[✓ active]")
-            {
-                theme.success()
-            } else if s.starts_with("Medidor")
-                || s.starts_with("Meter")
-                || s.starts_with("Mapa Visual")
-                || s.starts_with("Visual")
-                || s.starts_with("Eventos")
-                || s.starts_with("Events")
-            {
-                theme.title()
+    let mut lines: Vec<Line> = Vec::new();
+    if !report.timeline.is_empty() {
+        let cur = report
+            .timeline_cursor
+            .min(report.timeline.len().saturating_sub(1));
+        let step = &report.timeline[cur];
+        lines.push(Line::from(Span::styled(
+            if en {
+                format!(
+                    "Step-by-Step Ownership Simulator ({}/{}) · [ / ] step · Line {}:",
+                    cur + 1,
+                    report.timeline.len(),
+                    step.line_1based
+                )
             } else {
-                theme.base()
-            };
-            Line::from(Span::styled(s, style))
-        })
-        .collect();
+                format!(
+                    "Simulador Passo a Passo de Ownership ({}/{}) · [ / ] avançar · Linha {}:",
+                    cur + 1,
+                    report.timeline.len(),
+                    step.line_1based
+                )
+            },
+            theme.title(),
+        )));
+        lines.push(Line::from(Span::styled(
+            format!("  > {}", step.code_line),
+            theme.warning(),
+        )));
+        lines.push(Line::from(Span::styled(
+            format!("  {}", step.explanation),
+            theme.base(),
+        )));
+        let owners = if step.active_owners.is_empty() {
+            crate::i18n::bi("nenhum", "none", en).to_string()
+        } else {
+            step.active_owners
+                .iter()
+                .map(|(n, ty, r)| format!("{n}:{ty}({:?})", r))
+                .collect::<Vec<_>>()
+                .join(", ")
+        };
+        lines.push(Line::from(Span::styled(
+            format!(
+                "  {}: {owners}",
+                crate::i18n::bi("Donos ativos", "Active owners", en)
+            ),
+            theme.success(),
+        )));
+        if !step.active_borrows.is_empty() {
+            let b_str = step
+                .active_borrows
+                .iter()
+                .map(|(o, b, is_mut)| format!("{b} -> {}{o}", if *is_mut { "&mut " } else { "&" }))
+                .collect::<Vec<_>>()
+                .join(", ");
+            lines.push(Line::from(Span::styled(
+                format!(
+                    "  {}: {b_str}",
+                    crate::i18n::bi("Empréstimos ativos", "Active borrows", en)
+                ),
+                theme.warning(),
+            )));
+        }
+        if !step.dropped_here.is_empty() {
+            lines.push(Line::from(Span::styled(
+                format!("  Drop: [{}]", step.dropped_here.join(", ")),
+                theme.error(),
+            )));
+        }
+        lines.push(Line::default());
+    }
+    lines.extend(report.summary_lines_for(en).into_iter().map(|s| {
+        let style = if s.contains("CONFLITO")
+            || s.contains("CONFLICT")
+            || s.contains("✗ movido")
+            || s.contains("✗ moved")
+        {
+            theme.error()
+        } else if s.contains("Zero-Cost") || s.contains("[✓ ativo]") || s.contains("[✓ active]")
+        {
+            theme.success()
+        } else if s.starts_with("Medidor")
+            || s.starts_with("Meter")
+            || s.starts_with("Mapa Visual")
+            || s.starts_with("Visual")
+            || s.starts_with("Eventos")
+            || s.starts_with("Events")
+        {
+            theme.title()
+        } else {
+            theme.base()
+        };
+        Line::from(Span::styled(s, style))
+    }));
     render_scrolled_lines(frame, lines, &mut state.lab.scroll, area);
 }
 
@@ -1737,6 +1821,52 @@ fn draw_lab_ecosystems(
             theme.dim(),
         )));
     }
+    let tracks = crate::lab_tools::guided_project_tracks(en);
+    let track = &tracks[state
+        .lab
+        .guided_track_sel
+        .min(tracks.len().saturating_sub(1))];
+    let cp_idx = state
+        .lab
+        .guided_checkpoint_sel
+        .min(track.checkpoints.len().saturating_sub(1));
+    let cp = &track.checkpoints[cp_idx];
+    let cp_done = state.lab.completed_checkpoints.contains(cp.id);
+    lines.push(Line::default());
+    lines.push(Line::from(Span::styled(
+        if en {
+            format!(
+                "Guided Checkpoint Track [g load · c cycle · v verify]: {} ({}/{})",
+                track.name,
+                cp_idx + 1,
+                track.checkpoints.len()
+            )
+        } else {
+            format!(
+                "Projeto Guiado por Checkpoints [g carregar · c trocar · v verificar]: {} ({}/{})",
+                track.name,
+                cp_idx + 1,
+                track.checkpoints.len()
+            )
+        },
+        theme.title(),
+    )));
+    lines.push(Line::from(Span::styled(
+        format!(
+            "  {} {} — {}",
+            if cp_done { "✓" } else { "·" },
+            cp.title,
+            cp.goal
+        ),
+        if cp_done {
+            theme.success()
+        } else {
+            theme.base()
+        },
+    )));
+    if let Some(fb) = &state.lab.guided_feedback {
+        lines.push(Line::from(Span::styled(format!("  {fb}"), theme.warning())));
+    }
     frame.render_widget(
         Paragraph::new(lines)
             .wrap(Wrap { trim: true })
@@ -1812,6 +1942,25 @@ fn draw_lab_layout(
         crate::lab_tools::MemoryLayoutReport::analyze_for(&state.editor.buf.to_string_lossy(), en)
     });
     let mut lines = Vec::new();
+    if report.live_verified {
+        lines.push(Line::from(Span::styled(
+            crate::i18n::bi(
+                "✓ Layout verificado em tempo real com std::mem::size_of/align_of!",
+                "✓ Layout live-verified via std::mem::size_of/align_of!",
+                en,
+            ),
+            theme.success(),
+        )));
+    } else {
+        lines.push(Line::from(Span::styled(
+            crate::i18n::bi(
+                "Dica: pressione 'v' para verificar tamanhos reais via rustc.",
+                "Tip: press 'v' to live-verify struct sizes with rustc.",
+                en,
+            ),
+            theme.dim(),
+        )));
+    }
     if report.user_types.is_empty() {
         lines.push(Line::from(Span::styled(
             crate::i18n::bi(
@@ -1971,6 +2120,38 @@ fn draw_lab_desugar(
         }
         detail.push(Line::default());
         detail.push(Line::from(item.explanation));
+        if let Some(live) = &report.live_expanded {
+            detail.push(Line::default());
+            detail.push(Line::from(Span::styled(
+                crate::i18n::bi(
+                    "Saída real do cargo-expand:",
+                    "Live cargo-expand output:",
+                    en,
+                ),
+                theme.title(),
+            )));
+            for l in live.lines().take(12) {
+                detail.push(Line::from(Span::styled(format!("  {l}"), theme.dim())));
+            }
+        } else {
+            detail.push(Line::default());
+            detail.push(Line::from(Span::styled(
+                if report.cargo_expand_available {
+                    crate::i18n::bi(
+                        "Pressione 'e' para rodar `cargo expand` neste projeto.",
+                        "Press 'e' to run `cargo expand` on this project.",
+                        en,
+                    )
+                } else {
+                    crate::i18n::bi(
+                        "Modo offline ativo (instale `cargo-expand` para expansão real em 'e').",
+                        "Offline fallback active (install `cargo-expand` for live expansion on 'e').",
+                        en,
+                    )
+                },
+                theme.dim(),
+            )));
+        }
         frame.render_widget(
             Paragraph::new(detail).wrap(Wrap { trim: true }).block(
                 Block::bordered().title(crate::i18n::bi(

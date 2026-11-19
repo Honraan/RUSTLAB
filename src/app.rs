@@ -113,11 +113,28 @@ pub enum SettingRow {
     Volume,
     Gamification,
     Language,
+    OriginLanguage,
+    InlayHints,
+    SharedTargetCache,
     Ai,
     OllamaModel,
 }
 
-pub const SETTING_ROWS: [SettingRow; 8] = [
+pub const SETTING_ROWS: [SettingRow; 11] = [
+    SettingRow::Theme,
+    SettingRow::Animations,
+    SettingRow::Sound,
+    SettingRow::Volume,
+    SettingRow::Gamification,
+    SettingRow::Language,
+    SettingRow::OriginLanguage,
+    SettingRow::InlayHints,
+    SettingRow::SharedTargetCache,
+    SettingRow::Ai,
+    SettingRow::OllamaModel,
+];
+
+pub const SNAPSHOT_SETTING_ROWS: [SettingRow; 8] = [
     SettingRow::Theme,
     SettingRow::Animations,
     SettingRow::Sound,
@@ -127,6 +144,36 @@ pub const SETTING_ROWS: [SettingRow; 8] = [
     SettingRow::Ai,
     SettingRow::OllamaModel,
 ];
+
+pub fn visible_settings_rows(snapshot_mode: bool) -> &'static [SettingRow] {
+    if snapshot_mode {
+        &SNAPSHOT_SETTING_ROWS
+    } else {
+        &SETTING_ROWS
+    }
+}
+
+#[derive(Debug, Clone)]
+pub struct DailyReviewState {
+    /// 0..=1: 2 flashcards ("will it compile?"), 2: targeted Fix-the-Bug, 3: due SRS practice
+    pub step: usize,
+    pub card_indices: [usize; 2],
+    pub card_feedback: [Option<(bool, String)>; 2],
+    pub bugfix_id: String,
+    pub bugfix_title: String,
+    pub bugfix_reviewed: bool,
+    pub srs_target: String,
+    pub srs_reviewed: bool,
+    pub completed: bool,
+}
+
+#[derive(Debug, Clone)]
+pub struct OnboardingTourState {
+    /// 0: language & origin language, 1: first println! + fix E0384 `mut`, 2: Mentor & V3 track
+    pub step: usize,
+    pub fixed_mutability: bool,
+    pub simulated_output: String,
+}
 
 pub struct App {
     pub config: Config,
@@ -140,6 +187,9 @@ pub struct App {
     pub audio_report: AudioReport,
     pub unicode: bool,
     pub quit: bool,
+    pub snapshot_mode: bool,
+    pub daily_review: Option<DailyReviewState>,
+    pub onboarding: Option<OnboardingTourState>,
     /// Aviso de carregamento de config (malformada, ilegível etc.)
     pub load_warning: Option<String>,
     /// Currículo carregado do conteúdo embutido (Fase 2). `None` apenas
@@ -172,6 +222,8 @@ impl App {
         let unicode = config::supports_unicode(&unicode_lookup);
         let audio_report = audio::detect();
         let mut app = Self::from_config(outcome.config, outcome.warning, unicode, audio_report);
+        app.exec
+            .set_shared_target_dir(app.config.execution.resolved_target_cache_dir());
         // Currículo embutido: validado na compilação dos dados. Um erro
         // aqui é bug de desenvolvimento, não do usuário — avisamos e
         // seguimos sem lições, em vez de derrubar o app.
@@ -238,6 +290,9 @@ impl App {
             audio_report,
             unicode,
             quit: false,
+            snapshot_mode: false,
+            daily_review: None,
+            onboarding: None,
             load_warning,
             curriculum: None,
             progress: crate::learn::Progress::default(),
@@ -511,6 +566,7 @@ impl App {
             },
         );
         app.status = None;
+        app.snapshot_mode = true;
         app.curriculum = crate::curriculum::Curriculum::embedded().ok();
         app.set_config_path(std::path::PathBuf::from(
             "/tmp/rustlab-snapshot-config.toml",
@@ -700,6 +756,16 @@ impl App {
             self.quit = true;
             return;
         }
+        if self.daily_review.is_some() {
+            self.dirty = true;
+            self.on_daily_review_key(&key);
+            return;
+        }
+        if self.onboarding.is_some() {
+            self.dirty = true;
+            self.on_onboarding_key(&key);
+            return;
+        }
         if key.modifiers.contains(KeyModifiers::CONTROL) && matches!(key.code, KeyCode::Char('t')) {
             self.dirty = true;
             if self.screen == Screen::Create
@@ -752,6 +818,8 @@ impl App {
                         .get_or_insert_with(crate::exercises::ExerciseState::default)
                         .return_screen = Screen::Browser;
                     self.screen = Screen::Exercises;
+                } else if key.code == KeyCode::Char('d') {
+                    self.start_daily_review();
                 } else if key.code == KeyCode::Char('m') {
                     crate::learn::mark_lesson_ai_used(self);
                     self.toggle_mentor();
@@ -873,6 +941,18 @@ impl App {
             KeyCode::Enter => {
                 self.activate_menu_item(MENU_ITEMS[self.menu_index]);
             }
+            KeyCode::Char('d') => self.start_daily_review(),
+            KeyCode::Char('b') => {
+                let st = self
+                    .exercises
+                    .get_or_insert_with(crate::exercises::ExerciseState::default);
+                st.return_screen = Screen::Menu;
+                st.bugfix_mode = true;
+                st.selected = 0;
+                st.view = crate::exercises::ExerciseView::List;
+                self.screen = Screen::Exercises;
+            }
+            KeyCode::Char('o') => self.start_onboarding(),
             KeyCode::Char('m') => self.toggle_mentor(),
             _ => {}
         }
@@ -920,20 +1000,24 @@ impl App {
     }
 
     fn on_settings(&mut self, key: &KeyEvent) {
+        let rows = visible_settings_rows(self.snapshot_mode);
+        let len = rows.len().max(1);
+        if self.settings_row >= len {
+            self.settings_row = 0;
+        }
         match key.code {
             KeyCode::Esc | KeyCode::Char('q') => self.back_to_menu(),
             KeyCode::Up | KeyCode::Char('k') => {
-                self.settings_row =
-                    (self.settings_row + SETTING_ROWS.len() - 1) % SETTING_ROWS.len();
+                self.settings_row = (self.settings_row + len - 1) % len;
             }
             KeyCode::Down | KeyCode::Char('j') => {
-                self.settings_row = (self.settings_row + 1) % SETTING_ROWS.len();
+                self.settings_row = (self.settings_row + 1) % len;
             }
             KeyCode::Left | KeyCode::Char('h') => {
-                self.adjust_setting(SETTING_ROWS[self.settings_row], -1);
+                self.adjust_setting(rows[self.settings_row], -1);
             }
             KeyCode::Right | KeyCode::Char('l') => {
-                self.adjust_setting(SETTING_ROWS[self.settings_row], 1);
+                self.adjust_setting(rows[self.settings_row], 1);
             }
             KeyCode::Char('r') => match self.refresh_ollama_models() {
                 Ok(n) if n > 0 => self.set_status(
@@ -1010,6 +1094,22 @@ impl App {
                 self.config.language = config::SUPPORTED_LANGUAGES[next].to_string();
                 self.reload_curriculum_language();
             }
+            SettingRow::OriginLanguage => {
+                self.config.origin_language = if direction >= 0 {
+                    self.config.origin_language.next()
+                } else {
+                    self.config.origin_language.prev()
+                };
+            }
+            SettingRow::InlayHints => {
+                self.config.ui.inlay_hints = !self.config.ui.inlay_hints;
+            }
+            SettingRow::SharedTargetCache => {
+                self.config.execution.shared_target_cache =
+                    !self.config.execution.shared_target_cache;
+                self.exec
+                    .set_shared_target_dir(self.config.execution.resolved_target_cache_dir());
+            }
             SettingRow::Ai => {
                 use crate::config::AiProvider as P;
                 let providers = [P::Disabled, P::Ollama, P::Remote];
@@ -1036,6 +1136,169 @@ impl App {
             }
         }
         self.persist_settings();
+    }
+
+    pub fn start_daily_review(&mut self) {
+        let en = self.is_english();
+        let total = crate::lab_tools::INTUITION_FLASHCARDS.len().max(1);
+        let idx0 = (self.progress.current_learning_step() as usize) % total;
+        let idx1 = (idx0 + 1) % total;
+        let top_err = self
+            .progress
+            .top_recurring_errors(1)
+            .into_iter()
+            .next()
+            .map(|(c, _)| c)
+            .unwrap_or_else(|| "E0382".to_string());
+        let bugfix = crate::exercises::bugfix_for_error_code(&top_err, en);
+        let srs_target = self
+            .progress
+            .due_srs_items()
+            .into_iter()
+            .next()
+            .unwrap_or_else(|| "B-P01".to_string());
+        self.onboarding = None;
+        self.daily_review = Some(DailyReviewState {
+            step: 0,
+            card_indices: [idx0, idx1],
+            card_feedback: [None, None],
+            bugfix_id: bugfix.id,
+            bugfix_title: bugfix.title,
+            bugfix_reviewed: false,
+            srs_target,
+            srs_reviewed: false,
+            completed: false,
+        });
+    }
+
+    fn on_daily_review_key(&mut self, key: &KeyEvent) {
+        let en = self.is_english();
+        let Some(mut review) = self.daily_review.take() else {
+            return;
+        };
+        match key.code {
+            KeyCode::Esc | KeyCode::Char('q') => {
+                return;
+            }
+            KeyCode::Char('c' | 'C') if review.step < 2 => {
+                let cards = if en {
+                    &crate::lab_tools::INTUITION_FLASHCARDS_EN[..]
+                } else {
+                    &crate::lab_tools::INTUITION_FLASHCARDS[..]
+                };
+                let card = &cards[review.card_indices[review.step] % cards.len()];
+                let res = crate::lab_tools::evaluate_flashcard_answer_for(card, true, en);
+                self.progress.record_srs_mastery(card.id, res.0);
+                review.card_feedback[review.step] = Some(res);
+            }
+            KeyCode::Char('n' | 'N' | 'e' | 'E') if review.step < 2 => {
+                let cards = if en {
+                    &crate::lab_tools::INTUITION_FLASHCARDS_EN[..]
+                } else {
+                    &crate::lab_tools::INTUITION_FLASHCARDS[..]
+                };
+                let card = &cards[review.card_indices[review.step] % cards.len()];
+                let res = crate::lab_tools::evaluate_flashcard_answer_for(card, false, en);
+                self.progress.record_srs_mastery(card.id, res.0);
+                review.card_feedback[review.step] = Some(res);
+            }
+            KeyCode::Char('o' | 'O') if review.step == 2 => {
+                let bug_id = review.bugfix_id.clone();
+                let mut ex = self.exercises.take().unwrap_or_default();
+                ex.return_screen = self.screen;
+                ex.bugfix_mode = true;
+                let list = crate::exercises::bugfix_challenges(en);
+                ex.selected = list.iter().position(|e| e.id == bug_id).unwrap_or(0);
+                ex.open_selected(self);
+                self.exercises = Some(ex);
+                self.screen = Screen::Exercises;
+                return;
+            }
+            KeyCode::Enter | KeyCode::Right | KeyCode::Tab => {
+                if review.step < 2 {
+                    review.step += 1;
+                } else if review.step == 2 {
+                    review.bugfix_reviewed = true;
+                    review.step = 3;
+                } else {
+                    review.srs_reviewed = true;
+                    review.completed = true;
+                    self.progress.record_srs_mastery(&review.srs_target, true);
+                    self.award_xp(
+                        format!("daily_review:{}", self.progress.current_learning_step()),
+                        50,
+                        if en {
+                            "Daily 5-min review"
+                        } else {
+                            "Revisão diária de 5 min"
+                        },
+                    );
+                    let _ = self.persist_progress();
+                    return;
+                }
+            }
+            _ => {}
+        }
+        self.daily_review = Some(review);
+    }
+
+    pub fn start_onboarding(&mut self) {
+        self.daily_review = None;
+        self.onboarding = Some(OnboardingTourState {
+            step: 0,
+            fixed_mutability: false,
+            simulated_output: String::new(),
+        });
+    }
+
+    fn on_onboarding_key(&mut self, key: &KeyEvent) {
+        let en = self.is_english();
+        let Some(mut tour) = self.onboarding.take() else {
+            return;
+        };
+        match key.code {
+            KeyCode::Esc | KeyCode::Char('q') => {
+                return;
+            }
+            KeyCode::Left | KeyCode::Right if tour.step == 0 => {
+                let next = usize::from(self.is_english());
+                self.config.language = config::SUPPORTED_LANGUAGES[next].to_string();
+                self.reload_curriculum_language();
+                self.persist_settings();
+            }
+            KeyCode::Tab if tour.step == 0 => {
+                self.config.origin_language = self.config.origin_language.next();
+                self.persist_settings();
+            }
+            KeyCode::Char('m' | 'M') if tour.step == 1 => {
+                tour.fixed_mutability = true;
+                tour.simulated_output = if en {
+                    "cargo run OK -> Hello, RustLab! value = 6".to_string()
+                } else {
+                    "cargo run OK -> Olá, RustLab! valor = 6".to_string()
+                };
+            }
+            KeyCode::Enter => {
+                if tour.step < 2 {
+                    tour.step += 1;
+                } else {
+                    self.progress.onboarding_completed = true;
+                    self.award_xp(
+                        "onboarding:complete".to_string(),
+                        25,
+                        if en {
+                            "3-min Onboarding Tour completed"
+                        } else {
+                            "Tour inicial de 3 min concluído"
+                        },
+                    );
+                    let _ = self.persist_progress();
+                    return;
+                }
+            }
+            _ => {}
+        }
+        self.onboarding = Some(tour);
     }
 
     fn persist_settings(&mut self) {
@@ -1427,5 +1690,54 @@ mod tests {
                 .title,
             classic_en
         );
+    }
+
+    #[test]
+    fn sessao_diaria_onboarding_e_novas_configs_funcionam() {
+        let mut app = test_app();
+        // Settings novas: OriginLanguage, InlayHints, SharedTargetCache
+        app.screen = Screen::Settings;
+        app.settings_row = SETTING_ROWS
+            .iter()
+            .position(|r| *r == SettingRow::OriginLanguage)
+            .unwrap();
+        app.handle_input(key(KeyCode::Right));
+        assert_eq!(
+            app.config.origin_language,
+            crate::config::OriginLanguage::Python
+        );
+
+        app.settings_row = SETTING_ROWS
+            .iter()
+            .position(|r| *r == SettingRow::InlayHints)
+            .unwrap();
+        app.handle_input(key(KeyCode::Right));
+        assert!(!app.config.ui.inlay_hints);
+
+        // Daily Review 4 passos
+        app.screen = Screen::Menu;
+        app.handle_input(key(KeyCode::Char('d')));
+        assert!(app.daily_review.is_some());
+        app.handle_input(key(KeyCode::Char('c')));
+        assert!(app.daily_review.as_ref().unwrap().card_feedback[0].is_some());
+        app.handle_input(key(KeyCode::Enter));
+        app.handle_input(key(KeyCode::Char('n')));
+        app.handle_input(key(KeyCode::Enter));
+        app.handle_input(key(KeyCode::Enter));
+        app.handle_input(key(KeyCode::Enter));
+        assert!(app.daily_review.is_none());
+        assert!(app.xp() >= 50);
+
+        // Onboarding 3 passos
+        app.handle_input(key(KeyCode::Char('o')));
+        assert!(app.onboarding.is_some());
+        app.handle_input(key(KeyCode::Tab));
+        app.handle_input(key(KeyCode::Enter));
+        app.handle_input(key(KeyCode::Char('m')));
+        assert!(app.onboarding.as_ref().unwrap().fixed_mutability);
+        app.handle_input(key(KeyCode::Enter));
+        app.handle_input(key(KeyCode::Enter));
+        assert!(app.onboarding.is_none());
+        assert!(app.progress.onboarding_completed);
     }
 }

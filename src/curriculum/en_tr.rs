@@ -2851,6 +2851,116 @@ pub fn translate_practice_spec_to_en(spec: &mut crate::learn::PracticeSpec) {
                 "Level 4 (Study): `let h = (x as i64 * 31 + z as i64 * 17 + seed as i64).rem_euclid(11) as i32; 2 + h`.",
             ];
         }
+        "D01-P02" => {
+            spec.starter = "pub fn classificar_temp(celsius: i32) -> &'static str {\n    let _ = celsius;\n    todo!(\"return 'frio' (< 15), 'ameno' (15..=25), or 'quente' (> 25)\")\n}\n";
+            spec.prompt = "Implement `classificar_temp(celsius: i32) -> &'static str` classifying `< 15` as `'frio'`, `15..=25` as `'ameno'`, and `> 25` as `'quente'` (`F5`).";
+            spec.hints = [
+                "Level 1: Cover the full integer line cleanly with `if/else` or `match`.",
+                "Level 2: Double-check exact boundary values `14`, `15`, `25`, and `26`.",
+                "Level 3: Keep exact Portuguese output strings `'frio'`, `'ameno'`, and `'quente'` checked by tests.",
+                "Level 4: `if celsius < 15 { \"frio\" } else if celsius <= 25 { \"ameno\" } else { \"quente\" }`.",
+            ];
+        }
+        "D02-P01" => {
+            spec.starter = "pub fn fatorial_seguro(n: u64) -> Option<u64> {\n    let _ = n;\n    todo!(\"compute Some(n!) with checked_mul, returning None on u64 overflow\")\n}\n";
+            spec.prompt = "Implement `fatorial_seguro(n: u64) -> Option<u64>` computing factorial without overflow panic via `checked_mul` (`F5`).";
+            spec.hints = [
+                "Level 1: `0!` and `1!` evaluate to `Some(1)`.",
+                "Level 2: Fold `(1..=n)` using `checked_mul` (`try_fold`).",
+                "Level 3: Large inputs like `21` overflow `u64` and must return `None`.",
+                "Level 4: `(1..=n).try_fold(1u64, |acc, x| acc.checked_mul(x))`.",
+            ];
+        }
+        "D02-P02" => {
+            spec.starter = "pub fn tamanho_sem_mover(texto: &str) -> usize {\n    let _ = texto;\n    todo!(\"count Unicode chars (.chars().count()) borrowing &str\")\n}\n";
+            spec.prompt = "Implement `tamanho_sem_mover(texto: &str) -> usize` counting Unicode scalar chars via `.chars().count()` (`F5`).";
+            spec.hints = [
+                "Level 1: `.len()` counts UTF-8 bytes; `.chars().count()` counts Unicode characters.",
+                "Level 2: Accepting `&str` borrows without allocating or moving a `String`.",
+                "Level 3: Empty string `\"\"` must return `0`.",
+                "Level 4: `texto.chars().count()`.",
+            ];
+        }
+        "D03-P02" => {
+            spec.starter = "pub fn normalizar_nome(s: &mut String) {\n    let _ = s;\n    todo!(\"trim outer whitespace in place via &mut String\")\n}\n";
+            spec.prompt = "Implement `normalizar_nome(s: &mut String)` removing leading and trailing whitespace in place (`F5`).";
+            spec.hints = [
+                "Level 1: Compute `let trimmed = s.trim().to_string();` and update `*s = trimmed;`.",
+                "Level 2: In-place mutation via `&mut String` updates the caller's owned string.",
+                "Level 3: Ensure empty or whitespace-only inputs normalize cleanly to empty string.",
+                "Level 4: `*s = s.trim().to_string();`.",
+            ];
+        }
+        "D04-P02" => {
+            spec.starter = "pub fn menor_maior(nums: &[i32]) -> Option<(i32, i32)> {\n    let _ = nums;\n    todo!(\"return Some((min, max)) or None when empty\")\n}\n";
+            spec.prompt = "Implement `menor_maior(nums: &[i32]) -> Option<(i32, i32)>` returning `(min, max)` or `None` on empty slices (`F5`).";
+            spec.hints = [
+                "Level 1: Return `None` immediately when `nums` is empty.",
+                "Level 2: `nums.iter().min()` and `nums.iter().max()` return `Option<&i32>`.",
+                "Level 3: For single-element slice `[7]`, return `Some((7, 7))`.",
+                "Level 4: `Some((*nums.iter().min()?, *nums.iter().max()?))`.",
+            ];
+        }
+        "D05-P02" => {
+            spec.starter = "#[derive(Debug, Clone, Copy, PartialEq, Eq)]\npub struct Ponto2D { pub x: i32, pub y: i32 }\n\nimpl Ponto2D {\n    pub fn manhattan(&self, outro: &Self) -> i32 {\n        let _ = outro;\n        todo!(\"compute |self.x - outro.x| + |self.y - outro.y|\")\n    }\n}\n";
+            spec.prompt = "Implement `Ponto2D::manhattan(&self, outro: &Self) -> i32` computing Manhattan distance (`F5`).";
+            spec.hints = [
+                "Level 1: Manhattan distance sums absolute horizontal and vertical deltas.",
+                "Level 2: `(self.x - outro.x).abs() + (self.y - outro.y).abs()`.",
+                "Level 3: Handles negative coordinates symmetrically.",
+                "Level 4: `(self.x - outro.x).abs() + (self.y - outro.y).abs()`.",
+            ];
+        }
+        "D06-P02" => {
+            spec.starter = "#[derive(Debug, Clone, Copy, PartialEq, Eq)]\npub enum StatusPedido { Aberto, Pago, Cancelado }\n\npub fn pode_enviar(status: StatusPedido) -> bool {\n    let _ = status;\n    todo!(\"return true only for Pago using exhaustive match\")\n}\n";
+            spec.prompt = "Implement `pode_enviar(status: StatusPedido) -> bool` returning `true` only for `StatusPedido::Pago` (`F5`).";
+            spec.hints = [
+                "Level 1: Match explicitly against `Aberto`, `Pago`, and `Cancelado`.",
+                "Level 2: Return `true` only for `StatusPedido::Pago`.",
+                "Level 3: Avoid wildcard `_` so future variants fail exhaustiveness checks.",
+                "Level 4: `matches!(status, StatusPedido::Pago)`.",
+            ];
+        }
+        "D09-P02" => {
+            spec.starter = "pub fn primeira_nao_vazia<'a>(lista: &'a [&'a str]) -> Option<&'a str> {\n    let _ = lista;\n    todo!(\"return first slice that has non-whitespace characters\")\n}\n";
+            spec.prompt = "Implement `primeira_nao_vazia<'a>(lista: &'a [&'a str]) -> Option<&'a str>` returning the first non-blank string (`F5`).";
+            spec.hints = [
+                "Level 1: Iterate `lista.iter().copied()` and filter with `.trim().is_empty()`.",
+                "Level 2: `.find(|s| !s.trim().is_empty())` stops at the first match.",
+                "Level 3: Whitespace-only entries like `\"   \"` must be skipped.",
+                "Level 4: `lista.iter().copied().find(|s| !s.trim().is_empty())`.",
+            ];
+        }
+        "D11-P01" => {
+            spec.starter = "use std::collections::HashMap;\n\npub fn contar_frequencia(palavras: &[&str]) -> HashMap<String, usize> {\n    let _ = palavras;\n    todo!(\"count occurrences using HashMap::entry().or_insert(0)\")\n}\n";
+            spec.prompt = "Implement `contar_frequencia(palavras: &[&str]) -> HashMap<String, usize>` using the `entry` API (`F5`).";
+            spec.hints = [
+                "Level 1: Create `let mut map = HashMap::new();`.",
+                "Level 2: `*map.entry((*p).to_string()).or_insert(0) += 1;`.",
+                "Level 3: Empty slice returns an empty `HashMap`.",
+                "Level 4: `entry().or_insert(0)` avoids hashing twice.",
+            ];
+        }
+        "D12-P01" => {
+            spec.starter = "pub fn parse_porta(raw: &str) -> Result<u16, String> {\n    let _ = raw;\n    todo!(\"parse u16 and reject port 0 by returning Err\")\n}\n";
+            spec.prompt = "Implement `parse_porta(raw: &str) -> Result<u16, String>` rejecting `0` and non-numeric strings (`F5`).";
+            spec.hints = [
+                "Level 1: Parse trimmed text with `raw.trim().parse::<u16>().map_err(|e| format!(\"{e}\"))?`.",
+                "Level 2: Check `if port == 0 { return Err(...); }` afterward.",
+                "Level 3: Out-of-range numbers such as `\"70000\"` must return `Err`.",
+                "Level 4: Return `Ok(port)` when `port > 0`.",
+            ];
+        }
+        "F01-P02" | "F02-P01" | "F03-P01" | "F04-P02" | "F05-P01" | "F06-P01" => {
+            spec.starter = "pub fn somar_pares_ate(nums: &[i32], limite: i32) -> i32 {\n    let _ = (nums, limite);\n    todo!(\"filter even numbers <= limite and sum using iterators\")\n}\n";
+            spec.prompt = "Implement `somar_pares_ate(nums: &[i32], limite: i32) -> i32` summing even numbers `<= limite` (`F5`).";
+            spec.hints = [
+                "Level 1: Chain `.iter().copied()`, `.filter(...)`, and `.sum()`.",
+                "Level 2: Check `n % 2 == 0 && n <= limite` inside `.filter`.",
+                "Level 3: Negative even integers also satisfy `n % 2 == 0`.",
+                "Level 4: `nums.iter().copied().filter(|&n| n % 2 == 0 && n <= limite).sum()`.",
+            ];
+        }
         _ => {}
     }
 }

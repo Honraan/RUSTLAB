@@ -36,6 +36,10 @@ pub struct ProgressData {
     pub project_milestones: BTreeSet<String>,
     /// Cartões de maestria e revisão espaçada (V3).
     pub srs_cards: BTreeMap<String, SrsCard>,
+    /// Frequência de códigos de erro do compilador (ex.: E0382 -> 3) para foco pedagógico.
+    pub error_counts: BTreeMap<String, u32>,
+    /// Se o tour de onboarding inicial foi concluído.
+    pub onboarding_completed: bool,
 }
 
 impl ProgressData {
@@ -301,6 +305,27 @@ mod tests {
         let (loaded, warning) = load_from(&path);
         assert!(warning.is_none());
         assert_eq!(loaded.srs_cards, data.srs_cards);
+        std::fs::remove_dir_all(dir).ok();
+    }
+
+    #[test]
+    fn error_counts_e_onboarding_persistem_com_compatibilidade() {
+        let dir = dir("errors-onboarding");
+        let path = dir.join("progresso.toml");
+
+        std::fs::write(&path, "version = 1\n").unwrap();
+        let (mut data, warning) = load_from(&path);
+        assert!(warning.is_none());
+        assert!(data.error_counts.is_empty());
+        assert!(!data.onboarding_completed);
+
+        data.error_counts.insert("E0382".into(), 4);
+        data.onboarding_completed = true;
+        save_to(&data, &path).unwrap();
+        let (loaded, warning) = load_from(&path);
+        assert!(warning.is_none());
+        assert_eq!(loaded.error_counts.get("E0382").copied(), Some(4));
+        assert!(loaded.onboarding_completed);
         std::fs::remove_dir_all(dir).ok();
     }
 }

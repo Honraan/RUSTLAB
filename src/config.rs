@@ -95,18 +95,199 @@ impl ThemeId {
 
 #[derive(Debug, Default, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "kebab-case")]
+pub enum OriginLanguage {
+    #[default]
+    None,
+    Python,
+    JavaScriptTs,
+    CCpp,
+    Go,
+    JavaCSharp,
+}
+
+impl OriginLanguage {
+    pub const ALL: [OriginLanguage; 6] = [
+        OriginLanguage::None,
+        OriginLanguage::Python,
+        OriginLanguage::JavaScriptTs,
+        OriginLanguage::CCpp,
+        OriginLanguage::Go,
+        OriginLanguage::JavaCSharp,
+    ];
+
+    pub fn next(self) -> Self {
+        let idx = Self::ALL.iter().position(|&l| l == self).unwrap_or(0);
+        Self::ALL[(idx + 1) % Self::ALL.len()]
+    }
+
+    pub fn prev(self) -> Self {
+        let idx = Self::ALL.iter().position(|&l| l == self).unwrap_or(0);
+        Self::ALL[(idx + Self::ALL.len() - 1) % Self::ALL.len()]
+    }
+
+    pub const fn label_for(self, english: bool) -> &'static str {
+        match (self, english) {
+            (OriginLanguage::None, true) => "None (fresh start)",
+            (OriginLanguage::None, false) => "Nenhuma (começando do zero)",
+            (OriginLanguage::Python, _) => "Python",
+            (OriginLanguage::JavaScriptTs, _) => "JavaScript / TypeScript",
+            (OriginLanguage::CCpp, _) => "C / C++",
+            (OriginLanguage::Go, _) => "Go",
+            (OriginLanguage::JavaCSharp, _) => "Java / C#",
+        }
+    }
+
+    pub fn polyglot_callout_for(self, topic_hint: &str, english: bool) -> Option<String> {
+        if self == OriginLanguage::None {
+            return None;
+        }
+        let topic = topic_hint.to_ascii_lowercase();
+        let ownership = topic.contains("ownership")
+            || topic.contains("move")
+            || topic.contains("borrow")
+            || topic.contains("referenc")
+            || topic.contains("lifetime")
+            || topic.contains("b-t")
+            || topic.contains("m0");
+        let errors = topic.contains("option")
+            || topic.contains("result")
+            || topic.contains("erro")
+            || topic.contains("interrogacao");
+        let traits = topic.contains("trait")
+            || topic.contains("generic")
+            || topic.contains("struct")
+            || topic.contains("enum");
+        let async_conc =
+            topic.contains("thread") || topic.contains("async") || topic.contains("concorr");
+
+        let msg = match (self, ownership, errors, traits, async_conc, english) {
+            (OriginLanguage::Python, true, _, _, _, true) => {
+                "From Python: `a = b` does NOT alias a garbage-collected object for heap types like `String` or `Vec` — it moves ownership unless you borrow (`&b`) or explicitly `.clone()`."
+            }
+            (OriginLanguage::Python, true, _, _, _, false) => {
+                "Para quem vem de Python: `a = b` NÃO cria apelido para o mesmo objeto com GC em tipos heap (`String`, `Vec`) — ele move a posse, salvo se você emprestar (`&b`) ou chamar `.clone()`."
+            }
+            (OriginLanguage::Python, _, true, _, _, true) => {
+                "From Python: instead of `try/except` exceptions and `None` runtime errors, Rust encodes absence (`Option<T>`) and recoverable failures (`Result<T, E>`) right in return types."
+            }
+            (OriginLanguage::Python, _, true, _, _, false) => {
+                "Para quem vem de Python: em vez de exceções `try/except` e `None` surpresa em runtime, Rust coloca ausência (`Option<T>`) e falhas (`Result<T, E>`) direto no tipo de retorno."
+            }
+            (OriginLanguage::JavaScriptTs, true, _, _, _, true) => {
+                "From JS/TS: `const` only stops variable rebinding (objects still mutate); in Rust, `let` is deeply immutable until you opt into `mut` or `&mut`, with no GC needed."
+            }
+            (OriginLanguage::JavaScriptTs, true, _, _, _, false) => {
+                "Para quem vem de JS/TS: `const` lá só trava reatribuição da variável; em Rust, `let` protege os dados contra mutação até você optar por `mut`/`&mut`, sem depender de Garbage Collector."
+            }
+            (OriginLanguage::JavaScriptTs, _, true, _, _, true) => {
+                "From JS/TS: avoid `undefined`/`null` checks or `throw`; combine `Option`/`Result` with `match` and `?` so missing cases fail at compile time."
+            }
+            (OriginLanguage::JavaScriptTs, _, true, _, _, false) => {
+                "Para quem vem de JS/TS: em vez de `null`/`undefined` e `throw`, use `Option`/`Result` com `match` e `?` para garantir tratamento ainda na compilação."
+            }
+            (OriginLanguage::CCpp, true, _, _, _, true) => {
+                "From C/C++: Rust gives you RAII + `std::unique_ptr`-like move semantics by default (`Box`, `String`, `Vec`), and makes `&T` / `&mut T` aliasing rules compile-time checked!"
+            }
+            (OriginLanguage::CCpp, true, _, _, _, false) => {
+                "Para quem vem de C/C++: Rust adota RAII e semântica de move por padrão (estilo `unique_ptr`), e o compilador verifica regras de aliasing (`&T` vs `&mut T`) antes de gerar binário!"
+            }
+            (OriginLanguage::CCpp, _, _, _, true, true) => {
+                "From C/C++: `Send` and `Sync` traits turn data races into compile errors instead of undefined behavior in multithreaded code."
+            }
+            (OriginLanguage::CCpp, _, _, _, true, false) => {
+                "Para quem vem de C/C++: os traits `Send` e `Sync` transformam data races em erro de compilação em vez de comportamento indefinido em threads."
+            }
+            (OriginLanguage::Go, _, true, _, _, true) => {
+                "From Go: instead of ignoring `(val, err)` tuples or `if err != nil` boilerplate, Rust wraps both in `Result<T, E>` and gives you `?` plus exhaustive `match`."
+            }
+            (OriginLanguage::Go, _, true, _, _, false) => {
+                "Para quem vem de Go: em vez de tuplas `(val, err)` e `if err != nil`, Rust unifica tudo em `Result<T, E>` com o operador `?` e `match` exaustivo."
+            }
+            (OriginLanguage::Go, _, _, true, _, true) => {
+                "From Go: `trait` is explicit (unlike Go structural interfaces), giving you zero-cost static dispatch with generics `<T: Trait>` or `dyn Trait` when needed."
+            }
+            (OriginLanguage::Go, _, _, true, _, false) => {
+                "Para quem vem de Go: `trait` é implementado explicitamente (diferente de interfaces implícitas de Go), permitindo despacho estático zero-cost com `<T: Trait>`."
+            }
+            (OriginLanguage::JavaCSharp, _, _, true, _, true) => {
+                "From Java/C#: prefer composition with `struct` + `enum` + `trait` instead of class inheritance hierarchies; data (`struct`) stays separate from behavior (`impl`/`trait`)."
+            }
+            (OriginLanguage::JavaCSharp, _, _, true, _, false) => {
+                "Para quem vem de Java/C#: prefira composição com `struct` + `enum` + `trait` em vez de herança de classes; dados (`struct`) ficam separados de comportamento (`impl`/`trait`)."
+            }
+            (OriginLanguage::JavaCSharp, _, true, _, _, true) => {
+                "From Java/C#: there is no `NullPointerException` — use `Option<T>` when a value may be absent and `Result<T, E>` for checked errors without heavy stack unwinding."
+            }
+            (OriginLanguage::JavaCSharp, _, true, _, _, false) => {
+                "Para quem vem de Java/C#: não existe `NullPointerException` — use `Option<T>` para ausência explícita e `Result<T, E>` para erros tratados sem custo de exceções."
+            }
+            (OriginLanguage::Python, _, _, _, _, true) => {
+                "Tip for Python devs: Rust compiles to native machine code; explicit types let `rustc` catch mismatches early and run loops at C speed."
+            }
+            (OriginLanguage::Python, _, _, _, _, false) => {
+                "Dica para quem vem de Python: Rust compila para código nativo; tipos explícitos permitem ao `rustc` pegar incompatibilidades cedo e rodar loops em velocidade de C."
+            }
+            (OriginLanguage::JavaScriptTs, _, _, _, _, true) => {
+                "Tip for JS/TS devs: think of `match` + `enum` as TypeScript discriminated unions enforced everywhere at compile time."
+            }
+            (OriginLanguage::JavaScriptTs, _, _, _, _, false) => {
+                "Dica para quem vem de JS/TS: pense em `enum` + `match` como uniões discriminadas do TypeScript verificadas exaustivamente na compilação."
+            }
+            (OriginLanguage::CCpp, _, _, _, _, true) => {
+                "Tip for C/C++ devs: same zero-cost abstractions and deterministic Drop, without manual `free`/`delete` or dangling pointer UB in safe Rust."
+            }
+            (OriginLanguage::CCpp, _, _, _, _, false) => {
+                "Dica para quem vem de C/C++: mesmas abstrações zero-cost e Drop determinístico, mas sem `free`/`delete` manual ou ponteiros soltos em Rust seguro."
+            }
+            (OriginLanguage::Go, _, _, _, _, true) => {
+                "Tip for Go devs: Rust trades the garbage collector for deterministic ownership lifetimes, giving predictable latency with fearless concurrency."
+            }
+            (OriginLanguage::Go, _, _, _, _, false) => {
+                "Dica para quem vem de Go: Rust troca o Garbage Collector por ownership determinístico, entregando latência previsível e concorrência sem data races."
+            }
+            (OriginLanguage::JavaCSharp, _, _, _, _, true) => {
+                "Tip for Java/C# devs: `Result` + `Option` + `trait` replace null references, checked exceptions, and deep OOP hierarchies with lean value semantics."
+            }
+            (OriginLanguage::JavaCSharp, _, _, _, _, false) => {
+                "Dica para quem vem de Java/C#: `Result`, `Option` e `trait` substituem referências nulas, exceções e hierarquias OOP pesadas por semântica de valor enxuta."
+            }
+            (OriginLanguage::None, _, _, _, _, _) => return None,
+        };
+        Some(msg.to_string())
+    }
+}
+
+fn default_true() -> bool {
+    true
+}
+
+#[derive(Debug, Default, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "kebab-case")]
 pub enum GamificationVisibility {
     #[default]
     Visible,
     Hidden,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "kebab-case", default)]
 pub struct UiSettings {
     pub theme: ThemeId,
     pub animations: MotionMode,
     pub gamification: GamificationVisibility,
+    #[serde(default = "default_true")]
+    pub inlay_hints: bool,
+}
+
+impl Default for UiSettings {
+    fn default() -> Self {
+        Self {
+            theme: ThemeId::default(),
+            animations: MotionMode::default(),
+            gamification: GamificationVisibility::default(),
+            inlay_hints: true,
+        }
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -174,10 +355,54 @@ pub enum ExecConsent {
     Granted,
 }
 
-#[derive(Debug, Default, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "kebab-case", default)]
 pub struct ExecSettings {
     pub consent: ExecConsent,
+    #[serde(default = "default_true")]
+    pub shared_target_cache: bool,
+    #[serde(default)]
+    pub target_cache_dir: Option<String>,
+}
+
+impl Default for ExecSettings {
+    fn default() -> Self {
+        Self {
+            consent: ExecConsent::default(),
+            shared_target_cache: true,
+            target_cache_dir: None,
+        }
+    }
+}
+
+impl ExecSettings {
+    pub fn resolved_target_cache_dir(&self) -> Option<PathBuf> {
+        if !self.shared_target_cache {
+            return None;
+        }
+        if let Some(custom) = self
+            .target_cache_dir
+            .as_deref()
+            .filter(|s| !s.trim().is_empty())
+        {
+            return Some(PathBuf::from(custom));
+        }
+        if let Some(cache_home) = std::env::var_os("XDG_CACHE_HOME") {
+            let p = PathBuf::from(cache_home);
+            if p.is_absolute() {
+                return Some(p.join("rustlab").join("target-cache"));
+            }
+        }
+        if let Some(home) = std::env::var_os("HOME") {
+            return Some(
+                PathBuf::from(home)
+                    .join(".cache")
+                    .join("rustlab")
+                    .join("target-cache"),
+            );
+        }
+        Some(std::env::temp_dir().join("rustlab-target-cache"))
+    }
 }
 
 #[derive(Debug, Default, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -211,6 +436,8 @@ pub fn default_language() -> String {
 pub struct Config {
     #[serde(default = "default_language")]
     pub language: String,
+    #[serde(default)]
+    pub origin_language: OriginLanguage,
     pub ui: UiSettings,
     pub sound: SoundSettings,
     pub ai: AiSettings,
@@ -222,6 +449,7 @@ impl Default for Config {
     fn default() -> Self {
         Self {
             language: default_language(),
+            origin_language: OriginLanguage::default(),
             ui: UiSettings::default(),
             sound: SoundSettings::default(),
             ai: AiSettings::default(),
@@ -376,10 +604,12 @@ mod tests {
     fn roundtrip_toml() {
         let cfg = Config {
             language: "pt-BR".into(),
+            origin_language: OriginLanguage::Python,
             ui: UiSettings {
                 theme: ThemeId::Ferrugem,
                 animations: MotionMode::Reduced,
                 gamification: GamificationVisibility::Hidden,
+                inlay_hints: true,
             },
             sound: SoundSettings {
                 enabled: false,
@@ -392,6 +622,41 @@ mod tests {
         let text = toml::to_string_pretty(&cfg).unwrap();
         let back: Config = toml::from_str(&text).unwrap();
         assert_eq!(cfg, back);
+    }
+
+    #[test]
+    fn linguagem_de_origem_e_cache_compartilhado_funcionam() {
+        assert_eq!(OriginLanguage::ALL.len(), 6);
+        assert_eq!(OriginLanguage::None.next(), OriginLanguage::Python);
+        assert_eq!(OriginLanguage::None.prev(), OriginLanguage::JavaCSharp);
+        assert!(
+            OriginLanguage::None
+                .polyglot_callout_for("ownership", true)
+                .is_none()
+        );
+        let py_en = OriginLanguage::Python
+            .polyglot_callout_for("ownership-move", true)
+            .unwrap();
+        let py_pt = OriginLanguage::Python
+            .polyglot_callout_for("ownership-move", false)
+            .unwrap();
+        assert!(py_en.contains("Python"));
+        assert!(py_pt.contains("Python"));
+        assert_ne!(py_en, py_pt);
+
+        let mut exec = ExecSettings::default();
+        assert!(exec.shared_target_cache);
+        assert!(exec.resolved_target_cache_dir().is_some());
+        exec.shared_target_cache = false;
+        assert!(exec.resolved_target_cache_dir().is_none());
+        exec.shared_target_cache = true;
+        exec.target_cache_dir = Some("/tmp/custom-rustlab-cache".into());
+        assert_eq!(
+            exec.resolved_target_cache_dir().unwrap(),
+            PathBuf::from("/tmp/custom-rustlab-cache")
+        );
+
+        assert!(UiSettings::default().inlay_hints);
     }
 
     #[test]

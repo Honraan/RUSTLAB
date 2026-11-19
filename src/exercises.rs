@@ -42,6 +42,8 @@ pub struct ExerciseSession {
     pub outcome: ExerciseOutcome,
     pub pending_dir: Option<PathBuf>,
     pub ai_used: bool,
+    pub clippy_tips: Vec<String>,
+    pub show_idiomatic: bool,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -57,6 +59,7 @@ pub struct ExerciseState {
     pub return_screen: Screen,
     pub session: Option<ExerciseSession>,
     pub consent_pending: bool,
+    pub bugfix_mode: bool,
     /// Respostas preservadas ao alternar desafios durante esta sessão.
     pub drafts: std::collections::HashMap<String, ExerciseSession>,
 }
@@ -69,18 +72,36 @@ impl Default for ExerciseState {
             return_screen: Screen::Browser,
             session: None,
             consent_pending: false,
+            bugfix_mode: false,
             drafts: Default::default(),
         }
     }
 }
 
 impl ExerciseState {
+    pub fn active_exercises(&self, app: &App) -> Vec<Exercise> {
+        if self.bugfix_mode {
+            bugfix_challenges(app.is_english())
+        } else {
+            app.curriculum
+                .as_ref()
+                .map(|c| c.exercises().cloned().collect())
+                .unwrap_or_default()
+        }
+    }
+
+    pub fn resolve_exercise(&self, app: &App, id: &str) -> Option<Exercise> {
+        if let Some(ex) = app.curriculum.as_ref().and_then(|c| c.exercise(id)) {
+            return Some(ex.clone());
+        }
+        bugfix_challenges(app.is_english())
+            .into_iter()
+            .find(|ex| ex.id == id)
+    }
+
     pub fn open_selected(&mut self, app: &App) {
-        let Some(ex) = app
-            .curriculum
-            .as_ref()
-            .and_then(|c| c.exercises().nth(self.selected))
-        else {
+        let list = self.active_exercises(app);
+        let Some(ex) = list.get(self.selected) else {
             return;
         };
         if self
@@ -118,6 +139,8 @@ impl ExerciseState {
                 outcome: ExerciseOutcome::NotRun,
                 pending_dir: None,
                 ai_used: false,
+                clippy_tips: Vec::new(),
+                show_idiomatic: false,
             }
         }));
         self.view = ExerciseView::Work;
@@ -162,12 +185,21 @@ impl ExerciseState {
                 KeyCode::Esc | KeyCode::Char('q') => app.screen = self.return_screen,
                 KeyCode::Up | KeyCode::Char('k') => self.selected = self.selected.saturating_sub(1),
                 KeyCode::Down | KeyCode::Char('j') => {
-                    let n = app
-                        .curriculum
-                        .as_ref()
-                        .map(|c| c.exercises().count())
-                        .unwrap_or(0);
+                    let n = self.active_exercises(app).len();
                     self.selected = (self.selected + 1).min(n.saturating_sub(1));
+                }
+                KeyCode::Char('b') | KeyCode::Char('B') => {
+                    self.bugfix_mode = !self.bugfix_mode;
+                    self.selected = 0;
+                    app.set_status(
+                        match (self.bugfix_mode, en) {
+                            (true, true) => "Mode: Fix the Bug micro-challenges (2 min)",
+                            (true, false) => "Modo: Micro-desafios Conserte o Bug (2 min)",
+                            (false, true) => "Mode: Classic exercises",
+                            (false, false) => "Modo: Exercícios clássicos",
+                        },
+                        StatusKind::Info,
+                    );
                 }
                 KeyCode::Enter => self.open_selected(app),
                 _ => {}
@@ -179,19 +211,37 @@ impl ExerciseState {
     fn work_key(&mut self, app: &mut App, key: KeyEvent) {
         let ctrl = key.modifiers.contains(KeyModifiers::CONTROL);
         let shift = key.modifiers.contains(KeyModifiers::SHIFT);
-        if key.code == KeyCode::Esc
-            && self
+        let alt = key.modifiers.contains(KeyModifiers::ALT);
+        let en = app.is_english();
+        if key.code == KeyCode::Esc {
+            if self.session.as_ref().is_some_and(|s| s.show_idiomatic) {
+                if let Some(s) = self.session.as_mut() {
+                    s.show_idiomatic = false;
+                }
+                return;
+            }
+            if self
                 .session
                 .as_ref()
                 .is_some_and(|s| s.outcome != ExerciseOutcome::Running)
-        {
-            if self.save_answers(app).is_err() {
+            {
+                if self.save_answers(app).is_err() {
+                    return;
+                }
+                self.view = ExerciseView::List;
                 return;
             }
-            self.view = ExerciseView::List;
-            return;
         }
         match key.code {
+            KeyCode::F(6) => {
+                self.toggle_idiomatic_modal(app);
+            }
+            KeyCode::Char('i') if alt => {
+                self.toggle_idiomatic_modal(app);
+            }
+            KeyCode::Char('e') if alt => {
+                self.diagnose_current_error_with_mentor(app);
+            }
             KeyCode::PageUp => {
                 if let Some(s) = self.session.as_mut() {
                     s.output_scroll = s
@@ -251,7 +301,7 @@ impl ExerciseState {
             KeyCode::Char('s') if ctrl => {
                 if self.save_answers(app).is_ok() {
                     app.set_status(
-                        if app.is_english() {
+                        if en {
                             "answers saved to disk"
                         } else {
                             "respostas salvas em disco"
@@ -260,7 +310,7 @@ impl ExerciseState {
                     );
                 }
             }
-            KeyCode::Char(c) if !ctrl => self.with_editor(|e| e.insert_char(c)),
+            KeyCode::Char(c) if !ctrl && !alt => self.with_editor(|e| e.insert_char(c)),
             KeyCode::Enter => self.with_editor(Editor::newline),
             KeyCode::Backspace => self.with_editor(Editor::backspace),
             KeyCode::Delete => self.with_editor(Editor::delete),
@@ -288,6 +338,59 @@ impl ExerciseState {
         }
     }
 
+    fn toggle_idiomatic_modal(&mut self, app: &mut App) {
+        let en = app.is_english();
+        let Some(s) = self.session.as_mut() else {
+            return;
+        };
+        if s.outcome != ExerciseOutcome::Passed {
+            app.set_status(
+                if en {
+                    "Complete and pass all tests (F5) first to unlock idiomatic comparison."
+                } else {
+                    "Passe em todos os testes (F5) primeiro para liberar a comparação idiomática."
+                },
+                StatusKind::Warning,
+            );
+            return;
+        }
+        s.show_idiomatic = !s.show_idiomatic;
+    }
+
+    pub fn diagnose_current_error_with_mentor(&mut self, app: &mut App) {
+        let en = app.is_english();
+        let Some(ex) = self.exercise(app) else {
+            return;
+        };
+        let Some(s) = self.session.as_mut() else {
+            return;
+        };
+        s.ai_used = true;
+        let output = s.output.join("\n");
+        let ctx = crate::mentor::MentorContext {
+            origin: format!(
+                "{}: {}",
+                if en { "Exercise" } else { "Exercício" },
+                ex.title
+            ),
+            topic_title: Some(ex.title),
+            summary: ex.statement,
+            code: s.editor.buf.to_string_lossy(),
+            errors: output.clone(),
+            console: output,
+            origin_language: app.config.origin_language,
+            recurring_errors: app.progress.top_recurring_errors(3),
+        };
+        let mut mentor = crate::mentor::MentorState::open_for(Screen::Exercises, ctx, en);
+        mentor.dispatch(
+            app,
+            crate::mentor::MentorAction::ExplainCompilerError,
+            String::new(),
+        );
+        app.mentor = Some(mentor);
+        app.screen = Screen::Mentor;
+    }
+
     fn with_editor(&mut self, f: impl FnOnce(&mut Editor)) {
         if let Some(s) = self.session.as_mut() {
             if s.outcome == ExerciseOutcome::Running {
@@ -300,6 +403,8 @@ impl ExerciseState {
                 s.output.clear();
                 s.output_scroll = 0;
                 s.compile_error_seen = false;
+                s.clippy_tips.clear();
+                s.show_idiomatic = false;
             }
         }
     }
@@ -341,10 +446,13 @@ impl ExerciseState {
 
     fn reveal_hint(&mut self, app: &mut App) {
         let en = app.is_english();
-        let Some(s) = self.session.as_mut() else {
+        let Some(id) = self.session.as_ref().map(|s| s.id.clone()) else {
             return;
         };
-        let Some(ex) = app.curriculum.as_ref().and_then(|c| c.exercise(&s.id)) else {
+        let Some(ex) = self.resolve_exercise(app, &id) else {
+            return;
+        };
+        let Some(s) = self.session.as_mut() else {
             return;
         };
         if s.shown_hints >= ex.hints.len() {
@@ -392,14 +500,13 @@ impl ExerciseState {
         if self.save_answers(app).is_err() {
             return;
         }
-        let Some(session) = self.session.as_mut() else {
+        let Some(id) = self.session.as_ref().map(|s| s.id.clone()) else {
             return;
         };
-        let Some(ex) = app
-            .curriculum
-            .as_ref()
-            .and_then(|c| c.exercise(&session.id))
-        else {
+        let Some(ex) = self.resolve_exercise(app, &id) else {
+            return;
+        };
+        let Some(session) = self.session.as_mut() else {
             return;
         };
         let dir = match fresh_temp_dir(&ex.id) {
@@ -417,7 +524,7 @@ impl ExerciseState {
                 return;
             }
         };
-        if let Err(e) = prepare_fixture(&dir, ex, &session.editor.buf.to_string_lossy()) {
+        if let Err(e) = prepare_fixture(&dir, &ex, &session.editor.buf.to_string_lossy()) {
             let _ = std::fs::remove_dir_all(&dir);
             let reason = if en {
                 format!("could not prepare tests: {e}")
@@ -521,6 +628,22 @@ impl ExerciseState {
                         &session.id,
                         session.shown_hints == 0 && !session.ai_used,
                     );
+                    let student_code = session.editor.buf.to_string_lossy();
+                    let clippy = pedagogical_clippy_for(&student_code, en);
+                    session.clippy_tips = clippy.clone();
+                    for tip in clippy {
+                        session.push_output(format!("Clippy: {tip}"));
+                    }
+                    if idiomatic_solution_for(&session.id, en).is_some() {
+                        session.push_output(
+                            if en {
+                                "Unlocked: press F6 or Alt+I to compare with an idiomatic Rust solution."
+                            } else {
+                                "Liberado: aperte F6 ou Alt+I para comparar com uma solução idiomática."
+                            }
+                            .into(),
+                        );
+                    }
                     if let Err(e) = app.persist_progress() {
                         app.set_status(
                             if en {
@@ -541,18 +664,21 @@ impl ExerciseState {
                         );
                     }
                 } else {
-                    if compile_failed
-                        && let Some(help) =
-                            crate::learn::explain_compiler_error_for(&session.output.join("\n"), en)
-                    {
-                        session.push_output(format!(
-                            "{}: {help}",
-                            if en {
-                                "Ferris explains"
-                            } else {
-                                "Explicação do Ferris"
-                            }
-                        ));
+                    if compile_failed {
+                        let full_out = session.output.join("\n");
+                        let _ = app.progress.record_compiler_errors(&full_out);
+                        let _ = app.persist_progress();
+                        if let Some(help) = crate::learn::explain_compiler_error_for(&full_out, en)
+                        {
+                            session.push_output(format!(
+                                "{}: {help}",
+                                if en {
+                                    "Ferris explains"
+                                } else {
+                                    "Explicação do Ferris"
+                                }
+                            ));
+                        }
                     }
                     let message = match (compile_failed, en) {
                         (true, true) => "code did not compile; see diagnostics",
@@ -625,10 +751,484 @@ impl ExerciseState {
         }
     }
 
-    pub fn exercise<'a>(&self, app: &'a App) -> Option<&'a Exercise> {
+    pub fn exercise(&self, app: &App) -> Option<Exercise> {
         let id = &self.session.as_ref()?.id;
-        app.curriculum.as_ref()?.exercise(id)
+        self.resolve_exercise(app, id)
     }
+}
+
+pub fn bugfix_for_error_code(code: &str, english: bool) -> Exercise {
+    let all = bugfix_challenges(english);
+    let idx = match code.trim() {
+        "E0384" => 0,
+        "E0382" => 1,
+        "E0502" => 2,
+        "E0106" | "E0597" => 3,
+        "E0004" => 4,
+        "E0308" => 5,
+        "E0599" | "E0277" => 6,
+        _ => 7,
+    };
+    all.into_iter().nth(idx).unwrap()
+}
+
+pub fn bugfix_challenges(english: bool) -> Vec<Exercise> {
+    vec![
+        Exercise {
+            id: "bugfix-mutability".to_string(),
+            order: 1001,
+            lesson_ids: vec!["mutabilidade".to_string()],
+            title: if english {
+                "[Bugfix E0384] Accumulator cannot mutate"
+            } else {
+                "[Bugfix E0384] Acumulador não consegue mutar"
+            }
+            .to_string(),
+            statement: if english {
+                "Fix the compiler error E0384 in `sum_until` so `total` can be updated inside the `for` loop."
+            } else {
+                "Corrija o erro de compilação E0384 em `sum_until` para que `total` possa ser atualizado no laço `for`."
+            }
+            .to_string(),
+            skeleton: "pub fn sum_until(n: i32) -> i32 {\n    let total = 0;\n    for i in 1..=n {\n        total += i;\n    }\n    total\n}\n".to_string(),
+            tests: "use super::sum_until;\n#[test]\nfn check_sum() {\n    assert_eq!(sum_until(4), 10);\n    assert_eq!(sum_until(0), 0);\n}\n".to_string(),
+            hints: if english {
+                vec![
+                    "Read the E0384 diagnostic: variables in Rust are immutable by default.".into(),
+                    "Add `mut` to the `let total = 0;` binding.".into(),
+                ]
+            } else {
+                vec![
+                    "Leia o diagnóstico E0384: variáveis em Rust são imutáveis por padrão.".into(),
+                    "Adicione `mut` na declaração `let total = 0;`.".into(),
+                ]
+            },
+        },
+        Exercise {
+            id: "bugfix-move-clone".to_string(),
+            order: 1002,
+            lesson_ids: vec!["ownership-na-pratica".to_string()],
+            title: if english {
+                "[Bugfix E0382] String moved before second use"
+            } else {
+                "[Bugfix E0382] String movida antes do segundo uso"
+            }
+            .to_string(),
+            statement: if english {
+                "Fix the move error E0382 without changing the `label_pair` public signature."
+            } else {
+                "Corrija o erro de move E0382 sem alterar a assinatura pública de `label_pair`."
+            }
+            .to_string(),
+            skeleton: "fn measure(s: String) -> usize {\n    s.len()\n}\n\npub fn label_pair(name: String) -> (usize, String) {\n    let len = measure(name);\n    let tag = format!(\"{name}:{len}\");\n    (len, tag)\n}\n".to_string(),
+            tests: "use super::label_pair;\n#[test]\nfn check_pair() {\n    assert_eq!(label_pair(\"rust\".to_string()), (4, \"rust:4\".to_string()));\n}\n".to_string(),
+            hints: if english {
+                vec![
+                    "`measure` takes `String` by value and drops it, so `name` is moved.".into(),
+                    "Change `measure(s: &str)` and call `measure(&name)` (or clone carefully).".into(),
+                ]
+            } else {
+                vec![
+                    "`measure` recebe `String` por valor e move `name`.".into(),
+                    "Mude o helper privado para `measure(s: &str)` e chame `measure(&name)`.".into(),
+                ]
+            },
+        },
+        Exercise {
+            id: "bugfix-borrow-conflict".to_string(),
+            order: 1003,
+            lesson_ids: vec!["borrowing-e-referencias".to_string()],
+            title: if english {
+                "[Bugfix E0502] Mutable & immutable borrow overlap"
+            } else {
+                "[Bugfix E0502] Borrow mutável e imutável ao mesmo tempo"
+            }
+            .to_string(),
+            statement: if english {
+                "Reorder or extract the read of `items[0]` so `items.push(extra)` does not conflict with the active shared reference."
+            } else {
+                "Reordene ou copie o valor de `items[0]` para que `items.push(extra)` não conflite com a referência compartilhada ativa."
+            }
+            .to_string(),
+            skeleton: "pub fn append_first(items: &mut Vec<i32>, extra: i32) -> i32 {\n    let first = &items[0];\n    items.push(extra);\n    *first + extra\n}\n".to_string(),
+            tests: "use super::append_first;\n#[test]\nfn check_append_first() {\n    let mut v = vec![10, 20];\n    assert_eq!(append_first(&mut v, 5), 15);\n    assert_eq!(v, vec![10, 20, 5]);\n}\n".to_string(),
+            hints: if english {
+                vec![
+                    "Copying `i32` (`let first = items[0];`) avoids holding `&items[0]` across `items.push`.".into(),
+                    "Use `let first = items[0];` and return `first + extra`.".into(),
+                ]
+            } else {
+                vec![
+                    "Como `i32` é `Copy`, `let first = items[0];` evita segurar `&items[0]` durante `items.push`.".into(),
+                    "Use `let first = items[0];` e retorne `first + extra`.".into(),
+                ]
+            },
+        },
+        Exercise {
+            id: "bugfix-lifetime-ret".to_string(),
+            order: 1004,
+            lesson_ids: vec!["tempo-de-vida-introducao".to_string()],
+            title: if english {
+                "[Bugfix E0106] Missing lifetime annotation `'a`"
+            } else {
+                "[Bugfix E0106] Lifetime `'a` faltando no retorno"
+            }
+            .to_string(),
+            statement: if english {
+                "Add a shared lifetime parameter `'a` so `longest_str` tells `rustc` how long the returned `&str` lives."
+            } else {
+                "Adicione o parâmetro de lifetime `'a` em `longest_str` para informar ao `rustc` quanto tempo a fatia retornada vive."
+            }
+            .to_string(),
+            skeleton: "pub fn longest_str(a: &str, b: &str) -> &str {\n    if a.len() >= b.len() { a } else { b }\n}\n".to_string(),
+            tests: "use super::longest_str;\n#[test]\nfn check_longest() {\n    assert_eq!(longest_str(\"rust\", \"go\"), \"rust\");\n    assert_eq!(longest_str(\"hi\", \"cargo\"), \"cargo\");\n}\n".to_string(),
+            hints: if english {
+                vec![
+                    "When returning a reference chosen from two input slices, elision cannot guess which lifetime applies.".into(),
+                    "Write `pub fn longest_str<'a>(a: &'a str, b: &'a str) -> &'a str`.".into(),
+                ]
+            } else {
+                vec![
+                    "Ao retornar uma referência escolhida entre duas entradas `&str`, a elisão não sabe qual lifetime usar.".into(),
+                    "Escreva `pub fn longest_str<'a>(a: &'a str, b: &'a str) -> &'a str`.".into(),
+                ]
+            },
+        },
+        Exercise {
+            id: "bugfix-match-exhaustive".to_string(),
+            order: 1005,
+            lesson_ids: vec!["enums-e-pattern-matching".to_string()],
+            title: if english {
+                "[Bugfix E0004] Non-exhaustive match on enum"
+            } else {
+                "[Bugfix E0004] match não exaustivo em enum"
+            }
+            .to_string(),
+            statement: if english {
+                "Handle the missing `Light::Yellow` arm inside `action_label` so `match` covers all variants."
+            } else {
+                "Trate a variante `Light::Yellow` que faltou em `action_label` para tornar o `match` exaustivo."
+            }
+            .to_string(),
+            skeleton: "pub enum Light {\n    Red,\n    Yellow,\n    Green,\n}\n\npub fn action_label(light: Light) -> &'static str {\n    match light {\n        Light::Red => \"stop\",\n        Light::Green => \"go\",\n    }\n}\n".to_string(),
+            tests: "use super::{Light, action_label};\n#[test]\nfn check_lights() {\n    assert_eq!(action_label(Light::Red), \"stop\");\n    assert_eq!(action_label(Light::Yellow), \"caution\");\n    assert_eq!(action_label(Light::Green), \"go\");\n}\n".to_string(),
+            hints: if english {
+                vec![
+                    "Check the test expectations: `Light::Yellow` must return `\"caution\"`.".into(),
+                    "Add `Light::Yellow => \"caution\",` inside the `match`.".into(),
+                ]
+            } else {
+                vec![
+                    "Veja o que os testes esperam: `Light::Yellow` deve retornar `\"caution\"`.".into(),
+                    "Adicione `Light::Yellow => \"caution\",` no `match`.".into(),
+                ]
+            },
+        },
+        Exercise {
+            id: "bugfix-result-qmark".to_string(),
+            order: 1006,
+            lesson_ids: vec!["result-e-propagacao".to_string()],
+            title: if english {
+                "[Bugfix E0308] Propagate Result with `?` before adding"
+            } else {
+                "[Bugfix E0308] Propague Result com `?` antes de somar"
+            }
+            .to_string(),
+            statement: if english {
+                "Fix `parse_and_double` so `s.parse::<i32>()` propagates errors cleanly via `?` and wraps the sum in `Ok(...)`."
+            } else {
+                "Corrija `parse_and_double` usando `?` em `s.parse::<i32>()` e envolvendo o resultado em `Ok(...)`."
+            }
+            .to_string(),
+            skeleton: "use std::num::ParseIntError;\n\npub fn parse_and_double(s: &str) -> Result<i32, ParseIntError> {\n    let n = s.trim().parse::<i32>();\n    n * 2\n}\n".to_string(),
+            tests: "use super::parse_and_double;\n#[test]\nfn check_parse_double() {\n    assert_eq!(parse_and_double(\" 21 \"), Ok(42));\n    assert!(parse_and_double(\"abc\").is_err());\n}\n".to_string(),
+            hints: if english {
+                vec![
+                    "`parse::<i32>()` returns `Result<i32, ParseIntError>`, which cannot be multiplied by 2 directly.".into(),
+                    "Use `let n = s.trim().parse::<i32>()?;` and return `Ok(n * 2)`.".into(),
+                ]
+            } else {
+                vec![
+                    "`parse::<i32>()` retorna `Result<i32, ParseIntError>`, que não pode ser multiplicado por 2.".into(),
+                    "Use `let n = s.trim().parse::<i32>()?;` e retorne `Ok(n * 2)`.".into(),
+                ]
+            },
+        },
+        Exercise {
+            id: "bugfix-trait-impl".to_string(),
+            order: 1007,
+            lesson_ids: vec!["traits-modulos-e-cargo".to_string()],
+            title: if english {
+                "[Bugfix E0277] Missing `Summary` trait impl"
+            } else {
+                "[Bugfix E0277] Falta implementar trait `Summary`"
+            }
+            .to_string(),
+            statement: if english {
+                "Implement the `Summary` trait for `Article` so `render_summary(&article)` compiles."
+            } else {
+                "Implemente o trait `Summary` para `Article` para que `render_summary(&article)` compile."
+            }
+            .to_string(),
+            skeleton: "pub trait Summary {\n    fn summarize(&self) -> String;\n}\n\npub struct Article {\n    pub title: String,\n}\n\npub fn render_summary<T: Summary>(item: &T) -> String {\n    format!(\"[Summary] {}\", item.summarize())\n}\n".to_string(),
+            tests: "use super::{Article, render_summary};\n#[test]\nfn check_summary() {\n    let a = Article { title: \"Rust 2024\".into() };\n    assert_eq!(render_summary(&a), \"[Summary] Rust 2024\");\n}\n".to_string(),
+            hints: if english {
+                vec![
+                    "`render_summary` requires `T: Summary`, so `Article` needs `impl Summary for Article`.".into(),
+                    "Return `self.title.clone()` inside `fn summarize(&self) -> String`.".into(),
+                ]
+            } else {
+                vec![
+                    "`render_summary` exige `T: Summary`, logo `Article` precisa de `impl Summary for Article`.".into(),
+                    "Retorne `self.title.clone()` dentro de `fn summarize(&self) -> String`.".into(),
+                ]
+            },
+        },
+        Exercise {
+            id: "bugfix-vec-bounds".to_string(),
+            order: 1008,
+            lesson_ids: vec!["colecoes-e-iteracao".to_string()],
+            title: if english {
+                "[Bugfix Index] Off-by-one panic on empty or last index"
+            } else {
+                "[Bugfix Índice] Pânico off-by-one em fatia"
+            }
+            .to_string(),
+            statement: if english {
+                "Fix `safe_last` so it returns `Option<i32>` without indexing out of bounds on empty slices."
+            } else {
+                "Corrija `safe_last` para retornar `Option<i32>` sem estourar o índice em fatias vazias."
+            }
+            .to_string(),
+            skeleton: "pub fn safe_last(nums: &[i32]) -> Option<i32> {\n    Some(nums[nums.len()])\n}\n".to_string(),
+            tests: "use super::safe_last;\n#[test]\nfn check_safe_last() {\n    assert_eq!(safe_last(&[]), None);\n    assert_eq!(safe_last(&[7, 9]), Some(9));\n}\n".to_string(),
+            hints: if english {
+                vec![
+                    "`nums[nums.len()]` is always out of bounds, and `nums` might be empty!".into(),
+                    "Slices already have `nums.last().copied()`.".into(),
+                ]
+            } else {
+                vec![
+                    "`nums[nums.len()]` sempre sai dos limites, e `nums` pode estar vazio!".into(),
+                    "Fatias já oferecem `nums.last().copied()`.".into(),
+                ]
+            },
+        },
+    ]
+}
+
+/// Sugestões idiomáticas suaves pós-vitória ("Clippy Pedagógico", sem descontar XP).
+pub fn pedagogical_clippy_for(code: &str, english: bool) -> Vec<String> {
+    let mut tips = Vec::new();
+    let trimmed = code.trim();
+    if trimmed.contains("for ") && trimmed.contains(".len()") {
+        tips.push(if english {
+            "Prefer iterating directly (`for item in slice`) or using iterator combinators (`.iter().filter(...).sum()`) instead of indexing with `0..vec.len()`."
+        } else {
+            "Prefira iterar diretamente (`for item in slice`) ou usar combinadores (`.iter().filter(...).sum()`) em vez de indexar `0..vec.len()`."
+        }.to_string());
+    }
+    if trimmed.contains(".clone()") {
+        tips.push(if english {
+            "Check whether borrowing (`&T`) or `.copied()` eliminates `.clone()` cleanly with zero heap allocation."
+        } else {
+            "Verifique se empréstimo (`&T`) ou `.copied()` elimina o `.clone()` sem alocar na Heap."
+        }.to_string());
+    }
+    if trimmed.contains("return ") {
+        tips.push(if english {
+            "In Rust, the final expression without `;` is returned automatically — omitting redundant `return` makes short functions cleaner."
+        } else {
+            "Em Rust, a última expressão sem `;` já é o retorno — omitir `return` redundante deixa funções curtas mais idiomáticas."
+        }.to_string());
+    }
+    if trimmed.contains(".unwrap()") {
+        tips.push(if english {
+            "Prefer `?`, `.unwrap_or(...)`, or pattern matching (`if let`) over `.unwrap()` to keep edge cases panic-free."
+        } else {
+            "Prefira `?`, `.unwrap_or(...)` ou `if let` em vez de `.unwrap()` para evitar panics em entradas inválidas."
+        }.to_string());
+    }
+    if tips.is_empty()
+        && trimmed.contains("if ")
+        && trimmed.contains("true")
+        && trimmed.contains("false")
+    {
+        tips.push(if english {
+            "When a condition evaluates to `bool`, return the boolean expression directly instead of `if cond { true } else { false }`."
+        } else {
+            "Quando a expressão já resulta em `bool`, retorne a condição diretamente em vez de `if cond { true } else { false }`."
+        }.to_string());
+    }
+    tips.truncate(2);
+    tips
+}
+
+/// Solução idiomática comentada (liberada APENAS após todos os testes passarem).
+pub fn idiomatic_solution_for(id: &str, english: bool) -> Option<(&'static str, &'static str)> {
+    Some(match (id, english) {
+        ("soma", true) => (
+            "pub fn soma(a: i32, b: i32) -> i32 {\n    a + b\n}",
+            "Single expression without `;` returns directly with zero boilerplate.",
+        ),
+        ("soma", false) => (
+            "pub fn soma(a: i32, b: i32) -> i32 {\n    a + b\n}",
+            "Expressão única sem `;` retorna diretamente sem `return` explícito.",
+        ),
+        ("dobro", true) => (
+            "pub fn dobro(n: i32) -> i32 {\n    n * 2\n}",
+            "Clean tail expression without mutable locals.",
+        ),
+        ("dobro", false) => (
+            "pub fn dobro(n: i32) -> i32 {\n    n * 2\n}",
+            "Expressão final limpa sem variáveis mutáveis.",
+        ),
+        ("media", true) => (
+            "pub fn media(a: f64, b: f64) -> f64 {\n    (a + b) / 2.0\n}",
+            "Parentheses enforce precedence before float division by `2.0`.",
+        ),
+        ("media", false) => (
+            "pub fn media(a: f64, b: f64) -> f64 {\n    (a + b) / 2.0\n}",
+            "Parênteses garantem a soma antes da divisão em `f64`.",
+        ),
+        ("paridade", true) => (
+            "pub fn eh_par(n: i32) -> bool {\n    n % 2 == 0\n}",
+            "Boolean expression directly without `if ... { true } else { false }`.",
+        ),
+        ("paridade", false) => (
+            "pub fn eh_par(n: i32) -> bool {\n    n % 2 == 0\n}",
+            "Retorna a expressão booleana direto, sem `if ... { true } else { false }`.",
+        ),
+        ("maior", true) => (
+            "pub fn maior(a: i32, b: i32) -> i32 {\n    a.max(b)\n}",
+            "Standard library `Ord::max` communicates intent clearly.",
+        ),
+        ("maior", false) => (
+            "pub fn maior(a: i32, b: i32) -> i32 {\n    a.max(b)\n}",
+            "Usar `a.max(b)` da std deixa a intenção imediata e idiomática.",
+        ),
+        ("intervalo", true) => (
+            "pub fn no_intervalo(n: i32, minimo: i32, maximo: i32) -> bool {\n    minimo <= maximo && (minimo..=maximo).contains(&n)\n}",
+            "Inclusive range `(minimo..=maximo).contains(&n)` prevents boundary off-by-one bugs.",
+        ),
+        ("intervalo", false) => (
+            "pub fn no_intervalo(n: i32, minimo: i32, maximo: i32) -> bool {\n    minimo <= maximo && (minimo..=maximo).contains(&n)\n}",
+            "Intervalo inclusivo `(minimo..=maximo).contains(&n)` evita erros de borda.",
+        ),
+        ("contar-vogais", true) => (
+            "pub fn contar_vogais(texto: &str) -> usize {\n    texto\n        .chars()\n        .filter(|c| matches!(c.to_ascii_lowercase(), 'a' | 'e' | 'i' | 'o' | 'u'))\n        .count()\n}",
+            "Zero-allocation iterator pipeline using `matches!`.",
+        ),
+        ("contar-vogais", false) => (
+            "pub fn contar_vogais(texto: &str) -> usize {\n    texto\n        .chars()\n        .filter(|c| matches!(c.to_ascii_lowercase(), 'a' | 'e' | 'i' | 'o' | 'u'))\n        .count()\n}",
+            "Pipeline de iterador sem alocações combinado com `matches!`.",
+        ),
+        ("filtrar-positivos", true) => (
+            "pub fn filtrar_positivos(nums: &[i32]) -> Vec<i32> {\n    nums.iter().copied().filter(|&x| x > 0).collect()\n}",
+            "`.copied()` converts `&i32` items cleanly in one iterator pass.",
+        ),
+        ("filtrar-positivos", false) => (
+            "pub fn filtrar_positivos(nums: &[i32]) -> Vec<i32> {\n    nums.iter().copied().filter(|&x| x > 0).collect()\n}",
+            "`.copied()` converte `&i32` em uma única passada com `.filter()` e `.collect()`.",
+        ),
+        ("primeira-palavra", true) => (
+            "pub fn primeira_palavra(frase: &str) -> &str {\n    frase.split_whitespace().next().unwrap_or(\"\")\n}",
+            "Borrows directly from `frase` as `&str` with zero Heap allocation.",
+        ),
+        ("primeira-palavra", false) => (
+            "pub fn primeira_palavra(frase: &str) -> &str {\n    frase.split_whitespace().next().unwrap_or(\"\")\n}",
+            "Retorna fatia emprestada `&str` direto de `frase` sem alocar `String`.",
+        ),
+        ("retangulo-area", true) => (
+            "impl Retangulo {\n    pub fn area(&self) -> u32 {\n        self.largura * self.altura\n    }\n    pub fn eh_quadrado(&self) -> bool {\n        self.largura > 0 && self.largura == self.altura\n    }\n}",
+            "Shared `&self` borrows read fields without taking ownership.",
+        ),
+        ("retangulo-area", false) => (
+            "impl Retangulo {\n    pub fn area(&self) -> u32 {\n        self.largura * self.altura\n    }\n    pub fn eh_quadrado(&self) -> bool {\n        self.largura > 0 && self.largura == self.altura\n    }\n}",
+            "Métodos com `&self` leem os campos sem mover a struct.",
+        ),
+        ("divisao-segura", true) => (
+            "pub fn divisao_segura(a: i32, b: i32) -> Option<i32> {\n    if b == 0 { None } else { Some(a / b) }\n}",
+            "Uses `Option<i32>` to rule out division-by-zero panics at the type level.",
+        ),
+        ("divisao-segura", false) => (
+            "pub fn divisao_segura(a: i32, b: i32) -> Option<i32> {\n    if b == 0 { None } else { Some(a / b) }\n}",
+            "`Option<i32>` torna impossível esquecer o divisor zero.",
+        ),
+        ("soma-quadrados-pares", true) => (
+            "pub fn soma_quadrados_pares(nums: &[i32]) -> i32 {\n    nums.iter().copied().filter(|n| n % 2 == 0).map(|n| n * n).sum()\n}",
+            "Functional iterator chain compiles down to a single tight loop.",
+        ),
+        ("soma-quadrados-pares", false) => (
+            "pub fn soma_quadrados_pares(nums: &[i32]) -> i32 {\n    nums.iter().copied().filter(|n| n % 2 == 0).map(|n| n * n).sum()\n}",
+            "Cadeia de iteradores que compila para um único loop otimizado sem alocação.",
+        ),
+        ("bugfix-mutability", true) => (
+            "pub fn sum_until(n: i32) -> i32 {\n    (1..=n).sum()\n}",
+            "Even cleaner than `let mut total`: range `.sum()` works for any `n` (returning 0 when `n <= 0`).",
+        ),
+        ("bugfix-mutability", false) => (
+            "pub fn sum_until(n: i32) -> i32 {\n    (1..=n).sum()\n}",
+            "Ainda mais enxuto que `let mut total`: `(1..=n).sum()` retorna 0 naturalmente quando `n <= 0`.",
+        ),
+        ("bugfix-move-clone", true) => (
+            "fn measure(s: &str) -> usize {\n    s.len()\n}\npub fn label_pair(name: String) -> (usize, String) {\n    let len = measure(&name);\n    let tag = format!(\"{name}:{len}\");\n    (len, tag)\n}",
+            "Accepting `&str` instead of `String` lets callers borrow without losing ownership or cloning.",
+        ),
+        ("bugfix-move-clone", false) => (
+            "fn measure(s: &str) -> usize {\n    s.len()\n}\npub fn label_pair(name: String) -> (usize, String) {\n    let len = measure(&name);\n    let tag = format!(\"{name}:{len}\");\n    (len, tag)\n}",
+            "Receber `&str` em vez de `String` permite emprestar sem mover posse nem clonar.",
+        ),
+        ("bugfix-borrow-conflict", true) => (
+            "pub fn append_first(items: &mut Vec<i32>, extra: i32) -> i32 {\n    let first = items[0];\n    items.push(extra);\n    first + extra\n}",
+            "Copying a `Copy` scalar (`i32`) ends the borrow immediately before `Vec::push`.",
+        ),
+        ("bugfix-borrow-conflict", false) => (
+            "pub fn append_first(items: &mut Vec<i32>, extra: i32) -> i32 {\n    let first = items[0];\n    items.push(extra);\n    first + extra\n}",
+            "Copiar um valor `Copy` (`i32`) encerra o borrow antes de chamar `Vec::push`.",
+        ),
+        ("bugfix-lifetime-ret", true) => (
+            "pub fn longest_str<'a>(a: &'a str, b: &'a str) -> &'a str {\n    if a.len() >= b.len() { a } else { b }\n}",
+            "`'a` promises the returned slice lives as long as the shorter of `a` and `b`.",
+        ),
+        ("bugfix-lifetime-ret", false) => (
+            "pub fn longest_str<'a>(a: &'a str, b: &'a str) -> &'a str {\n    if a.len() >= b.len() { a } else { b }\n}",
+            "`'a` garante que a fatia retornada vive ao menos tanto quanto a menor entrada.",
+        ),
+        ("bugfix-match-exhaustive", true) => (
+            "pub enum Light { Red, Yellow, Green }\npub fn action_label(light: Light) -> &'static str {\n    match light {\n        Light::Red => \"stop\",\n        Light::Yellow => \"caution\",\n        Light::Green => \"go\",\n    }\n}",
+            "Listing every variant explicitly lets `rustc` warn you immediately if a new variant is added later.",
+        ),
+        ("bugfix-match-exhaustive", false) => (
+            "pub enum Light { Red, Yellow, Green }\npub fn action_label(light: Light) -> &'static str {\n    match light {\n        Light::Red => \"stop\",\n        Light::Yellow => \"caution\",\n        Light::Green => \"go\",\n    }\n}",
+            "Cobrir cada variante explicitamente faz o compilador avisar se uma nova variante surgir no futuro.",
+        ),
+        ("bugfix-result-qmark", true) => (
+            "use std::num::ParseIntError;\npub fn parse_and_double(s: &str) -> Result<i32, ParseIntError> {\n    Ok(s.trim().parse::<i32>()? * 2)\n}",
+            "`?` propagates `ParseIntError` early and keeps the happy path concise.",
+        ),
+        ("bugfix-result-qmark", false) => (
+            "use std::num::ParseIntError;\npub fn parse_and_double(s: &str) -> Result<i32, ParseIntError> {\n    Ok(s.trim().parse::<i32>()? * 2)\n}",
+            "`?` propaga `ParseIntError` antecipadamente deixando o caminho feliz enxuto.",
+        ),
+        ("bugfix-trait-impl", true) => (
+            "pub trait Summary {\n    fn summarize(&self) -> String;\n}\npub struct Article {\n    pub title: String,\n}\nimpl Summary for Article {\n    fn summarize(&self) -> String {\n        self.title.clone()\n    }\n}\npub fn render_summary<T: Summary>(item: &T) -> String {\n    format!(\"[Summary] {}\", item.summarize())\n}",
+            "Explicit `impl Trait for Type` enables static dispatch `<T: Summary>` everywhere.",
+        ),
+        ("bugfix-trait-impl", false) => (
+            "pub trait Summary {\n    fn summarize(&self) -> String;\n}\npub struct Article {\n    pub title: String,\n}\nimpl Summary for Article {\n    fn summarize(&self) -> String {\n        self.title.clone()\n    }\n}\npub fn render_summary<T: Summary>(item: &T) -> String {\n    format!(\"[Summary] {}\", item.summarize())\n}",
+            "`impl Trait for Type` explícito habilita despacho estático `<T: Summary>` em qualquer função.",
+        ),
+        ("bugfix-vec-bounds", true) => (
+            "pub fn safe_last(nums: &[i32]) -> Option<i32> {\n    nums.last().copied()\n}",
+            "`slice::last()` + `.copied()` eliminates indexing panics entirely.",
+        ),
+        ("bugfix-vec-bounds", false) => (
+            "pub fn safe_last(nums: &[i32]) -> Option<i32> {\n    nums.last().copied()\n}",
+            "`slice::last().copied()` elimina risco de panic por índice inválido.",
+        ),
+        _ => return None,
+    })
 }
 
 impl ExerciseSession {
@@ -1087,5 +1687,74 @@ mod tests {
         assert!(warning.is_none());
         assert!(data.completed_exercises.contains(&id));
         std::fs::remove_file(progress_path).ok();
+    }
+
+    #[test]
+    fn bugfix_clippy_pedagogico_e_solucao_idiomatica_funcionam() {
+        let bugfixes_en = bugfix_challenges(true);
+        let bugfixes_pt = bugfix_challenges(false);
+        assert_eq!(bugfixes_en.len(), 8);
+        assert_eq!(bugfixes_pt.len(), 8);
+        for ex in &bugfixes_en {
+            assert!(
+                idiomatic_solution_for(&ex.id, true).is_some(),
+                "missing idiomatic EN for {}",
+                ex.id
+            );
+            assert!(
+                idiomatic_solution_for(&ex.id, false).is_some(),
+                "missing idiomatic PT for {}",
+                ex.id
+            );
+            assert!(!ex.tests.trim().is_empty());
+        }
+        assert_eq!(bugfix_for_error_code("E0382", true).id, "bugfix-move-clone");
+        assert_eq!(bugfix_for_error_code("E0384", true).id, "bugfix-mutability");
+
+        let tips = pedagogical_clippy_for(
+            "fn f(v: Vec<i32>) -> usize { for i in 0..v.len() { let _ = v[i].clone(); } return v.len(); }",
+            true,
+        );
+        assert!(!tips.is_empty());
+        assert!(tips.len() <= 2);
+
+        let (mut app, _) = app("bugfix-flow");
+        let mut state = ExerciseState::default();
+        state.on_key(
+            &mut app,
+            KeyEvent::new(KeyCode::Char('b'), KeyModifiers::NONE),
+        );
+        assert!(state.bugfix_mode);
+        state.open_selected(&app);
+        // Bloqueado antes de passar nos testes
+        state.on_key(&mut app, KeyEvent::new(KeyCode::F(6), KeyModifiers::NONE));
+        assert!(!state.session.as_ref().unwrap().show_idiomatic);
+
+        // Desbloqueado após passar
+        state.handle_exec_event(
+            ExecEvent::Finished {
+                label: "cargo test".into(),
+                code: Some(0),
+                success: true,
+            },
+            &mut app,
+        );
+        state.on_key(&mut app, KeyEvent::new(KeyCode::F(6), KeyModifiers::NONE));
+        assert!(state.session.as_ref().unwrap().show_idiomatic);
+
+        // Diagnóstico em 1 clique Alt+E abre o Mentor com erro compilado
+        state.handle_exec_event(
+            ExecEvent::Chunk {
+                kind: StreamKind::Stderr,
+                text: "error[E0384]: cannot assign twice to immutable variable".into(),
+            },
+            &mut app,
+        );
+        state.on_key(
+            &mut app,
+            KeyEvent::new(KeyCode::Char('e'), KeyModifiers::ALT),
+        );
+        assert_eq!(app.screen, Screen::Mentor);
+        assert!(app.mentor.is_some());
     }
 }

@@ -363,6 +363,13 @@ fn take_ident(s: &str) -> Option<String> {
 // ---------------------------------------------------------------------------
 
 #[derive(Debug, Clone, PartialEq, Eq)]
+pub struct InlayHint {
+    pub line: usize,
+    pub col: usize,
+    pub label: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub enum LspEvent {
     Initialized,
     Diagnostics {
@@ -381,6 +388,10 @@ pub enum LspEvent {
         request_id: u64,
         labels: Vec<String>,
     },
+    InlayHints {
+        request_id: u64,
+        hints: Vec<InlayHint>,
+    },
     Closed {
         reason: String,
     },
@@ -392,6 +403,85 @@ enum PendingKind {
     Hover,
     Definition,
     Completion,
+    InlayHints,
+}
+
+/// Inferência determinística offline de tipos para inlay hints (`let x = ...` sem `: Tipo`).
+pub fn infer_local_inlay_hints(code: &str) -> Vec<InlayHint> {
+    let mut hints = Vec::new();
+    let mut known_types: BTreeMap<String, String> = BTreeMap::new();
+    for (idx, raw) in code.lines().enumerate() {
+        let trimmed = raw.split("//").next().unwrap_or("").trim();
+        let Some(rest) = trimmed.strip_prefix("let ") else {
+            continue;
+        };
+        let Some((lhs, rhs)) = rest.split_once('=') else {
+            continue;
+        };
+        let lhs_trim = lhs.trim();
+        let var_part = lhs_trim.strip_prefix("mut ").unwrap_or(lhs_trim).trim();
+        if let Some((vname, explicit_ty)) = var_part.split_once(':') {
+            known_types.insert(vname.trim().to_string(), explicit_ty.trim().to_string());
+            continue;
+        }
+        let ident = take_ident(var_part).unwrap_or_default();
+        if ident.is_empty() || ident == "_" {
+            continue;
+        }
+        let rhs_clean = rhs.trim().trim_end_matches(';').trim();
+        let inferred = if rhs_clean == "true" || rhs_clean == "false" {
+            Some("bool".to_string())
+        } else if rhs_clean.starts_with('"') {
+            Some("&str".to_string())
+        } else if rhs_clean.starts_with("String::")
+            || rhs_clean.ends_with(".to_string()")
+            || rhs_clean.contains("format!(")
+        {
+            Some("String".to_string())
+        } else if rhs_clean.starts_with("vec![") || rhs_clean.starts_with("Vec::") {
+            Some("Vec<_>".to_string())
+        } else if rhs_clean.starts_with("Some(") {
+            Some("Option<_>".to_string())
+        } else if rhs_clean.starts_with("Ok(") || rhs_clean.starts_with("Err(") {
+            Some("Result<_, _>".to_string())
+        } else if rhs_clean.ends_with(".len()") || rhs_clean.ends_with(".count()") {
+            Some("usize".to_string())
+        } else if rhs_clean.parse::<i64>().is_ok() {
+            Some("i32".to_string())
+        } else if rhs_clean.parse::<f64>().is_ok() {
+            Some("f64".to_string())
+        } else if let Some(ty) = rhs_clean.split("::").next().filter(|t| {
+            t.chars().next().is_some_and(|c| c.is_ascii_uppercase()) && rhs_clean.contains("::new(")
+        }) {
+            Some(ty.to_string())
+        } else if let Some(ty) = rhs_clean.split('{').next().map(str::trim).filter(|t| {
+            rhs_clean.contains('{')
+                && t.chars().next().is_some_and(|c| c.is_ascii_uppercase())
+                && t.chars().all(|c| c.is_ascii_alphanumeric() || c == '_')
+        }) {
+            Some(ty.to_string())
+        } else if let Some(target) = rhs_clean.strip_prefix("&mut ").and_then(take_ident) {
+            known_types.get(&target).map(|t| format!("&mut {t}"))
+        } else if let Some(target) = rhs_clean.strip_prefix('&').and_then(take_ident) {
+            known_types.get(&target).map(|t| format!("&{t}"))
+        } else {
+            take_ident(rhs_clean).and_then(|s| {
+                (s == rhs_clean)
+                    .then(|| known_types.get(&s).cloned())
+                    .flatten()
+            })
+        };
+        if let Some(ty) = inferred {
+            known_types.insert(ident.clone(), ty.clone());
+            let col = raw.find(&ident).map(|c| c + ident.len()).unwrap_or(0);
+            hints.push(InlayHint {
+                line: idx,
+                col,
+                label: format!(": {ty}"),
+            });
+        }
+    }
+    hints
 }
 
 #[derive(Debug, Clone)]
@@ -590,6 +680,39 @@ impl LspClient {
         }
         let params = text_doc_position(file, line0, col0);
         Some(self.send_request("textDocument/completion", params, PendingKind::Completion))
+    }
+
+    pub fn request_inlay_hints(&mut self, file: &Path, line_count: usize) -> Option<u64> {
+        if !self.ready {
+            return None;
+        }
+        let end_line = line_count.max(1) as u64;
+        let params = JsonValue::object(vec![
+            (
+                "textDocument",
+                JsonValue::object(vec![("uri", JsonValue::string(path_to_uri(file)))]),
+            ),
+            (
+                "range",
+                JsonValue::object(vec![
+                    (
+                        "start",
+                        JsonValue::object(vec![
+                            ("line", JsonValue::uint(0)),
+                            ("character", JsonValue::uint(0)),
+                        ]),
+                    ),
+                    (
+                        "end",
+                        JsonValue::object(vec![
+                            ("line", JsonValue::uint(end_line)),
+                            ("character", JsonValue::uint(0)),
+                        ]),
+                    ),
+                ]),
+            ),
+        ]);
+        Some(self.send_request("textDocument/inlayHint", params, PendingKind::InlayHints))
     }
 
     pub fn shutdown(&mut self) {
@@ -821,6 +944,10 @@ fn handle_lsp_message(
                 request_id: id,
                 labels: result.map(extract_completion_labels).unwrap_or_default(),
             }),
+            PendingKind::InlayHints => Some(LspEvent::InlayHints {
+                request_id: id,
+                hints: result.map(extract_inlay_hints).unwrap_or_default(),
+            }),
         };
     }
 
@@ -941,6 +1068,41 @@ fn extract_completion_labels(result: &JsonValue) -> Vec<String> {
         }
     }
     out
+}
+
+fn extract_inlay_hints(result: &JsonValue) -> Vec<InlayHint> {
+    let Some(items) = result.as_array() else {
+        return Vec::new();
+    };
+    let mut hints = Vec::new();
+    for item in items {
+        let Some(pos) = item.get("position") else {
+            continue;
+        };
+        let Some(line) = pos.get("line").and_then(JsonValue::as_usize) else {
+            continue;
+        };
+        let Some(col) = pos.get("character").and_then(JsonValue::as_usize) else {
+            continue;
+        };
+        let label = if let Some(s) = item.get("label").and_then(JsonValue::as_str) {
+            s.trim().to_string()
+        } else if let Some(parts) = item.get("label").and_then(JsonValue::as_array) {
+            parts
+                .iter()
+                .filter_map(|p| p.get("value").and_then(JsonValue::as_str))
+                .collect::<Vec<_>>()
+                .join("")
+                .trim()
+                .to_string()
+        } else {
+            continue;
+        };
+        if !label.is_empty() {
+            hints.push(InlayHint { line, col, label });
+        }
+    }
+    hints
 }
 
 pub fn path_to_uri(path: &Path) -> String {
@@ -1095,5 +1257,32 @@ mod tests {
         ));
         std::fs::create_dir_all(&dir).unwrap();
         dir
+    }
+
+    #[test]
+    fn inlay_hints_locais_e_resposta_lsp_funcionam() {
+        let code = "let count = 42;\nlet name = String::from(\"rust\");\nlet borrow = &name;\n";
+        let local = infer_local_inlay_hints(code);
+        assert!(local.iter().any(|h| h.line == 0 && h.label == ": i32"));
+        assert!(local.iter().any(|h| h.line == 1 && h.label == ": String"));
+        assert!(local.iter().any(|h| h.line == 2 && h.label == ": &String"));
+
+        let pending = Arc::new(Mutex::new(BTreeMap::from([(7, PendingKind::InlayHints)])));
+        let msg = JsonValue::parse(
+            r#"{"jsonrpc":"2.0","id":7,"result":[{"position":{"line":0,"character":9},"label":": usize"}]}"#,
+        )
+        .unwrap();
+        let ev = handle_lsp_message(&msg, &pending).unwrap();
+        assert_eq!(
+            ev,
+            LspEvent::InlayHints {
+                request_id: 7,
+                hints: vec![InlayHint {
+                    line: 0,
+                    col: 9,
+                    label: ": usize".to_string()
+                }],
+            }
+        );
     }
 }

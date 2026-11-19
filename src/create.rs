@@ -27,7 +27,8 @@ use crate::execution::{
     DiagLevel, Diagnostic, ExecEvent, StreamKind, ToolCommand, parse_diagnostics,
 };
 use crate::lsp::{
-    LspClient, LspEvent, SearchMatch, WorkspaceIndex, search_project_text, word_at_cursor,
+    InlayHint, LspClient, LspEvent, SearchMatch, WorkspaceIndex, infer_local_inlay_hints,
+    search_project_text, word_at_cursor,
 };
 use crate::mentor::{MentorEvent, MentorManager, ModelPickerState};
 use crate::projects::{Project, expand_home, resolve_new_project_target};
@@ -246,6 +247,8 @@ pub struct CreateState {
     lsp_pending_hover: Option<u64>,
     lsp_pending_def: Option<u64>,
     lsp_pending_comp: Option<u64>,
+    lsp_pending_inlay: Option<u64>,
+    pub inlay_hints: Vec<InlayHint>,
     pub project_matches: Vec<SearchMatch>,
     pub project_match_idx: usize,
     pub doc_popup: Option<DocPopup>,
@@ -306,6 +309,8 @@ impl CreateState {
             lsp_pending_hover: None,
             lsp_pending_def: None,
             lsp_pending_comp: None,
+            lsp_pending_inlay: None,
+            inlay_hints: Vec::new(),
             project_matches: Vec::new(),
             project_match_idx: 0,
             doc_popup: None,
@@ -389,6 +394,8 @@ impl CreateState {
         self.lsp_pending_hover = None;
         self.lsp_pending_def = None;
         self.lsp_pending_comp = None;
+        self.lsp_pending_inlay = None;
+        self.inlay_hints.clear();
         self.project_matches.clear();
         self.project_match_idx = 0;
         self.doc_popup = None;
@@ -489,6 +496,8 @@ impl CreateState {
         self.lsp_pending_hover = None;
         self.lsp_pending_def = None;
         self.lsp_pending_comp = None;
+        self.lsp_pending_inlay = None;
+        self.inlay_hints.clear();
         match LspClient::start(&project.root) {
             Ok(client) => {
                 self.lsp = Some(client);
@@ -508,6 +517,7 @@ impl CreateState {
         self.selected_file = open_idx;
         self.console_input.clear();
         self.editor = Editor::new(&text, path);
+        self.refresh_inlay_hints();
         self.view = CreateView::Workspace;
         self.focus = Focus::Editor;
         self.lib_menu_open = false;
@@ -594,11 +604,13 @@ impl CreateState {
         self.editor_doc_version = 1;
         self.lab.debugger.stop();
         self.editor = Editor::new(&text, Some(path.clone()));
+        self.refresh_inlay_hints();
         if let Some(lsp) = self.lsp.as_mut()
             && lsp.is_ready()
             && path.extension().is_some_and(|e| e == "rs")
         {
             lsp.did_open(&path, &text);
+            self.lsp_pending_inlay = lsp.request_inlay_hints(&path, self.editor.buf.line_count());
         }
     }
 
@@ -919,6 +931,21 @@ impl CreateState {
         self.lsp_pending_hover.is_some()
             || self.lsp_pending_def.is_some()
             || self.lsp_pending_comp.is_some()
+            || self.lsp_pending_inlay.is_some()
+    }
+
+    pub fn refresh_inlay_hints(&mut self) {
+        let is_rs = self
+            .editor
+            .path
+            .as_ref()
+            .is_none_or(|p| p.extension().is_some_and(|e| e == "rs"));
+        if !is_rs {
+            self.inlay_hints.clear();
+            return;
+        }
+        let code = self.editor.buf.to_string_lossy();
+        self.inlay_hints = infer_local_inlay_hints(&code);
     }
 
     pub fn diagnostic_level_for_open_line(&self, line_1based: u32) -> Option<DiagLevel> {
@@ -966,6 +993,8 @@ impl CreateState {
                     {
                         let text = self.editor.buf.to_string_lossy();
                         lsp.did_open(path, &text);
+                        self.lsp_pending_inlay =
+                            lsp.request_inlay_hints(path, self.editor.buf.line_count());
                     }
                 }
                 LspEvent::Diagnostics { file, mut items } => {
@@ -1026,12 +1055,21 @@ impl CreateState {
                         }
                     }
                 }
+                LspEvent::InlayHints { request_id, hints } => {
+                    if self.lsp_pending_inlay == Some(request_id) {
+                        self.lsp_pending_inlay = None;
+                        if !hints.is_empty() {
+                            self.inlay_hints = hints;
+                        }
+                    }
+                }
                 LspEvent::Closed { reason } => {
                     self.lsp_status = reason;
                     self.lsp = None;
                     self.lsp_pending_hover = None;
                     self.lsp_pending_def = None;
                     self.lsp_pending_comp = None;
+                    self.lsp_pending_inlay = None;
                 }
             }
         }
@@ -1039,6 +1077,7 @@ impl CreateState {
     }
 
     fn notify_lsp_change(&mut self) {
+        self.refresh_inlay_hints();
         if let (Some(lsp), Some(path)) = (self.lsp.as_mut(), self.editor.path.as_ref())
             && lsp.is_ready()
             && path.extension().is_some_and(|e| e == "rs")
@@ -1046,6 +1085,7 @@ impl CreateState {
             self.editor_doc_version += 1;
             let text = self.editor.buf.to_string_lossy();
             lsp.did_change(path, self.editor_doc_version, &text);
+            self.lsp_pending_inlay = lsp.request_inlay_hints(path, self.editor.buf.line_count());
         }
     }
 
@@ -1318,6 +1358,8 @@ impl CreateState {
                         ));
                     }
                     self.last_failure = Some(generic_detail.clone());
+                    app.progress.record_compiler_errors(&self.stderr_buf);
+                    let _ = app.persist_progress();
                     app.set_status(generic_detail, StatusKind::Warning);
                 }
                 // diagnósticos só fazem sentido para check/build/test
@@ -1923,7 +1965,7 @@ impl CreateState {
                 return;
             }
             KeyCode::Char('e') if alt => {
-                self.open_lab_tab(crate::lab_tools::LabToolTab::LenteCompilador, app);
+                self.diagnose_error_with_agent(app);
                 return;
             }
             KeyCode::Char('b') if alt => {
@@ -2222,6 +2264,11 @@ impl CreateState {
 
     fn on_console_key(&mut self, app: &mut App, key: KeyEvent) {
         let ctrl = key.modifiers.contains(KeyModifiers::CONTROL);
+        let alt = key.modifiers.contains(KeyModifiers::ALT);
+        if alt && matches!(key.code, KeyCode::Char('e')) {
+            self.diagnose_error_with_agent(app);
+            return;
+        }
         if app.exec.accepts_input() {
             match key.code {
                 KeyCode::Char('d') if ctrl => {
@@ -3425,6 +3472,25 @@ impl CreateState {
         self.dispatch_agent_query(app, prompt);
     }
 
+    pub fn diagnose_error_with_agent(&mut self, app: &mut App) {
+        let en = app.is_english();
+        self.agent.open = true;
+        self.focus = Focus::Agent;
+        let prompt = crate::i18n::bi(
+            "Diagnostique o último erro do Cargo/Console neste projeto e explique como corrigi-lo sem reescrever o que já está certo.",
+            "Diagnose the latest Cargo/Console error in this project and explain how to fix it without breaking working code.",
+            en,
+        )
+        .to_string();
+        self.agent.messages.push(AgentChatMessage {
+            role: AgentRole::User,
+            sender: crate::i18n::bi("Você", "You", en).to_string(),
+            text: prompt.clone(),
+        });
+        self.agent.scroll = u16::MAX;
+        self.dispatch_agent_query(app, prompt);
+    }
+
     fn dispatch_agent_query(&mut self, app: &mut App, prompt: String) {
         let en = app.is_english();
         let prior_len = self.agent.messages.len().saturating_sub(1);
@@ -3439,7 +3505,9 @@ impl CreateState {
                 AgentRole::System => None,
             })
             .collect();
-        let ctx = crate::mentor::create_context_from_for(self, en);
+        let mut ctx = crate::mentor::create_context_from_for(self, en);
+        ctx.origin_language = app.config.origin_language;
+        ctx.recurring_errors = app.progress.top_recurring_errors(3);
         self.agent
             .manager
             .submit_agent_chat_for(history, ctx, prompt, app.config.ai.clone(), en);
@@ -3956,8 +4024,8 @@ impl CreateState {
         let code = self.editor.buf.to_string_lossy();
         let diag_text = self.diagnostics_text_summary();
         match self.lab.tab {
-            crate::lab_tools::LabToolTab::RaioXMemoria => {
-                if matches!(key.code, KeyCode::Char('r' | 'R')) {
+            crate::lab_tools::LabToolTab::RaioXMemoria => match key.code {
+                KeyCode::Char('r' | 'R') => {
                     self.lab.refresh_for(&code, &diag_text, en);
                     app.set_status(
                         crate::i18n::bi(
@@ -3968,7 +4036,24 @@ impl CreateState {
                         StatusKind::Info,
                     );
                 }
-            }
+                KeyCode::Char('[' | 'p' | 'P') => {
+                    if let Some(xray) = self.lab.last_xray.as_mut() {
+                        xray.step_prev();
+                        if let Some(step) = xray.timeline.get(xray.timeline_cursor) {
+                            app.set_status(step.explanation.clone(), StatusKind::Info);
+                        }
+                    }
+                }
+                KeyCode::Char(']' | 'n' | 'N') => {
+                    if let Some(xray) = self.lab.last_xray.as_mut() {
+                        xray.step_next();
+                        if let Some(step) = xray.timeline.get(xray.timeline_cursor) {
+                            app.set_status(step.explanation.clone(), StatusKind::Info);
+                        }
+                    }
+                }
+                _ => {}
+            },
             crate::lab_tools::LabToolTab::LenteCompilador => match key.code {
                 KeyCode::Char('s' | 'S') => {
                     self.lab.eli10_mode = !self.lab.eli10_mode;
@@ -4150,6 +4235,62 @@ impl CreateState {
                         let eco = ecos[self.lab.ecosystem_sel.min(ecos.len() - 1)];
                         self.apply_code_template_to_editor(eco.template_code, eco.name, true, app);
                     }
+                    KeyCode::Char('g' | 'G') => {
+                        let tracks = crate::lab_tools::guided_project_tracks(en);
+                        let t_idx = self
+                            .lab
+                            .guided_track_sel
+                            .min(tracks.len().saturating_sub(1));
+                        let cp_idx = self
+                            .lab
+                            .guided_checkpoint_sel
+                            .min(tracks[t_idx].checkpoints.len().saturating_sub(1));
+                        let cp = &tracks[t_idx].checkpoints[cp_idx];
+                        self.apply_code_template_to_editor(cp.starter_code, cp.title, true, app);
+                        self.lab.guided_feedback = Some(cp.goal.to_string());
+                    }
+                    KeyCode::Char('h' | 'H') => {
+                        let tracks = crate::lab_tools::guided_project_tracks(en);
+                        self.lab.guided_track_sel = (self.lab.guided_track_sel + 1) % tracks.len();
+                        self.lab.guided_checkpoint_sel = 0;
+                        self.lab.guided_feedback = None;
+                    }
+                    KeyCode::Char('c' | 'C') => {
+                        let tracks = crate::lab_tools::guided_project_tracks(en);
+                        let t_idx = self
+                            .lab
+                            .guided_track_sel
+                            .min(tracks.len().saturating_sub(1));
+                        self.lab.guided_checkpoint_sel =
+                            (self.lab.guided_checkpoint_sel + 1) % tracks[t_idx].checkpoints.len();
+                        self.lab.guided_feedback = None;
+                    }
+                    KeyCode::Char('v' | 'V') => {
+                        let tracks = crate::lab_tools::guided_project_tracks(en);
+                        let t_idx = self
+                            .lab
+                            .guided_track_sel
+                            .min(tracks.len().saturating_sub(1));
+                        let cp_idx = self
+                            .lab
+                            .guided_checkpoint_sel
+                            .min(tracks[t_idx].checkpoints.len().saturating_sub(1));
+                        let cp = &tracks[t_idx].checkpoints[cp_idx];
+                        let (ok, fb) =
+                            crate::lab_tools::validate_project_checkpoint_for(cp, &code, en);
+                        self.lab.guided_feedback = Some(fb.clone());
+                        if ok {
+                            self.lab.completed_checkpoints.insert(cp.id);
+                            app.award_xp(format!("checkpoint:{}", cp.id), cp.xp_reward, cp.title);
+                            if cp_idx + 1 < tracks[t_idx].checkpoints.len() {
+                                self.lab.guided_checkpoint_sel = cp_idx + 1;
+                            }
+                            let _ = app.persist_progress();
+                            app.set_status(fb, StatusKind::Success);
+                        } else {
+                            app.set_status(fb, StatusKind::Warning);
+                        }
+                    }
                     _ => {}
                 }
             }
@@ -4201,6 +4342,29 @@ impl CreateState {
                             "Memory Layout recalculated.",
                             en,
                         ),
+                        StatusKind::Info,
+                    );
+                }
+                KeyCode::Char('v' | 'V') => {
+                    let mut rep = self.lab.last_layout.take().unwrap_or_else(|| {
+                        crate::lab_tools::MemoryLayoutReport::analyze_for(&code, en)
+                    });
+                    let ok = rep.verify_struct_layouts_live(&code);
+                    self.lab.last_layout = Some(rep);
+                    app.set_status(
+                        if ok {
+                            crate::i18n::bi(
+                                "Tamanhos verificados em tempo real via rustc (size_of).",
+                                "Struct sizes live-verified via rustc (size_of).",
+                                en,
+                            )
+                        } else {
+                            crate::i18n::bi(
+                                "Usando cálculo estático offline (defina uma struct simples ou verifique se rustc está no PATH).",
+                                "Using offline static calculation (define a simple struct or ensure rustc is in PATH).",
+                                en,
+                            )
+                        },
                         StatusKind::Info,
                     );
                 }
@@ -4269,6 +4433,32 @@ impl CreateState {
                     }
                     KeyCode::Down | KeyCode::Char('j') => {
                         self.lab.desugar_sel = (self.lab.desugar_sel + 1).min(max);
+                    }
+                    KeyCode::Char('e' | 'E') => {
+                        let expanded = crate::lab_tools::try_cargo_expand_snippet(
+                            self.project.as_ref().map(|p| p.root.as_path()),
+                            &code,
+                            en,
+                        );
+                        let mut rep = report.clone();
+                        rep.live_expanded = expanded.clone();
+                        self.lab.last_desugar = Some(rep);
+                        app.set_status(
+                            if expanded.is_some() {
+                                crate::i18n::bi(
+                                    "Expansão real carregada via cargo-expand.",
+                                    "Live macro expansion loaded via cargo-expand.",
+                                    en,
+                                )
+                            } else {
+                                crate::i18n::bi(
+                                    "cargo-expand não encontrado; mantendo expansão didática offline.",
+                                    "cargo-expand not found; keeping offline educational expansion.",
+                                    en,
+                                )
+                            },
+                            StatusKind::Info,
+                        );
                     }
                     KeyCode::Enter => {
                         if let Some(item) = report.items.get(self.lab.desugar_sel.min(max)) {
@@ -5720,5 +5910,46 @@ mod tests {
         );
 
         let _ = std::fs::remove_dir_all(root);
+    }
+
+    #[test]
+    fn alt_e_diagnostica_console_e_xray_e_checkpoints_guiados_funcionam() {
+        let mut app = crate::ui::tests_util::test_app();
+        let mut state = CreateState::new_for(true);
+        state.view = CreateView::Workspace;
+        state.editor = Editor::new(
+            "fn main() {\n    let count = 42;\n    let s = String::from(\"rust\");\n    let r = &s;\n}\n",
+            None,
+        );
+        state.refresh_inlay_hints();
+        assert!(state.inlay_hints.iter().any(|h| h.label == ": i32"));
+        assert!(state.inlay_hints.iter().any(|h| h.label == ": String"));
+
+        // Alt+E abre painel do agente e envia diagnóstico em 1 clique
+        state.console.push(
+            StreamKind::Stderr,
+            "error[E0382]: borrow of moved value: `s`",
+        );
+        state.on_key(
+            &mut app,
+            KeyEvent::new(KeyCode::Char('e'), KeyModifiers::ALT),
+        );
+        assert!(state.agent.open);
+        assert_eq!(state.focus, Focus::Agent);
+        assert!(state.agent.messages.len() >= 2);
+
+        // X-Ray passos '[' e ']'
+        state.open_lab_tab(crate::lab_tools::LabToolTab::RaioXMemoria, &mut app);
+        state.on_key(&mut app, KeyEvent::from(KeyCode::Char(']')));
+        assert_eq!(state.lab.last_xray.as_ref().unwrap().timeline_cursor, 1);
+        state.on_key(&mut app, KeyEvent::from(KeyCode::Char('[')));
+        assert_eq!(state.lab.last_xray.as_ref().unwrap().timeline_cursor, 0);
+
+        // Guided Checkpoint g + v
+        state.on_key(&mut app, KeyEvent::from(KeyCode::Char('6')));
+        state.on_key(&mut app, KeyEvent::from(KeyCode::Char('g')));
+        state.open_lab_tab(crate::lab_tools::LabToolTab::EcossistemasModernos, &mut app);
+        state.on_key(&mut app, KeyEvent::from(KeyCode::Char('v')));
+        assert!(state.lab.completed_checkpoints.contains("minigrep-cp1"));
     }
 }

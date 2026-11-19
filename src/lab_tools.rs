@@ -179,6 +179,10 @@ pub struct LabState {
     pub flashcard_feedback: Option<(bool, String)>,
     pub completed_flashcards: HashSet<&'static str>,
     pub native_debugger_status: Option<String>,
+    pub guided_track_sel: usize,
+    pub guided_checkpoint_sel: usize,
+    pub guided_feedback: Option<String>,
+    pub completed_checkpoints: HashSet<&'static str>,
 }
 
 impl LabState {
@@ -308,15 +312,69 @@ impl AllocationMetrics {
     }
 }
 
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum OwnershipEventKind {
+    Bind {
+        var: String,
+        ty: String,
+        region: StorageRegion,
+    },
+    Move {
+        from: String,
+        to: String,
+    },
+    BorrowShared {
+        owner: String,
+        borrower: String,
+    },
+    BorrowMut {
+        owner: String,
+        borrower: String,
+    },
+    DropScope {
+        vars: Vec<String>,
+    },
+    Conflict {
+        detail: String,
+    },
+    Statement,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct OwnershipStep {
+    pub step_index: usize,
+    pub line_1based: usize,
+    pub code_line: String,
+    pub event_kind: OwnershipEventKind,
+    pub active_owners: Vec<(String, String, StorageRegion)>,
+    pub active_borrows: Vec<(String, String, bool)>,
+    pub dropped_here: Vec<String>,
+    pub explanation: String,
+}
+
 #[derive(Debug, Clone, PartialEq, Eq, Default)]
 pub struct MemoryXRayReport {
     pub vars: Vec<VarSlot>,
     pub metrics: AllocationMetrics,
     pub notes: Vec<String>,
+    pub timeline: Vec<OwnershipStep>,
+    pub timeline_cursor: usize,
 }
 
 impl MemoryXRayReport {
-    /// Analisa estaticamente o código Rust para mapear Stack vs Heap, Moves, Borrows e Alocações.
+    pub fn step_next(&mut self) {
+        if self.timeline.is_empty() {
+            self.timeline_cursor = 0;
+        } else {
+            self.timeline_cursor = (self.timeline_cursor + 1).min(self.timeline.len() - 1);
+        }
+    }
+
+    pub fn step_prev(&mut self) {
+        self.timeline_cursor = self.timeline_cursor.saturating_sub(1);
+    }
+
+    /// Analisa estaticamente o código Rust para mapear Stack vs Heap, Moves, Borrows, Drops e Alocações.
     pub fn analyze(code: &str) -> Self {
         Self::analyze_for(code, false)
     }
@@ -326,6 +384,23 @@ impl MemoryXRayReport {
         let mut index_by_name: HashMap<String, usize> = HashMap::new();
         let mut metrics = AllocationMetrics::default();
         let mut notes = Vec::new();
+        let mut timeline: Vec<OwnershipStep> = Vec::new();
+        let mut scope_depth: usize = 0;
+        let mut scope_vars: Vec<(usize, usize)> = Vec::new(); // (depth, var_idx)
+        let mut active_set: HashSet<usize> = HashSet::new();
+        let mut borrow_links: Vec<(String, String, bool)> = Vec::new(); // (owner, borrower, is_mut)
+
+        let snapshot_owners = |vars: &[VarSlot],
+                               active_set: &HashSet<usize>|
+         -> Vec<(String, String, StorageRegion)> {
+            vars.iter()
+                .enumerate()
+                .filter(|(idx, v)| {
+                    active_set.contains(idx) && !matches!(v.state, VarOwnershipState::Movido { .. })
+                })
+                .map(|(_, v)| (v.name.clone(), v.ty_hint.clone(), v.region))
+                .collect()
+        };
 
         for (idx, raw_line) in code.lines().enumerate() {
             let line_no = idx + 1;
@@ -338,12 +413,24 @@ impl MemoryXRayReport {
             metrics.heap_allocations += count_heap_markers(trimmed);
             metrics.zero_cost_chains += count_zero_cost_markers(trimmed);
 
+            let open_braces = trimmed.matches('{').count();
+            let close_braces = trimmed.matches('}').count();
+            scope_depth = scope_depth.saturating_add(open_braces);
+
+            let mut step_event = OwnershipEventKind::Statement;
+            let mut step_explanation = if english {
+                format!("L{line_no}: Execute statement inside scope depth {scope_depth}.")
+            } else {
+                format!("L{line_no}: Executa instrução no escopo nível {scope_depth}.")
+            };
+
             if let Some(rest) = trimmed.strip_prefix("let ") {
                 if let Some((lhs, rhs)) = rest.split_once('=') {
                     let (name, mutable, ty_hint) = parse_let_lhs(lhs);
                     let rhs_clean = rhs.trim().trim_end_matches(';').trim();
                     let (region, inferred_ty) = classify_rhs(rhs_clean, &vars, &index_by_name);
                     let final_ty = ty_hint.unwrap_or(inferred_ty);
+                    let mut handled_event = false;
 
                     // Verifica borrow criado no RHS (&x ou &mut x).
                     if let Some(target) = rhs_clean.strip_prefix("&mut ") {
@@ -357,6 +444,23 @@ impl MemoryXRayReport {
                             &mut notes,
                             english,
                         );
+                        if !base.is_empty() && !name.is_empty() {
+                            borrow_links.push((base.to_string(), name.clone(), true));
+                            step_event = OwnershipEventKind::BorrowMut {
+                                owner: base.to_string(),
+                                borrower: name.clone(),
+                            };
+                            step_explanation = if english {
+                                format!(
+                                    "L{line_no}: `{name}` takes an exclusive mutable borrow (`&mut {base}`)."
+                                )
+                            } else {
+                                format!(
+                                    "L{line_no}: `{name}` cria empréstimo mutável exclusivo (`&mut {base}`)."
+                                )
+                            };
+                            handled_event = true;
+                        }
                     } else if let Some(target) = rhs_clean.strip_prefix('&') {
                         let base = extract_leading_ident(target);
                         mark_borrow_for(
@@ -368,6 +472,23 @@ impl MemoryXRayReport {
                             &mut notes,
                             english,
                         );
+                        if !base.is_empty() && !name.is_empty() {
+                            borrow_links.push((base.to_string(), name.clone(), false));
+                            step_event = OwnershipEventKind::BorrowShared {
+                                owner: base.to_string(),
+                                borrower: name.clone(),
+                            };
+                            step_explanation = if english {
+                                format!(
+                                    "L{line_no}: `{name}` borrows `{base}` immutably (`&{base}`)."
+                                )
+                            } else {
+                                format!(
+                                    "L{line_no}: `{name}` empresta `{base}` imutavelmente (`&{base}`)."
+                                )
+                            };
+                            handled_event = true;
+                        }
                     } else if !rhs_clean.contains(".clone()") {
                         let src_ident = extract_leading_ident(rhs_clean);
                         if rhs_clean == src_ident
@@ -384,12 +505,44 @@ impl MemoryXRayReport {
                             } else {
                                 format!("L{line_no}: Posse de `{src_ident}` foi movida para `{name}` (move semantics).")
                             });
+                            step_event = OwnershipEventKind::Move {
+                                from: src_ident.to_string(),
+                                to: name.clone(),
+                            };
+                            step_explanation = if english {
+                                format!(
+                                    "L{line_no}: Ownership of `{src_ident}` moved into `{name}` — `{src_ident}` is no longer usable."
+                                )
+                            } else {
+                                format!(
+                                    "L{line_no}: Posse de `{src_ident}` foi movida para `{name}` — `{src_ident}` não pode mais ser usada."
+                                )
+                            };
+                            handled_event = true;
                         }
                     }
 
                     if !name.is_empty() && name != "_" {
                         if region == StorageRegion::Stack {
                             metrics.stack_count += 1;
+                        }
+                        if !handled_event {
+                            step_event = OwnershipEventKind::Bind {
+                                var: name.clone(),
+                                ty: final_ty.clone(),
+                                region,
+                            };
+                            step_explanation = if english {
+                                format!(
+                                    "L{line_no}: `{name}` owns a `{final_ty}` on the {:?}.",
+                                    region
+                                )
+                            } else {
+                                format!(
+                                    "L{line_no}: `{name}` torna-se dona de `{final_ty}` na {:?}.",
+                                    region
+                                )
+                            };
                         }
                         let slot = VarSlot {
                             name: name.clone(),
@@ -402,70 +555,152 @@ impl MemoryXRayReport {
                         let slot_idx = vars.len();
                         vars.push(slot);
                         index_by_name.insert(name, slot_idx);
+                        active_set.insert(slot_idx);
+                        scope_vars.push((scope_depth, slot_idx));
                     }
                 }
-                continue;
-            }
-
-            // Detecta mutações em linha avulsa (`s.push(...)`, `s.push_str(...)`, `s = ...`) sobre var emprestada.
-            for (var_name, &var_idx) in &index_by_name {
-                let push_call = format!("{var_name}.push");
-                let mut_borrow = format!("&mut {var_name}");
-                let imm_borrow = format!("&{var_name}");
-                if trimmed.contains(&push_call) || trimmed.contains(&mut_borrow) {
-                    if matches!(
-                        vars[var_idx].state,
-                        VarOwnershipState::EmprestadoImutavel(_)
-                    ) {
-                        vars[var_idx].state = VarOwnershipState::ConflitoBorrow;
-                        notes.push(if english {
-                            format!("L{line_no}: Borrow conflict on `{var_name}` — mutation while active `&` exists!")
-                        } else {
-                            format!("L{line_no}: Conflito de borrow em `{var_name}` — mutação enquanto existe `&` ativo!")
-                        });
-                    } else if matches!(vars[var_idx].state, VarOwnershipState::Ativo)
-                        && trimmed.contains(&mut_borrow)
+            } else {
+                // Detecta mutações em linha avulsa (`s.push(...)`, `s.push_str(...)`, `s = ...`) sobre var emprestada.
+                for (var_name, &var_idx) in &index_by_name {
+                    let push_call = format!("{var_name}.push");
+                    let mut_borrow = format!("&mut {var_name}");
+                    let imm_borrow = format!("&{var_name}");
+                    if trimmed.contains(&push_call) || trimmed.contains(&mut_borrow) {
+                        if matches!(
+                            vars[var_idx].state,
+                            VarOwnershipState::EmprestadoImutavel(_)
+                        ) {
+                            vars[var_idx].state = VarOwnershipState::ConflitoBorrow;
+                            let msg = if english {
+                                format!(
+                                    "L{line_no}: Borrow conflict on `{var_name}` — mutation while active `&` exists!"
+                                )
+                            } else {
+                                format!(
+                                    "L{line_no}: Conflito de borrow em `{var_name}` — mutação enquanto existe `&` ativo!"
+                                )
+                            };
+                            notes.push(msg.clone());
+                            step_event = OwnershipEventKind::Conflict {
+                                detail: msg.clone(),
+                            };
+                            step_explanation = msg;
+                        } else if matches!(vars[var_idx].state, VarOwnershipState::Ativo)
+                            && trimmed.contains(&mut_borrow)
+                        {
+                            vars[var_idx].state = VarOwnershipState::EmprestadoMutavel(line_no);
+                            step_event = OwnershipEventKind::BorrowMut {
+                                owner: var_name.clone(),
+                                borrower: "expr".to_string(),
+                            };
+                        }
+                    } else if trimmed.contains(&imm_borrow)
+                        && matches!(vars[var_idx].state, VarOwnershipState::EmprestadoMutavel(_))
                     {
-                        vars[var_idx].state = VarOwnershipState::EmprestadoMutavel(line_no);
+                        vars[var_idx].state = VarOwnershipState::ConflitoBorrow;
+                        let msg = if english {
+                            format!(
+                                "L{line_no}: Borrow conflict on `{var_name}` — `&` while active `&mut` exists!"
+                            )
+                        } else {
+                            format!(
+                                "L{line_no}: Conflito de borrow em `{var_name}` — `&` enquanto existe `&mut` ativo!"
+                            )
+                        };
+                        notes.push(msg.clone());
+                        step_event = OwnershipEventKind::Conflict {
+                            detail: msg.clone(),
+                        };
+                        step_explanation = msg;
                     }
-                } else if trimmed.contains(&imm_borrow)
-                    && matches!(vars[var_idx].state, VarOwnershipState::EmprestadoMutavel(_))
-                {
-                    vars[var_idx].state = VarOwnershipState::ConflitoBorrow;
-                    notes.push(if english {
-                        format!("L{line_no}: Borrow conflict on `{var_name}` — `&` while active `&mut` exists!")
-                    } else {
-                        format!("L{line_no}: Conflito de borrow em `{var_name}` — `&` enquanto existe `&mut` ativo!")
-                    });
-                }
 
-                // Detecta passagem por valor em chamada simples `fn_name(var)` para variáveis Heap.
-                if vars[var_idx].region == StorageRegion::Heap
-                    && !trimmed.starts_with("println!")
-                    && !trimmed.starts_with("eprintln!")
-                    && !trimmed.starts_with("format!")
-                    && !trimmed.contains(&format!("{var_name}."))
-                    && trimmed.contains(&format!("({var_name})"))
-                    && !trimmed.contains(&format!("(&{var_name})"))
-                    && !trimmed.contains(&format!("(&mut {var_name})"))
-                {
-                    vars[var_idx].state = VarOwnershipState::Movido {
-                        destino: if english { "call()" } else { "chamada()" }.to_string(),
-                        linha: line_no,
-                    };
-                    notes.push(if english {
-                        format!("L{line_no}: `{var_name}` moved into called function (consider passing `&{var_name}`).")
-                    } else {
-                        format!("L{line_no}: `{var_name}` foi movido para dentro da função chamada (considere passar `&{var_name}`).")
-                    });
+                    // Detecta passagem por valor em chamada simples `fn_name(var)` para variáveis Heap.
+                    if vars[var_idx].region == StorageRegion::Heap
+                        && !trimmed.starts_with("println!")
+                        && !trimmed.starts_with("eprintln!")
+                        && !trimmed.starts_with("format!")
+                        && !trimmed.contains(&format!("{var_name}."))
+                        && trimmed.contains(&format!("({var_name})"))
+                        && !trimmed.contains(&format!("(&{var_name})"))
+                        && !trimmed.contains(&format!("(&mut {var_name})"))
+                    {
+                        let dest = if english { "call()" } else { "chamada()" }.to_string();
+                        vars[var_idx].state = VarOwnershipState::Movido {
+                            destino: dest.clone(),
+                            linha: line_no,
+                        };
+                        let msg = if english {
+                            format!(
+                                "L{line_no}: `{var_name}` moved into called function (consider passing `&{var_name}`)."
+                            )
+                        } else {
+                            format!(
+                                "L{line_no}: `{var_name}` foi movido para dentro da função chamada (considere passar `&{var_name}`)."
+                            )
+                        };
+                        notes.push(msg.clone());
+                        step_event = OwnershipEventKind::Move {
+                            from: var_name.clone(),
+                            to: dest,
+                        };
+                        step_explanation = msg;
+                    }
                 }
             }
+
+            let mut dropped_here = Vec::new();
+            if close_braces > 0 {
+                let target_depth = scope_depth.saturating_sub(close_braces);
+                scope_depth = target_depth;
+                let mut kept = Vec::with_capacity(scope_vars.len());
+                for (d, v_idx) in scope_vars.drain(..) {
+                    if d > scope_depth {
+                        if active_set.remove(&v_idx) {
+                            let vname = vars[v_idx].name.clone();
+                            dropped_here.push(vname.clone());
+                            borrow_links.retain(|(o, b, _)| o != &vname && b != &vname);
+                        }
+                    } else {
+                        kept.push((d, v_idx));
+                    }
+                }
+                scope_vars = kept;
+                if !dropped_here.is_empty() && matches!(step_event, OwnershipEventKind::Statement) {
+                    step_event = OwnershipEventKind::DropScope {
+                        vars: dropped_here.clone(),
+                    };
+                    step_explanation = if english {
+                        format!(
+                            "L{line_no}: Scope closed — deterministic `Drop` frees [{}].",
+                            dropped_here.join(", ")
+                        )
+                    } else {
+                        format!(
+                            "L{line_no}: Escopo fechado — `Drop` determinístico libera [{}].",
+                            dropped_here.join(", ")
+                        )
+                    };
+                }
+            }
+
+            timeline.push(OwnershipStep {
+                step_index: timeline.len(),
+                line_1based: line_no,
+                code_line: trimmed.to_string(),
+                event_kind: step_event,
+                active_owners: snapshot_owners(&vars, &active_set),
+                active_borrows: borrow_links.clone(),
+                dropped_here,
+                explanation: step_explanation,
+            });
         }
 
         Self {
             vars,
             metrics,
             notes,
+            timeline,
+            timeline_cursor: 0,
         }
     }
 
@@ -1177,9 +1412,93 @@ pub struct VisualDebuggerState {
     pub active: bool,
     pub current_step: usize,
     pub steps: Vec<DebugStep>,
+    pub mi_mode: bool,
+    pub mi_last_record: Option<String>,
 }
 
 impl VisualDebuggerState {
+    pub fn parse_gdb_mi_stopped(mi_output: &str) -> Option<(String, usize)> {
+        for line in mi_output.lines() {
+            let t = line.trim();
+            if t.starts_with("*stopped") {
+                let file = extract_mi_field(t, "file=\"")
+                    .or_else(|| extract_mi_field(t, "fullname=\""))
+                    .unwrap_or_else(|| "src/main.rs".to_string());
+                if let Some(line_str) = extract_mi_field(t, "line=\"")
+                    && let Ok(line_num) = line_str.parse::<usize>()
+                {
+                    return Some((file, line_num));
+                }
+            }
+        }
+        None
+    }
+
+    pub fn parse_gdb_mi_locals(mi_output: &str) -> Vec<(String, String)> {
+        let mut out = Vec::new();
+        for chunk in mi_output.split("name=\"").skip(1) {
+            let Some(name_end) = chunk.find('"') else {
+                continue;
+            };
+            let name = chunk[..name_end].to_string();
+            let val =
+                extract_mi_field(chunk, "value=\"").unwrap_or_else(|| "<optimized>".to_string());
+            if !name.is_empty() {
+                out.push((name, val));
+            }
+        }
+        out
+    }
+
+    pub fn apply_gdb_mi_output(&mut self, mi_output: &str, english: bool) -> bool {
+        let stopped = Self::parse_gdb_mi_stopped(mi_output);
+        let parsed_locals = Self::parse_gdb_mi_locals(mi_output);
+        if stopped.is_none() && parsed_locals.is_empty() {
+            return false;
+        }
+        let locals: Vec<DebugLocal> = parsed_locals
+            .into_iter()
+            .map(|(name, value)| DebugLocal {
+                name,
+                ty: "mi".to_string(),
+                value,
+                region: StorageRegion::Stack,
+                status: "gdb-mi",
+            })
+            .collect();
+        self.mi_mode = true;
+        self.active = true;
+        if let Some((file, line_no)) = stopped {
+            self.mi_last_record = Some(if english {
+                format!("GDB/MI stopped at {file}:{line_no}")
+            } else {
+                format!("GDB/MI parou em {file}:{line_no}")
+            });
+            if let Some(idx) = self.steps.iter().position(|s| s.line_1based == line_no) {
+                self.current_step = idx;
+            } else {
+                self.steps.push(DebugStep {
+                    step_index: self.steps.len(),
+                    line_1based: line_no,
+                    depth: 0,
+                    func: file,
+                    code_line: format!("@ L{line_no}"),
+                    locals: locals.clone(),
+                    stdout: Vec::new(),
+                    call_stack: vec!["gdb-mi".to_string()],
+                    note: self.mi_last_record.clone().unwrap_or_default(),
+                });
+                self.current_step = self.steps.len().saturating_sub(1);
+            }
+        }
+        if !locals.is_empty()
+            && let Some(step) = self.steps.get_mut(self.current_step)
+        {
+            step.locals = locals;
+        }
+        true
+    }
+
     /// Liga/desliga breakpoint na linha 1-based e retorna `true` se ficou ativo.
     pub fn toggle_breakpoint(&mut self, line_1based: usize) -> bool {
         if self.breakpoints.contains(&line_1based) {
@@ -1266,6 +1585,13 @@ impl VisualDebuggerState {
         self.active = false;
         self.current_step = 0;
     }
+}
+
+fn extract_mi_field(line: &str, key: &str) -> Option<String> {
+    let start = line.find(key)? + key.len();
+    let rest = &line[start..];
+    let end = rest.find('"')?;
+    Some(rest[..end].to_string())
 }
 
 #[derive(Debug, Clone)]
@@ -2357,6 +2683,370 @@ pub fn modern_ecosystems(english: bool) -> &'static [ModernEcosystemTemplate] {
     }
 }
 
+#[derive(Debug, Clone)]
+pub struct ProjectCheckpoint {
+    pub step_number: usize,
+    pub id: &'static str,
+    pub title: &'static str,
+    pub goal: &'static str,
+    pub starter_code: &'static str,
+    pub required_patterns: &'static [&'static str],
+    pub forbidden_patterns: &'static [&'static str],
+    pub test_code: &'static str,
+    pub xp_reward: u32,
+}
+
+#[derive(Debug, Clone)]
+pub struct GuidedProjectTrack {
+    pub id: &'static str,
+    pub name: &'static str,
+    pub subtitle: &'static str,
+    pub checkpoints: [ProjectCheckpoint; 3],
+}
+
+pub const GUIDED_PROJECT_TRACKS_PT: [GuidedProjectTrack; 4] = [
+    GuidedProjectTrack {
+        id: "minigrep-cli",
+        name: "CLI estilo minigrep",
+        subtitle: "Busca em texto, case-insensitive e contagem de linhas",
+        checkpoints: [
+            ProjectCheckpoint {
+                step_number: 1,
+                id: "minigrep-cp1",
+                title: "Checkpoint 1 · Filtrar linhas correspondentes",
+                goal: "Implemente `buscar<'a>(consulta: &str, conteudo: &'a str) -> Vec<&'a str>` filtrando com `.lines()` e `.contains()`.",
+                starter_code: "pub fn buscar<'a>(consulta: &str, conteudo: &'a str) -> Vec<&'a str> {\n    conteudo.lines().filter(|linha| linha.contains(consulta)).collect()\n}\n\nfn main() {\n    let hits = buscar(\"rust\", \"aprenda rust\\ncom pratica\\nrustlab\");\n    println!(\"Encontradas: {}\", hits.len());\n}\n\n#[cfg(test)]\nmod tests {\n    use super::buscar;\n    #[test]\n    fn filtra_linhas() {\n        assert_eq!(buscar(\"duct\", \"Rust:\\nsafe, fast, productive.\\nPick three.\"), vec![\"safe, fast, productive.\"]);\n    }\n}\n",
+                required_patterns: &["fn buscar", ".lines(", ".contains("],
+                forbidden_patterns: &["todo!("],
+                test_code: "assert_eq!(buscar(\"duct\", \"Rust:\\nsafe, fast, productive.\").len(), 1);",
+                xp_reward: 60,
+            },
+            ProjectCheckpoint {
+                step_number: 2,
+                id: "minigrep-cp2",
+                title: "Checkpoint 2 · Modo case-insensitive",
+                goal: "Adicione `buscar_sem_caixa<'a>(consulta: &str, conteudo: &'a str) -> Vec<&'a str>` usando `.to_lowercase()`.",
+                starter_code: "pub fn buscar_sem_caixa<'a>(consulta: &str, conteudo: &'a str) -> Vec<&'a str> {\n    let q = consulta.to_lowercase();\n    conteudo.lines().filter(|l| l.to_lowercase().contains(&q)).collect()\n}\n\nfn main() {\n    println!(\"{:?}\", buscar_sem_caixa(\"RUST\", \"Rust é veloz\"));\n}\n\n#[cfg(test)]\nmod tests {\n    use super::buscar_sem_caixa;\n    #[test]\n    fn ignora_maiusculas() {\n        assert_eq!(buscar_sem_caixa(\"rUsT\", \"Rust:\\nTrust me.\"), vec![\"Rust:\", \"Trust me.\"]);\n    }\n}\n",
+                required_patterns: &["fn buscar_sem_caixa", ".to_lowercase("],
+                forbidden_patterns: &["todo!("],
+                test_code: "assert_eq!(buscar_sem_caixa(\"RUST\", \"Rust:\\nTrust\").len(), 2);",
+                xp_reward: 80,
+            },
+            ProjectCheckpoint {
+                step_number: 3,
+                id: "minigrep-cp3",
+                title: "Checkpoint 3 · Resumo numerado da busca",
+                goal: "Implemente `resumo_busca(consulta: &str, conteudo: &str) -> String` listando linhas com índice 1-based.",
+                starter_code: "pub fn resumo_busca(consulta: &str, conteudo: &str) -> String {\n    let q = consulta.to_lowercase();\n    conteudo\n        .lines()\n        .enumerate()\n        .filter(|(_, l)| l.to_lowercase().contains(&q))\n        .map(|(i, l)| format!(\"{}: {}\", i + 1, l))\n        .collect::<Vec<_>>()\n        .join(\"\\n\")\n}\n\nfn main() {\n    println!(\"{}\", resumo_busca(\"rust\", \"oi\\nrust aqui\"));\n}\n\n#[cfg(test)]\nmod tests {\n    use super::resumo_busca;\n    #[test]\n    fn numera_linhas_encontradas() {\n        assert_eq!(resumo_busca(\"rust\", \"a\\nRust 2024\\nb\"), \"2: Rust 2024\");\n    }\n}\n",
+                required_patterns: &["fn resumo_busca", ".enumerate("],
+                forbidden_patterns: &["todo!("],
+                test_code: "assert_eq!(resumo_busca(\"rust\", \"a\\nRust\"), \"2: Rust\");",
+                xp_reward: 100,
+            },
+        ],
+    },
+    GuidedProjectTrack {
+        id: "csv-json-parser",
+        name: "Parser CSV & JSON mínimo",
+        subtitle: "Dividir colunas, validar campos e serializar JSON sem dependências",
+        checkpoints: [
+            ProjectCheckpoint {
+                step_number: 1,
+                id: "parser-cp1",
+                title: "Checkpoint 1 · Dividir linha CSV",
+                goal: "Implemente `parse_csv_linha(linha: &str) -> Vec<&str>` aparando espaços com `.trim()`.",
+                starter_code: "pub fn parse_csv_linha(linha: &str) -> Vec<&str> {\n    linha.split(',').map(str::trim).filter(|c| !c.is_empty()).collect()\n}\n\nfn main() {\n    println!(\"{:?}\", parse_csv_linha(\"rust, 2024, fast\"));\n}\n\n#[cfg(test)]\nmod tests {\n    use super::parse_csv_linha;\n    #[test]\n    fn divide_e_apara_csv() {\n        assert_eq!(parse_csv_linha(\"ana, 30, dev\"), vec![\"ana\", \"30\", \"dev\"]);\n    }\n}\n",
+                required_patterns: &["fn parse_csv_linha", ".split("],
+                forbidden_patterns: &["todo!("],
+                test_code: "assert_eq!(parse_csv_linha(\"a, b\"), vec![\"a\", \"b\"]);",
+                xp_reward: 60,
+            },
+            ProjectCheckpoint {
+                step_number: 2,
+                id: "parser-cp2",
+                title: "Checkpoint 2 · Parsear par chave=valor",
+                goal: "Implemente `parse_kv(s: &str) -> Option<(&str, &str)>` usando `.split_once('=')`.",
+                starter_code: "pub fn parse_kv(s: &str) -> Option<(&str, &str)> {\n    let (k, v) = s.split_once('=')?;\n    let (k, v) = (k.trim(), v.trim());\n    if k.is_empty() { None } else { Some((k, v)) }\n}\n\nfn main() {\n    println!(\"{:?}\", parse_kv(\"lang = rust\"));\n}\n\n#[cfg(test)]\nmod tests {\n    use super::parse_kv;\n    #[test]\n    fn extrai_chave_valor() {\n        assert_eq!(parse_kv(\"lang = rust\"), Some((\"lang\", \"rust\")));\n        assert_eq!(parse_kv(\"=vazio\"), None);\n    }\n}\n",
+                required_patterns: &["fn parse_kv", "split_once"],
+                forbidden_patterns: &["todo!("],
+                test_code: "assert_eq!(parse_kv(\"a=1\"), Some((\"a\", \"1\")));",
+                xp_reward: 80,
+            },
+            ProjectCheckpoint {
+                step_number: 3,
+                id: "parser-cp3",
+                title: "Checkpoint 3 · Serializar objeto JSON",
+                goal: "Implemente `para_json(pares: &[(&str, &str)]) -> String` escapando aspas.",
+                starter_code: "pub fn para_json(pares: &[(&str, &str)]) -> String {\n    let body: Vec<String> = pares\n        .iter()\n        .map(|(k, v)| format!(\"\\\"{}\\\":\\\"{}\\\"\", k.replace('\"', \"\\\\\\\"\"), v.replace('\"', \"\\\\\\\"\")))\n        .collect();\n    format!(\"{{{}}}\", body.join(\",\"))\n}\n\nfn main() {\n    println!(\"{}\", para_json(&[(\"nome\", \"RustLab\")]));\n}\n\n#[cfg(test)]\nmod tests {\n    use super::para_json;\n    #[test]\n    fn gera_json_valido() {\n        assert_eq!(para_json(&[(\"ok\", \"true\")]), \"{\\\"ok\\\":\\\"true\\\"}\");\n    }\n}\n",
+                required_patterns: &["fn para_json", "format!"],
+                forbidden_patterns: &["todo!("],
+                test_code: "assert!(para_json(&[(\"k\", \"v\")]).starts_with('{'));",
+                xp_reward: 100,
+            },
+        ],
+    },
+    GuidedProjectTrack {
+        id: "async-http-router",
+        name: "Roteador HTTP & Async",
+        subtitle: "Parser de request line, roteamento tipado e resposta HTTP/1.1",
+        checkpoints: [
+            ProjectCheckpoint {
+                step_number: 1,
+                id: "http-cp1",
+                title: "Checkpoint 1 · Ler linha de requisição HTTP",
+                goal: "Implemente `parse_req_line(line: &str) -> Option<(&str, &str)>` extraindo `(metodo, rota)`.",
+                starter_code: "pub fn parse_req_line(line: &str) -> Option<(&str, &str)> {\n    let mut parts = line.split_whitespace();\n    let method = parts.next()?;\n    let path = parts.next()?;\n    Some((method, path))\n}\n\nfn main() {\n    println!(\"{:?}\", parse_req_line(\"GET /health HTTP/1.1\"));\n}\n\n#[cfg(test)]\nmod tests {\n    use super::parse_req_line;\n    #[test]\n    fn extrai_metodo_e_rota() {\n        assert_eq!(parse_req_line(\"GET /api HTTP/1.1\"), Some((\"GET\", \"/api\")));\n    }\n}\n",
+                required_patterns: &["fn parse_req_line", "split_whitespace"],
+                forbidden_patterns: &["todo!("],
+                test_code: "assert_eq!(parse_req_line(\"GET /health\"), Some((\"GET\", \"/health\")));",
+                xp_reward: 60,
+            },
+            ProjectCheckpoint {
+                step_number: 2,
+                id: "http-cp2",
+                title: "Checkpoint 2 · Roteador tipado com match",
+                goal: "Implemente `route(method: &str, path: &str) -> (u16, &'static str)` tratando `/health` e 404.",
+                starter_code: "pub fn route(method: &str, path: &str) -> (u16, &'static str) {\n    match (method, path) {\n        (\"GET\", \"/health\") => (200, \"ok\"),\n        (\"GET\", \"/version\") => (200, \"0.4.0\"),\n        _ => (404, \"not found\"),\n    }\n}\n\nfn main() {\n    println!(\"{:?}\", route(\"GET\", \"/health\"));\n}\n\n#[cfg(test)]\nmod tests {\n    use super::route;\n    #[test]\n    fn roteia_health_e_404() {\n        assert_eq!(route(\"GET\", \"/health\"), (200, \"ok\"));\n        assert_eq!(route(\"POST\", \"/x\").0, 404);\n    }\n}\n",
+                required_patterns: &["fn route", "match"],
+                forbidden_patterns: &["todo!("],
+                test_code: "assert_eq!(route(\"GET\", \"/health\").0, 200);",
+                xp_reward: 80,
+            },
+            ProjectCheckpoint {
+                step_number: 3,
+                id: "http-cp3",
+                title: "Checkpoint 3 · Formatar resposta HTTP/1.1",
+                goal: "Implemente `format_http_response(status: u16, body: &str) -> String` com `Content-Length`.",
+                starter_code: "pub fn format_http_response(status: u16, body: &str) -> String {\n    let reason = if status == 200 { \"OK\" } else { \"Not Found\" };\n    format!(\"HTTP/1.1 {status} {reason}\\r\\nContent-Length: {}\\r\\n\\r\\n{body}\", body.len())\n}\n\nfn main() {\n    println!(\"{}\", format_http_response(200, \"ok\"));\n}\n\n#[cfg(test)]\nmod tests {\n    use super::format_http_response;\n    #[test]\n    fn inclui_content_length() {\n        let r = format_http_response(200, \"hello\");\n        assert!(r.contains(\"Content-Length: 5\"));\n    }\n}\n",
+                required_patterns: &["fn format_http_response", "Content-Length"],
+                forbidden_patterns: &["todo!("],
+                test_code: "assert!(format_http_response(200, \"hi\").contains(\"Content-Length: 2\"));",
+                xp_reward: 100,
+            },
+        ],
+    },
+    GuidedProjectTrack {
+        id: "ratatui-mini-game",
+        name: "Mini Jogo TUI (Grid & Score)",
+        subtitle: "Estado puro de tabuleiro, movimento seguro com saturating/min e render ASCII",
+        checkpoints: [
+            ProjectCheckpoint {
+                step_number: 1,
+                id: "tui-cp1",
+                title: "Checkpoint 1 · Mover cursor dentro dos limites",
+                goal: "Implemente `mover_no_grid(x: usize, y: usize, dx: isize, dy: isize, w: usize, h: usize) -> (usize, usize)` sem panic.",
+                starter_code: "pub fn mover_no_grid(x: usize, y: usize, dx: isize, dy: isize, w: usize, h: usize) -> (usize, usize) {\n    let nx = x.saturating_add_signed(dx).min(w.saturating_sub(1));\n    let ny = y.saturating_add_signed(dy).min(h.saturating_sub(1));\n    (nx, ny)\n}\n\nfn main() {\n    println!(\"{:?}\", mover_no_grid(0, 0, -1, 1, 10, 10));\n}\n\n#[cfg(test)]\nmod tests {\n    use super::mover_no_grid;\n    #[test]\n    fn respeita_bordas() {\n        assert_eq!(mover_no_grid(0, 0, -2, -1, 5, 5), (0, 0));\n        assert_eq!(mover_no_grid(4, 4, 2, 2, 5, 5), (4, 4));\n    }\n}\n",
+                required_patterns: &["fn mover_no_grid", "saturating_add_signed"],
+                forbidden_patterns: &["todo!("],
+                test_code: "assert_eq!(mover_no_grid(0, 0, -1, 2, 5, 5), (0, 2));",
+                xp_reward: 60,
+            },
+            ProjectCheckpoint {
+                step_number: 2,
+                id: "tui-cp2",
+                title: "Checkpoint 2 · Coletar moeda e pontuar",
+                goal: "Implemente `coletar_moeda(pos: (usize, usize), moeda: &mut Option<(usize, usize)>, score: &mut u32) -> bool`.",
+                starter_code: "pub fn coletar_moeda(pos: (usize, usize), moeda: &mut Option<(usize, usize)>, score: &mut u32) -> bool {\n    if *moeda == Some(pos) {\n        *moeda = None;\n        *score += 10;\n        true\n    } else {\n        false\n    }\n}\n\nfn main() {\n    let mut m = Some((1, 2));\n    let mut score = 0;\n    println!(\"{} score={score}\", coletar_moeda((1, 2), &mut m, &mut score));\n}\n\n#[cfg(test)]\nmod tests {\n    use super::coletar_moeda;\n    #[test]\n    fn coleta_soma_10() {\n        let mut m = Some((2, 1));\n        let mut s = 0;\n        assert!(coletar_moeda((2, 1), &mut m, &mut s));\n        assert_eq!((m, s), (None, 10));\n    }\n}\n",
+                required_patterns: &["fn coletar_moeda", "Option<"],
+                forbidden_patterns: &["todo!("],
+                test_code: "let mut m = Some((0, 0)); let mut s = 0; assert!(coletar_moeda((0, 0), &mut m, &mut s));",
+                xp_reward: 80,
+            },
+            ProjectCheckpoint {
+                step_number: 3,
+                id: "tui-cp3",
+                title: "Checkpoint 3 · Renderizar linha ASCII do grid",
+                goal: "Implemente `render_linha(y: usize, w: usize, player: (usize, usize), coin: Option<(usize, usize)>) -> String`.",
+                starter_code: "pub fn render_linha(y: usize, w: usize, player: (usize, usize), coin: Option<(usize, usize)>) -> String {\n    (0..w)\n        .map(|x| {\n            if (x, y) == player {\n                '@'\n            } else if coin == Some((x, y)) {\n                '*'\n            } else {\n                '.'\n            }\n        })\n        .collect()\n}\n\nfn main() {\n    println!(\"{}\", render_linha(0, 5, (1, 0), Some((3, 0))));\n}\n\n#[cfg(test)]\nmod tests {\n    use super::render_linha;\n    #[test]\n    fn desenha_jogador_e_moeda() {\n        assert_eq!(render_linha(0, 5, (1, 0), Some((3, 0))), \".@.*.\");\n    }\n}\n",
+                required_patterns: &["fn render_linha", ".collect()"],
+                forbidden_patterns: &["todo!("],
+                test_code: "assert_eq!(render_linha(0, 4, (0, 0), None), \"@...\");",
+                xp_reward: 100,
+            },
+        ],
+    },
+];
+
+pub const GUIDED_PROJECT_TRACKS_EN: [GuidedProjectTrack; 4] = [
+    GuidedProjectTrack {
+        id: "minigrep-cli",
+        name: "minigrep-style CLI",
+        subtitle: "Text search, case-insensitive filter, and numbered match summary",
+        checkpoints: [
+            ProjectCheckpoint {
+                step_number: 1,
+                id: "minigrep-cp1",
+                title: "Checkpoint 1 · Filter matching lines",
+                goal: "Implement `buscar<'a>(consulta: &str, conteudo: &'a str) -> Vec<&'a str>` using `.lines()` and `.contains()`.",
+                ..GUIDED_PROJECT_TRACKS_PT[0].checkpoints[0]
+            },
+            ProjectCheckpoint {
+                step_number: 2,
+                id: "minigrep-cp2",
+                title: "Checkpoint 2 · Case-insensitive search",
+                goal: "Add `buscar_sem_caixa<'a>(consulta: &str, conteudo: &'a str) -> Vec<&'a str>` using `.to_lowercase()`.",
+                ..GUIDED_PROJECT_TRACKS_PT[0].checkpoints[1]
+            },
+            ProjectCheckpoint {
+                step_number: 3,
+                id: "minigrep-cp3",
+                title: "Checkpoint 3 · Numbered search summary",
+                goal: "Implement `resumo_busca(consulta: &str, conteudo: &str) -> String` with 1-based line numbers.",
+                ..GUIDED_PROJECT_TRACKS_PT[0].checkpoints[2]
+            },
+        ],
+    },
+    GuidedProjectTrack {
+        id: "csv-json-parser",
+        name: "Minimal CSV & JSON Parser",
+        subtitle: "Split columns, parse key=value pairs, and serialize JSON cleanly",
+        checkpoints: [
+            ProjectCheckpoint {
+                step_number: 1,
+                id: "parser-cp1",
+                title: "Checkpoint 1 · Split CSV row",
+                goal: "Implement `parse_csv_linha(linha: &str) -> Vec<&str>` trimming whitespace with `.trim()`.",
+                ..GUIDED_PROJECT_TRACKS_PT[1].checkpoints[0]
+            },
+            ProjectCheckpoint {
+                step_number: 2,
+                id: "parser-cp2",
+                title: "Checkpoint 2 · Parse key=value pair",
+                goal: "Implement `parse_kv(s: &str) -> Option<(&str, &str)>` using `.split_once('=')`.",
+                ..GUIDED_PROJECT_TRACKS_PT[1].checkpoints[1]
+            },
+            ProjectCheckpoint {
+                step_number: 3,
+                id: "parser-cp3",
+                title: "Checkpoint 3 · Serialize JSON object",
+                goal: "Implement `para_json(pares: &[(&str, &str)]) -> String` escaping quotes.",
+                ..GUIDED_PROJECT_TRACKS_PT[1].checkpoints[2]
+            },
+        ],
+    },
+    GuidedProjectTrack {
+        id: "async-http-router",
+        name: "HTTP Router & Async",
+        subtitle: "Request line parser, typed match routing, and HTTP/1.1 formatter",
+        checkpoints: [
+            ProjectCheckpoint {
+                step_number: 1,
+                id: "http-cp1",
+                title: "Checkpoint 1 · Parse HTTP request line",
+                goal: "Implement `parse_req_line(line: &str) -> Option<(&str, &str)>` extracting `(method, path)`.",
+                ..GUIDED_PROJECT_TRACKS_PT[2].checkpoints[0]
+            },
+            ProjectCheckpoint {
+                step_number: 2,
+                id: "http-cp2",
+                title: "Checkpoint 2 · Typed match router",
+                goal: "Implement `route(method: &str, path: &str) -> (u16, &'static str)` handling `/health` and 404.",
+                ..GUIDED_PROJECT_TRACKS_PT[2].checkpoints[1]
+            },
+            ProjectCheckpoint {
+                step_number: 3,
+                id: "http-cp3",
+                title: "Checkpoint 3 · Format HTTP/1.1 response",
+                goal: "Implement `format_http_response(status: u16, body: &str) -> String` including `Content-Length`.",
+                ..GUIDED_PROJECT_TRACKS_PT[2].checkpoints[2]
+            },
+        ],
+    },
+    GuidedProjectTrack {
+        id: "ratatui-mini-game",
+        name: "TUI Mini Game (Grid & Score)",
+        subtitle: "Pure board state, bounds-safe movement, and ASCII row renderer",
+        checkpoints: [
+            ProjectCheckpoint {
+                step_number: 1,
+                id: "tui-cp1",
+                title: "Checkpoint 1 · Bounds-safe grid movement",
+                goal: "Implement `mover_no_grid(x: usize, y: usize, dx: isize, dy: isize, w: usize, h: usize) -> (usize, usize)` without panicking.",
+                ..GUIDED_PROJECT_TRACKS_PT[3].checkpoints[0]
+            },
+            ProjectCheckpoint {
+                step_number: 2,
+                id: "tui-cp2",
+                title: "Checkpoint 2 · Collect coin & score",
+                goal: "Implement `coletar_moeda(pos: (usize, usize), moeda: &mut Option<(usize, usize)>, score: &mut u32) -> bool`.",
+                ..GUIDED_PROJECT_TRACKS_PT[3].checkpoints[1]
+            },
+            ProjectCheckpoint {
+                step_number: 3,
+                id: "tui-cp3",
+                title: "Checkpoint 3 · Render ASCII grid row",
+                goal: "Implement `render_linha(y: usize, w: usize, player: (usize, usize), coin: Option<(usize, usize)>) -> String`.",
+                ..GUIDED_PROJECT_TRACKS_PT[3].checkpoints[2]
+            },
+        ],
+    },
+];
+
+pub fn guided_project_tracks(english: bool) -> &'static [GuidedProjectTrack] {
+    if english {
+        &GUIDED_PROJECT_TRACKS_EN
+    } else {
+        &GUIDED_PROJECT_TRACKS_PT
+    }
+}
+
+pub fn validate_project_checkpoint_for(
+    checkpoint: &ProjectCheckpoint,
+    code: &str,
+    english: bool,
+) -> (bool, String) {
+    for forbidden in checkpoint.forbidden_patterns {
+        if code.contains(forbidden) {
+            return (
+                false,
+                if english {
+                    format!(
+                        "Checkpoint {} incomplete: remove `{forbidden}` placeholder first.",
+                        checkpoint.step_number
+                    )
+                } else {
+                    format!(
+                        "Checkpoint {} incompleto: remova `{forbidden}` primeiro.",
+                        checkpoint.step_number
+                    )
+                },
+            );
+        }
+    }
+    for req in checkpoint.required_patterns {
+        if !code.contains(req) {
+            return (
+                false,
+                if english {
+                    format!(
+                        "Checkpoint {} missing expected piece `{req}`.",
+                        checkpoint.step_number
+                    )
+                } else {
+                    format!(
+                        "Checkpoint {} ainda precisa conter `{req}`.",
+                        checkpoint.step_number
+                    )
+                },
+            );
+        }
+    }
+    (
+        true,
+        if english {
+            format!(
+                "Checkpoint {} verified! +{} XP · Run F6 to double-check #[test].",
+                checkpoint.step_number, checkpoint.xp_reward
+            )
+        } else {
+            format!(
+                "Checkpoint {} verificado! +{} XP · Use F6 para validar #[test].",
+                checkpoint.step_number, checkpoint.xp_reward
+            )
+        },
+    )
+}
+
 // =========================================================================
 // 7. MAPA VISUAL DE LIFETIMES ('a, 'b) COLORIDO & DETECÇÃO DE ESCOPOS
 // =========================================================================
@@ -3014,9 +3704,83 @@ pub struct StandardLayoutFact {
 pub struct MemoryLayoutReport {
     pub user_types: Vec<StructLayoutAnalysis>,
     pub npo_facts: Vec<StandardLayoutFact>,
+    pub live_verified: bool,
 }
 
 impl MemoryLayoutReport {
+    pub fn verify_struct_layouts_live(&mut self, code: &str) -> bool {
+        if std::env::var_os("RUSTLAB_FAKE_LAYOUT_LIVE").is_some() {
+            if !self.user_types.is_empty() {
+                self.live_verified = true;
+                return true;
+            }
+            return false;
+        }
+        if self.user_types.is_empty() || !find_executable_in_path("rustc") {
+            return false;
+        }
+        // Executa sonda leve com `rustc` em `/tmp` somente para structs simples sem deps externas.
+        let nonce = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map(|d| d.as_nanos())
+            .unwrap_or(0);
+        let probe_dir =
+            std::env::temp_dir().join(format!("rustlab-layout-{}-{}", std::process::id(), nonce));
+        if std::fs::create_dir_all(&probe_dir).is_err() {
+            return false;
+        }
+        let mut src = String::new();
+        for st in &self.user_types {
+            if let Some(raw_block) = extract_struct_definition(code, &st.name) {
+                src.push_str("#[allow(dead_code)]\n");
+                src.push_str(&raw_block);
+                src.push('\n');
+            }
+        }
+        src.push_str("fn main() {\n");
+        for st in &self.user_types {
+            src.push_str(&format!(
+                "    println!(\"{}={{}},{{}}\", std::mem::size_of::<{}>(), std::mem::align_of::<{}>());\n",
+                st.name, st.name, st.name
+            ));
+        }
+        src.push_str("}\n");
+        let rs_path = probe_dir.join("probe.rs");
+        let bin_path = probe_dir.join("probe_bin");
+        let ok = std::fs::write(&rs_path, &src).is_ok()
+            && std::process::Command::new("rustc")
+                .arg(&rs_path)
+                .arg("-o")
+                .arg(&bin_path)
+                .output()
+                .is_ok_and(|o| o.status.success())
+            && std::process::Command::new(&bin_path)
+                .output()
+                .ok()
+                .filter(|o| o.status.success())
+                .and_then(|o| String::from_utf8(o.stdout).ok())
+                .is_some_and(|out| {
+                    for line in out.lines() {
+                        if let Some((name, dims)) = line.split_once('=')
+                            && let Some((sz, al)) = dims.split_once(',')
+                            && let (Ok(size), Ok(align)) =
+                                (sz.trim().parse::<usize>(), al.trim().parse::<usize>())
+                            && let Some(st) =
+                                self.user_types.iter_mut().find(|s| s.name == name.trim())
+                        {
+                            st.declared_size = size;
+                            st.declared_align = align;
+                        }
+                    }
+                    true
+                });
+        let _ = std::fs::remove_dir_all(&probe_dir);
+        if ok {
+            self.live_verified = true;
+        }
+        ok
+    }
+
     pub fn analyze(code: &str) -> Self {
         Self::analyze_for(code, false)
     }
@@ -3129,8 +3893,47 @@ impl MemoryLayoutReport {
         Self {
             user_types,
             npo_facts,
+            live_verified: false,
         }
     }
+}
+
+fn extract_struct_definition(code: &str, target_name: &str) -> Option<String> {
+    let lines: Vec<&str> = code.lines().collect();
+    let mut i = 0;
+    while i < lines.len() {
+        let trimmed = strip_line_comment(lines[i]).trim();
+        let after_vis = trimmed.strip_prefix("pub ").unwrap_or(trimmed).trim();
+        if let Some(rest) = after_vis.strip_prefix("struct ")
+            && extract_leading_ident(rest) == target_name
+        {
+            let mut out = String::new();
+            if i > 0 && strip_line_comment(lines[i - 1]).contains("repr(") {
+                out.push_str(lines[i - 1]);
+                out.push('\n');
+            }
+            let mut depth = 0i32;
+            let mut started = false;
+            while i < lines.len() {
+                out.push_str(lines[i]);
+                out.push('\n');
+                for ch in strip_line_comment(lines[i]).chars() {
+                    if ch == '{' {
+                        depth += 1;
+                        started = true;
+                    } else if ch == '}' {
+                        depth -= 1;
+                    }
+                }
+                if started && depth <= 0 {
+                    return Some(out);
+                }
+                i += 1;
+            }
+        }
+        i += 1;
+    }
+    None
 }
 
 fn parse_struct_fields(body: &str) -> Vec<(String, String)> {
@@ -3295,6 +4098,57 @@ pub struct DesugarItem {
 pub struct DesugarReport {
     pub detected_from_editor: bool,
     pub items: Vec<DesugarItem>,
+    pub cargo_expand_available: bool,
+    pub live_expanded: Option<String>,
+}
+
+pub fn detect_cargo_expand() -> bool {
+    if std::env::var_os("RUSTLAB_FAKE_CARGO_EXPAND").is_some() {
+        return true;
+    }
+    find_executable_in_path("cargo-expand")
+}
+
+pub fn try_cargo_expand_snippet(
+    project_root: Option<&Path>,
+    code: &str,
+    english: bool,
+) -> Option<String> {
+    if let Ok(fake) = std::env::var("RUSTLAB_FAKE_CARGO_EXPAND") {
+        let out = if fake.trim().is_empty() || fake.trim() == "1" {
+            if english {
+                format!(
+                    "// cargo-expand (simulated)\nfn __expanded_preview() {{ /* {} bytes */ }}",
+                    code.len()
+                )
+            } else {
+                format!(
+                    "// cargo-expand (simulado)\nfn __expanded_preview() {{ /* {} bytes */ }}",
+                    code.len()
+                )
+            }
+        } else {
+            fake
+        };
+        return Some(out);
+    }
+    let root = project_root?;
+    if !find_executable_in_path("cargo-expand") {
+        return None;
+    }
+    let output = std::process::Command::new("cargo")
+        .arg("expand")
+        .current_dir(root)
+        .env("CARGO_TERM_COLOR", "never")
+        .output()
+        .ok()?;
+    if output.status.success() {
+        let text = String::from_utf8_lossy(&output.stdout).trim().to_string();
+        if !text.is_empty() {
+            return Some(text);
+        }
+    }
+    None
 }
 
 impl DesugarReport {
@@ -3465,6 +4319,8 @@ impl DesugarReport {
         Self {
             detected_from_editor,
             items,
+            cargo_expand_available: detect_cargo_expand(),
+            live_expanded: None,
         }
     }
 }
@@ -4346,5 +5202,71 @@ fn ler(s: &str) -> Result<i32, std::num::ParseIntError> {
         let (ok, msg) = evaluate_flashcard_answer_for(c1, false, true);
         assert!(ok);
         assert!(msg.contains("E0382"));
+    }
+
+    #[test]
+    fn ownership_timeline_gdb_mi_layout_vivo_desugar_e_checkpoints_guiados() {
+        let code = r#"
+fn main() {
+    let s1 = String::from("rust");
+    let r1 = &s1;
+    {
+        let temp = String::from("scoped");
+        let moved = temp;
+    }
+}
+"#;
+        let mut xray = MemoryXRayReport::analyze_for(code, true);
+        assert!(!xray.timeline.is_empty());
+        assert!(
+            xray.timeline
+                .iter()
+                .any(|s| matches!(s.event_kind, OwnershipEventKind::Bind { .. }))
+        );
+        assert!(
+            xray.timeline
+                .iter()
+                .any(|s| matches!(s.event_kind, OwnershipEventKind::BorrowShared { .. }))
+        );
+        assert!(
+            xray.timeline
+                .iter()
+                .any(|s| matches!(s.event_kind, OwnershipEventKind::Move { .. }))
+        );
+        assert!(
+            xray.timeline
+                .iter()
+                .any(|s| matches!(s.event_kind, OwnershipEventKind::DropScope { .. }))
+        );
+        xray.step_next();
+        assert_eq!(xray.timeline_cursor, 1);
+        xray.step_prev();
+        assert_eq!(xray.timeline_cursor, 0);
+
+        let mut dbg = VisualDebuggerState::default();
+        let mi = "*stopped,reason=\"breakpoint-hit\",frame={addr=\"0x1\",func=\"main\",file=\"src/main.rs\",line=\"4\"}\n^done,variables=[{name=\"count\",value=\"42\"}]\n";
+        assert!(dbg.apply_gdb_mi_output(mi, true));
+        assert!(dbg.mi_mode);
+        assert_eq!(dbg.current().unwrap().line_1based, 4);
+        assert_eq!(dbg.current().unwrap().locals[0].name, "count");
+        assert_eq!(dbg.current().unwrap().locals[0].value, "42");
+
+        let struct_code = "struct Pair { a: u8, b: u64, c: u8 }\n";
+        let mut layout = MemoryLayoutReport::analyze_for(struct_code, true);
+        assert_eq!(layout.user_types.len(), 1);
+        let _ = layout.verify_struct_layouts_live(struct_code);
+
+        let tracks_pt = guided_project_tracks(false);
+        let tracks_en = guided_project_tracks(true);
+        assert_eq!(tracks_pt.len(), 4);
+        assert_eq!(tracks_en.len(), 4);
+        for track in tracks_en {
+            for cp in &track.checkpoints {
+                let (ok, feedback) = validate_project_checkpoint_for(cp, cp.starter_code, true);
+                assert!(ok, "{} failed: {feedback}", cp.id);
+                let (bad, _) = validate_project_checkpoint_for(cp, "fn main() { todo!(); }", true);
+                assert!(!bad, "{} should reject todo!", cp.id);
+            }
+        }
     }
 }

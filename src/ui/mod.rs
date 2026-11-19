@@ -17,7 +17,7 @@ use ratatui::Frame;
 use ratatui::layout::{Constraint, Layout, Rect};
 use ratatui::style::Style;
 use ratatui::text::{Line, Span};
-use ratatui::widgets::{Block, BorderType, Paragraph, Wrap};
+use ratatui::widgets::{Block, BorderType, Clear, Paragraph, Wrap};
 
 use crate::app::{App, Screen, StatusKind};
 use crate::config::ThemeId;
@@ -75,6 +75,12 @@ pub fn draw(frame: &mut Frame, app: &mut App) {
     }
     draw_footer(frame, app, column[2]);
 
+    if let Some(review) = app.daily_review.as_ref() {
+        draw_daily_review_modal(frame, app, review, column[0]);
+    } else if let Some(tour) = app.onboarding.as_ref() {
+        draw_onboarding_modal(frame, app, tour, column[0]);
+    }
+
     // Animações por cima do conteúdo já renderizado (conceito do TachyonFX:
     // widgets primeiro; efeitos transformam as células depois).
     app.anim.tick(frame.buffer_mut(), area);
@@ -110,11 +116,25 @@ fn footer(app: &App) -> Paragraph<'static> {
     let theme = &app.theme;
     let keys: &[&str] = match app.screen {
         Screen::Welcome => &[app.t("footer.quit"), app.t("welcome.prompt")],
-        Screen::Menu => &[
-            app.t("footer.nav"),
-            app.t("footer.enter"),
-            app.t("footer.quit"),
-        ],
+        Screen::Menu => {
+            if app.snapshot_mode {
+                &[
+                    app.t("footer.nav"),
+                    app.t("footer.enter"),
+                    app.t("footer.quit"),
+                ]
+            } else {
+                &[
+                    app.t("footer.nav"),
+                    app.t("footer.enter"),
+                    app.bi(
+                        "d revisão 5m · b bugs · o tour",
+                        "d 5m review · b bugs · o tour",
+                    ),
+                    app.t("footer.quit"),
+                ]
+            }
+        }
         Screen::Settings => &[
             app.t("footer.nav"),
             app.bi("←/→ ou h/l ajustar", "←/→ or h/l adjust"),
@@ -350,6 +370,251 @@ pub fn titled_block<'a>(title: &str, theme: &Theme, focused: bool) -> Block<'a> 
         .style(Style::default())
 }
 
+fn centered_overlay(area: Rect, width: u16, height: u16) -> Rect {
+    let w = width.min(area.width.saturating_sub(2));
+    let h = height.min(area.height.saturating_sub(2));
+    Rect {
+        x: area.x + area.width.saturating_sub(w) / 2,
+        y: area.y + area.height.saturating_sub(h) / 2,
+        width: w,
+        height: h,
+    }
+}
+
+fn draw_daily_review_modal(
+    frame: &mut Frame,
+    app: &App,
+    review: &crate::app::DailyReviewState,
+    area: Rect,
+) {
+    let en = app.is_english();
+    let theme = &app.theme;
+    let rect = centered_overlay(area, 82, 20);
+    frame.render_widget(Clear, rect);
+    let mut lines = vec![
+        Line::styled(
+            if en {
+                format!("Step {}/4 — Daily 5-Minute Review", review.step + 1)
+            } else {
+                format!("Passo {}/4 — Sessão Diária de 5 Minutos", review.step + 1)
+            },
+            theme.title(),
+        ),
+        Line::default(),
+    ];
+
+    if review.step < 2 {
+        let cards = if en {
+            &crate::lab_tools::INTUITION_FLASHCARDS_EN[..]
+        } else {
+            &crate::lab_tools::INTUITION_FLASHCARDS[..]
+        };
+        let card = &cards[review.card_indices[review.step] % cards.len()];
+        lines.push(Line::styled(
+            if en {
+                "Will this snippet compile cleanly? (`c` Compiles · `n` Error · `Enter` next)"
+            } else {
+                "Este trecho compila sem erros? (`c` Compila · `n` Erro · `Enter` avançar)"
+            },
+            theme.warning(),
+        ));
+        lines.push(Line::default());
+        for l in card.snippet.lines() {
+            lines.push(Line::styled(format!("  {l}"), theme.base()));
+        }
+        if let Some((ok, msg)) = &review.card_feedback[review.step] {
+            lines.push(Line::default());
+            lines.push(Line::styled(
+                msg.clone(),
+                if *ok {
+                    theme.success()
+                } else {
+                    theme.warning()
+                },
+            ));
+        }
+    } else if review.step == 2 {
+        lines.push(Line::styled(
+            if en {
+                "Targeted Fix-the-Bug micro-drill (based on your recent compiler errors):"
+            } else {
+                "Micro-treino Conserte o Bug direcionado (baseado nos seus erros recentes):"
+            },
+            theme.title(),
+        ));
+        lines.push(Line::styled(
+            format!("  -> {}", review.bugfix_title),
+            theme.base(),
+        ));
+        lines.push(Line::default());
+        lines.push(Line::styled(
+            if en {
+                "Press `o` to open this Bugfix drill now, or `Enter` to continue to SRS review."
+            } else {
+                "Tecle `o` para abrir este desafio agora, ou `Enter` para ir à revisão SRS."
+            },
+            theme.dim(),
+        ));
+    } else {
+        lines.push(Line::styled(
+            if en {
+                "Due Spaced-Repetition (SRS) item:"
+            } else {
+                "Item de Revisão Espaçada (SRS) para hoje:"
+            },
+            theme.title(),
+        ));
+        lines.push(Line::styled(
+            format!("  • {}", review.srs_target),
+            theme.success(),
+        ));
+        lines.push(Line::default());
+        lines.push(Line::styled(
+            if en {
+                "Press `Enter` to complete today's 5-min session (+50 XP)!"
+            } else {
+                "Pressione `Enter` para concluir a sessão de hoje (+50 XP)!"
+            },
+            theme.warning(),
+        ));
+    }
+
+    frame.render_widget(
+        Paragraph::new(lines)
+            .wrap(Wrap { trim: true })
+            .block(titled_block(
+                app.bi(
+                    "Sessão Diária (5 min) · Esc fecha",
+                    "Daily 5-Min Review · Esc closes",
+                ),
+                theme,
+                true,
+            )),
+        rect,
+    );
+}
+
+fn draw_onboarding_modal(
+    frame: &mut Frame,
+    app: &App,
+    tour: &crate::app::OnboardingTourState,
+    area: Rect,
+) {
+    let en = app.is_english();
+    let theme = &app.theme;
+    let rect = centered_overlay(area, 82, 20);
+    frame.render_widget(Clear, rect);
+    let mut lines = vec![
+        Line::styled(
+            if en {
+                format!("Step {}/3 — Welcome to RustLab!", tour.step + 1)
+            } else {
+                format!("Passo {}/3 — Bem-vindo ao RustLab!", tour.step + 1)
+            },
+            theme.title(),
+        ),
+        Line::default(),
+    ];
+
+    match tour.step {
+        0 => {
+            lines.push(Line::from(format!(
+                "1. {}: {} (`←/→`)",
+                app.bi("Idioma / Language", "Language"),
+                app.config.language_label()
+            )));
+            lines.push(Line::from(format!(
+                "2. {}: {} (`Tab`)",
+                app.bi("Linguagem de origem", "Origin language"),
+                app.config.origin_language.label_for(en)
+            )));
+            lines.push(Line::default());
+            lines.push(Line::styled(
+                app.bi(
+                    "Pressione `Enter` para o passo 2 (seu primeiro erro e `mut`).",
+                    "Press `Enter` for step 2 (your first compiler error & `mut`).",
+                ),
+                theme.warning(),
+            ));
+        }
+        1 => {
+            lines.push(Line::styled(
+                app.bi(
+                    "Em Rust variáveis são imutáveis por padrão (`E0384`).",
+                    "In Rust variables are immutable by default (`E0384`).",
+                ),
+                theme.base(),
+            ));
+            let snippet = if tour.fixed_mutability {
+                "  let mut x = 5;\n  x = 6;\n  println!(\"RustLab: {x}\");"
+            } else {
+                "  let x = 5;\n  x = 6; // <-- error[E0384]: cannot assign twice!"
+            };
+            for l in snippet.lines() {
+                lines.push(Line::styled(
+                    l.to_string(),
+                    if tour.fixed_mutability {
+                        theme.success()
+                    } else {
+                        theme.warning()
+                    },
+                ));
+            }
+            if !tour.simulated_output.is_empty() {
+                lines.push(Line::default());
+                lines.push(Line::styled(tour.simulated_output.clone(), theme.success()));
+            }
+            lines.push(Line::default());
+            lines.push(Line::styled(
+                app.bi(
+                    "Tecle `m` para adicionar `mut`, depois `Enter` para o passo 3.",
+                    "Press `m` to insert `mut`, then `Enter` for step 3.",
+                ),
+                theme.dim(),
+            ));
+        }
+        _ => {
+            lines.push(Line::styled(
+                app.bi(
+                    "Você está pronto para a Trilha V3 (213 lições), Modo Criar e Lab Tools!",
+                    "You are ready for the V3 Track (213 lessons), Create Mode, and Lab Tools!",
+                ),
+                theme.base(),
+            ));
+            lines.push(Line::from(app.bi(
+                "• Use `Ctrl+T` a qualquer hora para abrir o Mentor IA (Socrático no Modo Aprender).",
+                "• Use `Ctrl+T` anytime to open the AI Mentor (Socratic tutor in Learn Mode).",
+            )));
+            lines.push(Line::from(app.bi(
+                "• No Menu, `d` abre a Revisão Diária de 5m e `b` abre os treinos Conserte o Bug.",
+                "• From Menu, `d` opens Daily 5m Review and `b` opens Fix-the-Bug drills.",
+            )));
+            lines.push(Line::default());
+            lines.push(Line::styled(
+                app.bi(
+                    "Pressione `Enter` para concluir o tour (+25 XP)!",
+                    "Press `Enter` to finish the tour (+25 XP)!",
+                ),
+                theme.success(),
+            ));
+        }
+    }
+
+    frame.render_widget(
+        Paragraph::new(lines)
+            .wrap(Wrap { trim: true })
+            .block(titled_block(
+                app.bi(
+                    "Tour Guiado (3 min) · Esc pula",
+                    "3-Min Guided Tour · Esc skips",
+                ),
+                theme,
+                true,
+            )),
+        rect,
+    );
+}
+
 #[cfg(test)]
 pub(crate) mod tests_util {
     use crate::app::App;
@@ -468,5 +733,19 @@ mod tests {
         let with = render(&mut terminal, &mut app);
         assert!(!without.contains("teste de status"));
         assert!(with.contains("teste de status"));
+    }
+
+    #[test]
+    fn modais_sessao_diaria_e_onboarding_renderizam_sem_panico() {
+        let (mut terminal, mut app) = harness(90, 30);
+        app.config.language = "en-US".to_string();
+        app.start_daily_review();
+        let txt_daily = render(&mut terminal, &mut app);
+        assert!(txt_daily.contains("Daily 5-Minute Review"));
+        app.daily_review = None;
+
+        app.start_onboarding();
+        let txt_onb = render(&mut terminal, &mut app);
+        assert!(txt_onb.contains("Welcome to RustLab!"));
     }
 }

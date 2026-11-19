@@ -233,6 +233,7 @@ enum Command_ {
     Run {
         cmd: ToolCommand,
         cwd: PathBuf,
+        target_dir: Option<PathBuf>,
         input: Option<mpsc::Receiver<Option<Vec<u8>>>>,
     },
 }
@@ -253,6 +254,7 @@ pub struct ExecutionManager {
     pub running: bool,
     pub running_label: Option<String>,
     input: Option<mpsc::Sender<Option<Vec<u8>>>>,
+    pub shared_target_dir: Option<PathBuf>,
 }
 
 impl ExecutionManager {
@@ -277,8 +279,22 @@ impl ExecutionManager {
                 }
             };
             rt.block_on(async move {
-                while let Some(Command_::Run { cmd, cwd, input }) = cmd_rx.recv().await {
-                    run_one(&cmd, &cwd, &state_clone, event_tx.clone(), input).await;
+                while let Some(Command_::Run {
+                    cmd,
+                    cwd,
+                    target_dir,
+                    input,
+                }) = cmd_rx.recv().await
+                {
+                    run_one(
+                        &cmd,
+                        &cwd,
+                        target_dir.as_deref(),
+                        &state_clone,
+                        event_tx.clone(),
+                        input,
+                    )
+                    .await;
                 }
             });
         });
@@ -290,7 +306,16 @@ impl ExecutionManager {
             running: false,
             running_label: None,
             input: None,
+            shared_target_dir: None,
         }
+    }
+
+    pub fn set_shared_target_dir(&mut self, dir: Option<PathBuf>) {
+        self.shared_target_dir = dir;
+    }
+
+    pub fn shared_target_dir(&self) -> Option<&Path> {
+        self.shared_target_dir.as_deref()
     }
 
     /// Enfileira um comando. Se algo estiver rodando, o pedido é recusado
@@ -323,8 +348,18 @@ impl ExecutionManager {
         } else {
             (None, None)
         };
+        let target_dir = if matches!(cmd, ToolCommand::NewProject { .. }) {
+            None
+        } else {
+            self.shared_target_dir.clone()
+        };
         self.cmd_tx
-            .try_send(Command_::Run { cmd, cwd, input })
+            .try_send(Command_::Run {
+                cmd,
+                cwd,
+                target_dir,
+                input,
+            })
             .map_err(|_| "fila de execução cheia")?;
         self.running = true;
         self.running_label = Some(label);
@@ -397,6 +432,7 @@ impl Default for ExecutionManager {
 async fn run_one(
     cmd: &ToolCommand,
     cwd: &Path,
+    target_dir: Option<&Path>,
     state: &Arc<ExecState>,
     tx: std::sync::mpsc::Sender<ExecEvent>,
     input: Option<mpsc::Receiver<Option<Vec<u8>>>>,
@@ -415,6 +451,10 @@ async fn run_one(
     };
     let mut ac = AsyncCommand::new(&cargo);
     ac.env("CARGO_TERM_COLOR", "never");
+    if let Some(dir) = target_dir {
+        let _ = std::fs::create_dir_all(dir);
+        ac.env("CARGO_TARGET_DIR", dir);
+    }
     if let Some(dir) = cargo.parent() {
         let mut search_paths = vec![dir.to_path_buf()];
         if let Some(path) = std::env::var_os("PATH") {
@@ -914,5 +954,16 @@ warning: unused variable: `y`
                 "--message-format=short".to_string()
             ]
         );
+    }
+
+    #[test]
+    fn shared_target_dir_configura_e_limpa() {
+        let mut mgr = ExecutionManager::new();
+        assert!(mgr.shared_target_dir().is_none());
+        let p = PathBuf::from("/tmp/rustlab-shared-target-test");
+        mgr.set_shared_target_dir(Some(p.clone()));
+        assert_eq!(mgr.shared_target_dir(), Some(p.as_path()));
+        mgr.set_shared_target_dir(None);
+        assert!(mgr.shared_target_dir().is_none());
     }
 }
