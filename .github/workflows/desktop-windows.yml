@@ -42,6 +42,7 @@ jobs:
         working-directory: apps/desktop
         run: npm ci --no-audit --no-fund
       - name: Testar integração desktop e formatação
+        id: desktop_tests
         run: |
           npm --prefix apps/desktop run build
           cargo fmt --manifest-path apps/desktop/src-tauri/Cargo.toml -- --check
@@ -66,7 +67,7 @@ jobs:
           $install = Start-Process -FilePath $setup.FullName -ArgumentList @('/S', "/D=$destination") -PassThru -Wait
           if ($install.ExitCode -ne 0) { throw "Falha do instalador: $($install.ExitCode)" }
           $appPath = Join-Path $destination 'rustlab-desktop.exe'
-          $env:WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS = '--remote-debugging-port=9333'
+          $env:WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS = '--force-renderer-accessibility'
           $app = Start-Process $appPath -PassThru
           try {
             $opened = $false
@@ -77,7 +78,7 @@ jobs:
               if ($app.MainWindowTitle -eq 'RustLab') { $opened = $true; break }
             }
             if (-not $opened) { throw 'A janela RustLab não apareceu.' }
-            node apps/desktop/tests/windows-smoke.mjs
+            powershell.exe -NoProfile -ExecutionPolicy Bypass -File apps/desktop/tests/windows-smoke.ps1 -AppPid $app.Id
             if ($LASTEXITCODE -ne 0) { throw 'Falha ao validar a interface instalada.' }
           } finally {
             if (-not $app.HasExited) {
@@ -88,7 +89,7 @@ jobs:
           Start-Sleep -Seconds 2
           $app = Start-Process $appPath -PassThru
           try {
-            node apps/desktop/tests/windows-smoke.mjs --restored
+            powershell.exe -NoProfile -ExecutionPolicy Bypass -File apps/desktop/tests/windows-smoke.ps1 -AppPid $app.Id -Restored
             if ($LASTEXITCODE -ne 0) { throw 'O progresso não persistiu após reabrir o app.' }
           } finally {
             if (-not $app.HasExited) {
@@ -107,6 +108,7 @@ jobs:
           path: windows-artifact
           if-no-files-found: warn
       - name: Validar modelos gráficos no Windows
+        if: ${{ !cancelled() && steps.desktop_tests.outcome == 'success' }}
         env:
           CARGO_PROFILE_DEV_DEBUG: 0
           CARGO_PROFILE_TEST_DEBUG: 0
