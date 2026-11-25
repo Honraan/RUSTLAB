@@ -1,12 +1,28 @@
 # Checklist do instalador e da release Windows
 
-## Automatizável
+## Verificado no commit da prévia
 
-- [ ] Windows Server 2025 hospedado: `cargo check --locked --all-targets`, integração Cargo da TUI e teste ConPTY.
-- [ ] Windows: build frontend e testes desktop reais com Cargo, quiz/carregamento, F9, persistência e Unicode.
-- [ ] Gerar `-setup.exe` com lockfiles, checksums e GPL-3.0-only; instalar, abrir e desinstalar com smoke.
-- [ ] Gerar os projetos de aluno Mini Paint e CaveGame e compilar no Windows. Guardar evidência de execução separada do resultado de build.
-- [ ] Manter o CI Linux original da TUI verde.
+- [x] Windows Server 2025 x64 em runner hospedado. Clippy, integração Cargo, diagnóstico e ConPTY passaram. O teste ConPTY compilou um projeto em caminho com espaços e acento, confirmou console real, stdin, tecla de seta e saída ANSI.
+- [x] NSIS x64 gerado com lockfiles, licença e SHA-256. Instalação e abertura confirmadas. A automação abriu `B-T01`, confirmou 20 XP no TOML, reabriu o aplicativo, confirmou a retomada e desinstalou.
+- [x] Mini Paint 0.27.0 compilou e abriu em janela nativa no runner. O teste do canvas preservado em redimensionamento e exportação PPM passou.
+- [x] CaveGame com Bevy 0.20.1 passou em `cargo check --all-targets` no Windows. A execução com GPU e o percurso completo de interação estão na matriz manual.
+- [x] TUI Classic em Linux passou formatação, Clippy, build, 268 testes e os dois smokes PTY. Um teste de animação fica ignorado pela suíte.
+
+| Comando | Resultado |
+| --- | --- |
+| `cargo fmt --all -- --check` | Passou |
+| `cargo clippy --locked --all-targets -- -D warnings` | Passou em Linux e Windows |
+| `cargo test --locked --all-targets` | Passou em Linux, com um teste ignorado |
+| `cargo build --release --locked` | Passou em Linux |
+| `python3 tests/tui_phase4.py target/release/rustlab` e `python3 tests/tui_phase6.py target/release/rustlab` | Passaram em PTY Linux |
+| `cargo test --locked --test cargo_run --test project_flow --test exercise_flow` | Passou no Windows |
+| `cargo test --locked --lib conpty_cargo_uses_a_console_and_delivers_keyboard_input` | Passou no Windows |
+| `cargo test --locked --manifest-path apps/desktop/src-tauri/Cargo.toml` | Seis testes passaram em Linux e Windows |
+| `npm --prefix apps/desktop run build` | TypeScript e Vite passaram |
+| `npm --prefix apps/desktop audit --omit=dev` | Zero vulnerabilidades reportadas |
+| `npm run tauri -- build --ci --target x86_64-pc-windows-msvc --bundles nsis -- --locked` | NSIS gerado e validado |
+
+O instalador corresponde ao commit `0296a2a0429239b52d8d2c11f78a907c02dd0fc2`. SHA-256 do executável `279f8b94b1265953d9bf2a78bf990eeba81c59ed08575495c7d509f107421e55`. [CI Windows](https://github.com/Honraan/RUSTLAB/actions/runs/45686970497) · [CI Classic](https://github.com/Honraan/RUSTLAB/actions/runs/45686970452) · [Artefato NSIS](https://github.com/Honraan/RUSTLAB/actions/runs/45686970497/artifacts/15057137391)
 
 ## Windows 11 x64 em máquina ou VM
 
