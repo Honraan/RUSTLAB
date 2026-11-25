@@ -18,9 +18,6 @@ pub fn normalize_display_path(p: &Path) -> PathBuf {
 }
 
 fn is_reparse_or_symlink(meta: &std::fs::Metadata) -> bool {
-    if meta.file_type().is_symlink() {
-        return true;
-    }
     #[cfg(windows)]
     {
         use std::os::windows::fs::MetadataExt;
@@ -29,7 +26,7 @@ fn is_reparse_or_symlink(meta: &std::fs::Metadata) -> bool {
             return true;
         }
     }
-    false
+    meta.file_type().is_symlink()
 }
 
 /// Capacidades técnicas verificáveis em um projeto independente da Etapa 10.
