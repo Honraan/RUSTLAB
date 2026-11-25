@@ -1,7 +1,7 @@
-import { lazy, Suspense, useState } from "react";
+import { lazy, Suspense, useEffect, useEffectEvent, useState } from "react";
 import { FileCode2, FolderOpen, Plus, RefreshCw, Save } from "lucide-react";
 import { api, errorMessage } from "./api";
-import type { Action, Project, Template } from "./api";
+import type { Action, Jump, Project, Template } from "./api";
 import type { RunTask } from "./App";
 import { Editor } from "./Editor";
 
@@ -15,15 +15,17 @@ const TerminalPanel = lazy(() => import("./TerminalPanel"));
 type Buffer = { base: string; text: string };
 const recoveryKey = (root: string, file: string) => `rustlab-project-draft:${JSON.stringify([root, file])}`;
 
-export function ProjectPage({ report, nameChanged, run, running, fontSize }: {
+export function ProjectPage({ report, nameChanged, run, running, fontSize, jump }: {
   report: (message: string) => void;
-  nameChanged: (name: string) => void;
+  nameChanged: (project: Project) => void;
   run: RunTask;
   running: boolean;
   fontSize: number;
+  jump: Jump | null;
 }) {
   const [project, setProject] = useState<Project | null>(null);
   const [buffers, setBuffers] = useState<Record<string, Buffer>>({});
+  const [editorJump, setEditorJump] = useState<Jump | null>(null);
   const [selected, setSelected] = useState<string | null>(null);
   const [newProject, setNewProject] = useState("");
   const [template, setTemplate] = useState<Template>("basic");
@@ -75,6 +77,7 @@ export function ProjectPage({ report, nameChanged, run, running, fontSize }: {
       }
       setBuffers((existing) => ({ ...existing, [file]: buffer }));
     }
+    setEditorJump(null);
     setSelected(file);
   }
 
@@ -97,7 +100,7 @@ export function ProjectPage({ report, nameChanged, run, running, fontSize }: {
     const next = await pick();
     if (!next) return;
     setProject(next);
-    nameChanged(next.name);
+    nameChanged(next);
     setSelected(null);
     setBuffers({});
     setConsent(false);
@@ -105,6 +108,28 @@ export function ProjectPage({ report, nameChanged, run, running, fontSize }: {
     const first = next.files.includes("src/main.rs") ? "src/main.rs" : next.files[0];
     if (first) await select(first, "switch", next.root);
   }
+
+  const openMarker = useEffectEvent(async (marker: Jump) => {
+    if (!project) return;
+    const root = project.root.replaceAll("\\", "/").replace(/^\/\/\?\//, "").replace(/\/$/, "");
+    const path = marker.file.replace(/^\/\/\?\//, "");
+    const relative = path.toLowerCase().startsWith(`${root.toLowerCase()}/`) ? path.slice(root.length + 1) : path;
+    const file = project.files.find((known) => known.toLowerCase() === relative.toLowerCase());
+    if (!file) {
+      report("O diagnóstico aponta para um arquivo fora das fontes editáveis deste projeto.");
+      return;
+    }
+    try {
+      await select(file);
+      setEditorJump(marker);
+    } catch (error) {
+      report(errorMessage(error));
+    }
+  });
+
+  useEffect(() => {
+    if (jump) void openMarker(jump);
+  }, [jump]);
 
   const save = () => act(async () => {
     if (!selected || !active || !project || busy) return;
@@ -159,7 +184,7 @@ export function ProjectPage({ report, nameChanged, run, running, fontSize }: {
           </div>}
           {selected && active && <>
             <h3>{selected}{active.text !== active.base && " · Alterado"}</h3>
-            <Editor key={selected} label={selected} value={active.text} language={selected.endsWith(".rs") ? "rust" : "text"} fontSize={fontSize}
+            <Editor key={selected} label={selected} value={active.text} language={selected.endsWith(".rs") ? "rust" : "text"} fontSize={fontSize} jump={editorJump}
               onChange={(text) => edit(selected, text, active)}
               onSave={() => void save()} />
             <div className="toolbar">

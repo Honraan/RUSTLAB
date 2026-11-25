@@ -423,6 +423,35 @@ mod tests {
         std::fs::write(
             root.join("src/main.rs"),
             r#"use std::io::{self, IsTerminal, Write};
+#[repr(C)]
+#[derive(Clone, Copy)]
+struct KeyRecord {
+    key_down: i32,
+    repeat: u16,
+    virtual_key: u16,
+    scan: u16,
+    character: u16,
+    control: u32,
+}
+
+#[repr(C)]
+union ConsoleEvent {
+    key: KeyRecord,
+    _padding: [u32; 4],
+}
+
+#[repr(C)]
+struct Record {
+    event_type: u16,
+    event: ConsoleEvent,
+}
+
+#[link(name = "kernel32")]
+unsafe extern "system" {
+    fn GetStdHandle(which: u32) -> *mut std::ffi::c_void;
+    fn ReadConsoleInputW(handle: *mut std::ffi::c_void, record: *mut Record, max: u32, read: *mut u32) -> i32;
+}
+
 fn main() {
     assert!(io::stdin().is_terminal());
     assert!(io::stdout().is_terminal());
@@ -431,6 +460,24 @@ fn main() {
     let mut line = String::new();
     io::stdin().read_line(&mut line).unwrap();
     println!("RESPOSTA={}", line.trim());
+    io::stdout().flush().unwrap();
+    // Exercise the console event API used by interactive Windows TUIs.
+    let handle = unsafe { GetStdHandle(-10i32 as u32) };
+    loop {
+        let mut record = std::mem::MaybeUninit::<Record>::uninit();
+        let mut count = 0;
+        assert_ne!(unsafe { ReadConsoleInputW(handle, record.as_mut_ptr(), 1, &mut count) }, 0);
+        if count > 0 {
+            let record = unsafe { record.assume_init() };
+            if record.event_type == 1 {
+                let key = unsafe { record.event.key };
+                if key.key_down != 0 && key.virtual_key == 0x26 {
+                    println!("SETA_CIMA_RECEBIDA");
+                    break;
+                }
+            }
+        }
+    }
 }"#,
         )
         .unwrap();
@@ -438,6 +485,7 @@ fn main() {
         session.resize(106, 29);
         let mut output = Vec::new();
         let mut sent = false;
+        let mut arrow_sent = false;
         let mut finished = None;
         for _ in 0..1000 {
             let update = session.poll();
@@ -445,6 +493,10 @@ fn main() {
             if !sent && String::from_utf8_lossy(&output).contains("RUSTLAB_TERMINAL_READY") {
                 session.write(b"Ferris\r").unwrap();
                 sent = true;
+            }
+            if !arrow_sent && String::from_utf8_lossy(&output).contains("RESPOSTA=Ferris") {
+                session.write(b"\x1b[A").unwrap();
+                arrow_sent = true;
             }
             if let Some(end) = update.finished {
                 finished = Some(end);
@@ -459,6 +511,7 @@ fn main() {
         }
         assert!(matches!(finished, Some(End::Exited(0))), "{output}");
         assert!(output.contains("RESPOSTA=Ferris"), "{output}");
+        assert!(output.contains("SETA_CIMA_RECEBIDA"), "{output}");
         assert!(
             output.contains('\u{001b}'),
             "ConPTY did not emit ANSI output: {output}"

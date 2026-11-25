@@ -5,6 +5,7 @@ import { EditorView } from "@codemirror/view";
 import { rust } from "@codemirror/lang-rust";
 import { basicSetup } from "codemirror";
 import { useEffect, useRef } from "react";
+import type { Jump } from "./api";
 
 const theme = EditorView.theme({
   "&": { minHeight: "17rem", backgroundColor: "var(--editor)" },
@@ -23,13 +24,14 @@ const highlighter = HighlightStyle.define([
   { tag: [tags.number, tags.bool, tags.typeName, tags.atom], color: "var(--warn)" },
 ]);
 
-export function Editor({ label, value, onChange, language, fontSize, onSave }: {
+export function Editor({ label, value, onChange, language, fontSize, onSave, jump }: {
   label: string;
   value: string;
   onChange: (value: string) => void;
   language: "rust" | "text";
   fontSize: number;
   onSave: () => void;
+  jump?: Jump | null;
 }) {
   const mount = useRef<HTMLDivElement>(null);
   const view = useRef<EditorView | null>(null);
@@ -78,6 +80,16 @@ export function Editor({ label, value, onChange, language, fontSize, onSave }: {
       editor.dispatch({ changes: { from: 0, to: editor.state.doc.length, insert: value } });
     }
   }, [value]);
+
+  useEffect(() => {
+    const editor = view.current;
+    if (!editor || !jump) return;
+    const line = editor.state.doc.line(Math.max(1, Math.min(jump.line, editor.state.doc.lines)));
+    const column = [...line.text].slice(0, Math.max(0, jump.column - 1)).join("").length;
+    const anchor = line.from + column;
+    editor.dispatch({ selection: { anchor }, effects: EditorView.scrollIntoView(anchor, { y: "center" }) });
+    editor.focus();
+  }, [jump]);
 
   return <div className="editor" style={{ fontSize }} ref={mount} />;
 }

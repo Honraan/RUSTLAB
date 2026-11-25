@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useEffectEvent, useState } from "react";
 import { ChevronRight, CircleHelp, Play, Save } from "lucide-react";
 import { api, errorMessage } from "./api";
 import type { Content, Lesson, QuizResult } from "./api";
@@ -51,6 +51,24 @@ export function LessonPage({ lesson, fontSize, report, run, running, refreshed, 
     setRecovered(false);
     report("Rascunho salvo.");
   });
+
+  const validate = () => act(async () => {
+    await run("Validar prática", () => api.practice(id, source));
+    if (localStorage.getItem(draftKey) === source) localStorage.removeItem(draftKey);
+    setRecovered(false);
+  });
+
+  const startFromKeyboard = useEffectEvent((event: KeyboardEvent) => {
+    if (event.key !== "F5") return;
+    event.preventDefault();
+    if (lesson.practice && consent && !working && !running) void validate();
+  });
+
+  useEffect(() => {
+    const handleKey = (event: KeyboardEvent) => startFromKeyboard(event);
+    window.addEventListener("keydown", handleKey);
+    return () => window.removeEventListener("keydown", handleKey);
+  }, []);
 
   return <>
     <header className="lesson-header">
@@ -113,11 +131,7 @@ export function LessonPage({ lesson, fontSize, report, run, running, refreshed, 
       <label className="consent"><input type="checkbox" checked={consent} onChange={(event) => setConsent(event.target.checked)} />
         Autorizo compilar e executar este código com as permissões da minha conta. A tarefa usa Cargo em modo offline.</label>
       <div className="toolbar">
-        <button className="primary" disabled={working || !consent || running} onClick={() => void act(async () => {
-          await run("Validar prática", () => api.practice(id, source));
-          if (localStorage.getItem(draftKey) === source) localStorage.removeItem(draftKey);
-          setRecovered(false);
-        })}><Play size={16} aria-hidden="true" /> Validar prática</button>
+        <button className="primary" disabled={working || !consent || running} onClick={() => void validate()}><Play size={16} aria-hidden="true" /> Validar prática</button>
         <button disabled={working} onClick={() => void save()}><Save size={16} aria-hidden="true" /> Salvar rascunho</button>
         <button disabled={working || hints.length === 4 || running} onClick={() => void act(async () => setHints(await api.hint(id)))}>
           <CircleHelp size={16} aria-hidden="true" /> Revelar dica ({hints.length}/4)

@@ -1,6 +1,8 @@
 use std::path::PathBuf;
 
-use rustlab::execution::{ExecEvent, ExecutionManager, StreamKind, ToolCommand};
+use rustlab::execution::{
+    DiagLevel, ExecEvent, ExecutionManager, StreamKind, ToolCommand, parse_diagnostics,
+};
 use rustlab::learn::{
     PracticeMode, PracticeSpec, explain_compiler_error_pt_br, is_practice_compile_error,
     prepare_practice_project, validate_practice_run,
@@ -17,6 +19,7 @@ pub struct Tasks {
 
 struct Active {
     practice: Option<PracticeRun>,
+    stderr: Vec<String>,
     _scratch: Option<tempfile::TempDir>,
 }
 
@@ -24,7 +27,6 @@ struct PracticeRun {
     spec: PracticeSpec,
     source: String,
     stdout: Vec<String>,
-    diagnostics: Vec<String>,
 }
 
 #[derive(Serialize)]
@@ -40,11 +42,21 @@ pub struct Line {
 }
 
 #[derive(Serialize)]
+pub struct Marker {
+    pub file: String,
+    pub line: u32,
+    pub column: u32,
+    pub severity: &'static str,
+    pub message: String,
+}
+
+#[derive(Serialize)]
 pub struct Outcome {
     pub state: &'static str,
     pub code: Option<i32>,
     pub message: String,
     pub awarded: u32,
+    pub markers: Vec<Marker>,
 }
 
 impl Tasks {
@@ -62,6 +74,7 @@ impl Tasks {
         self.active = Some(Active {
             _scratch: None,
             practice: None,
+            stderr: Vec::new(),
         });
         Ok(())
     }
@@ -90,11 +103,11 @@ impl Tasks {
         self.start(command, scratch.path().into(), false)?;
         self.active = Some(Active {
             _scratch: Some(scratch),
+            stderr: Vec::new(),
             practice: Some(PracticeRun {
                 spec,
                 source,
                 stdout: Vec::new(),
-                diagnostics: Vec::new(),
             }),
         });
         if command_needs_input(&self.active) {
@@ -149,10 +162,14 @@ impl Tasks {
                     text: label,
                 }),
                 ExecEvent::Chunk { kind, text } => {
-                    if let Some(practice) = self.active.as_mut().and_then(|a| a.practice.as_mut()) {
+                    if let Some(active) = self.active.as_mut() {
                         match kind {
-                            StreamKind::Stdout => practice.stdout.push(text.clone()),
-                            StreamKind::Stderr => practice.diagnostics.push(text.clone()),
+                            StreamKind::Stdout => {
+                                if let Some(practice) = active.practice.as_mut() {
+                                    practice.stdout.push(text.clone());
+                                }
+                            }
+                            StreamKind::Stderr => active.stderr.push(text.clone()),
                             StreamKind::System => {}
                         }
                     }
@@ -166,8 +183,12 @@ impl Tasks {
                     });
                 }
                 ExecEvent::Finished { code, success, .. } => {
-                    let practice = self.active.take().and_then(|a| a.practice);
-                    batch.result = Some(finish(course, practice, code, success));
+                    let running = self.active.take();
+                    let stderr = running
+                        .as_ref()
+                        .map(|a| a.stderr.join("\n"))
+                        .unwrap_or_default();
+                    batch.result = Some(finish(course, running, &stderr, code, success));
                 }
                 ExecEvent::TimedOut { .. } => {
                     self.active = None;
@@ -196,31 +217,56 @@ fn command_needs_input(active: &Option<Active>) -> bool {
 
 fn finish(
     course: &mut Course,
-    practice: Option<PracticeRun>,
+    running: Option<Active>,
+    stderr: &str,
     code: Option<i32>,
     success: bool,
 ) -> Outcome {
+    let is_project = running
+        .as_ref()
+        .is_some_and(|active| active._scratch.is_none());
+    let practice = running.and_then(|active| active.practice);
+    let compile_failed = !success && stderr.lines().any(is_practice_compile_error);
     let Some(practice) = practice else {
-        return if success {
-            outcome("success", code, "Cargo concluiu a tarefa.")
-        } else {
-            outcome(
+        let mut result = match (success, compile_failed) {
+            (true, _) => outcome("success", code, "Cargo concluiu a tarefa."),
+            (false, true) => outcome(
+                "compile-error",
+                code,
+                "A compilação falhou. Confira os diagnósticos.",
+            ),
+            _ => outcome(
                 "failure",
                 code,
                 "Cargo retornou uma falha. Confira a saída.",
-            )
+            ),
         };
+        if is_project {
+            result.markers = parse_diagnostics(stderr)
+                .into_iter()
+                .filter_map(|d| {
+                    Some(Marker {
+                        file: d.file?.replace('\\', "/"),
+                        line: d.line?,
+                        column: d.col?,
+                        message: d.message,
+                        severity: match d.level {
+                            DiagLevel::Error => "Erro",
+                            DiagLevel::Warning => "Aviso",
+                            DiagLevel::Note => "Nota",
+                        },
+                    })
+                })
+                .take(100)
+                .collect();
+        }
+        return result;
     };
     if !success {
-        let compiled = !practice
-            .diagnostics
-            .iter()
-            .any(|line| is_practice_compile_error(line));
-        if compiled {
+        if !compile_failed {
             return outcome("failure", code, "A execução ou os testes falharam.");
         }
-        let explanation =
-            explain_compiler_error_pt_br(&practice.diagnostics.join("\n")).unwrap_or_default();
+        let explanation = explain_compiler_error_pt_br(stderr).unwrap_or_default();
         return outcome(
             "compile-error",
             code,
@@ -253,6 +299,7 @@ fn outcome(state: &'static str, code: Option<i32>, message: impl Into<String>) -
         code,
         message: message.into(),
         awarded: 0,
+        markers: Vec::new(),
     }
 }
 
@@ -272,6 +319,43 @@ mod tests {
             std::thread::sleep(Duration::from_millis(15));
         }
         panic!("Cargo task did not finish")
+    }
+
+    #[test]
+    fn project_cargo_reports_positions_and_can_cancel() {
+        let dir = tempfile::tempdir().unwrap();
+        let mut course = Course::load(dir.path().join("progress.toml")).unwrap();
+        let project = crate::workspace::Workspace::create(
+            dir.path(),
+            "diagnostics",
+            crate::templates::Template::Basic,
+        )
+        .unwrap();
+        std::fs::write(
+            project.root().join("src/main.rs"),
+            "fn main() { missing(); }",
+        )
+        .unwrap();
+        let mut tasks = Tasks::default();
+        tasks
+            .start(ToolCommand::Check, project.root().into(), false)
+            .unwrap();
+        let result = wait(&mut tasks, &mut course);
+        assert_eq!(result.state, "compile-error");
+        assert!(
+            result
+                .markers
+                .iter()
+                .any(|marker| marker.file.ends_with("src/main.rs") && marker.line == 1)
+        );
+
+        tasks.test_toolchain().unwrap();
+        assert_eq!(wait(&mut tasks, &mut course).state, "success");
+        tasks
+            .start(ToolCommand::Check, project.root().into(), false)
+            .unwrap();
+        tasks.cancel();
+        assert_eq!(wait(&mut tasks, &mut course).state, "cancelled");
     }
 
     #[test]
@@ -304,6 +388,12 @@ mod tests {
             assert_eq!(result.state, "passed", "{}", result.message);
             assert_eq!(result.awarded, expected);
         }
+        assert_eq!(course.map().xp, 200);
+        course.reveal_hint("B-P01").unwrap();
+        tasks
+            .start_practice(&mut course, "B-P01", good.into())
+            .unwrap();
+        assert_eq!(wait(&mut tasks, &mut course).awarded, 0);
         assert_eq!(course.map().xp, 200);
     }
 }

@@ -785,14 +785,12 @@ fn header_message(rest: &str) -> String {
 
 fn parse_short(line: &str) -> Option<Diagnostic> {
     // path:line:col: level[...]: message
-    let mut parts = line.splitn(4, ':');
-    let path = parts.next()?;
+    let (at, rest) = line.split_once(": ")?;
+    let (path, l, c) = source_position(at)?;
     if !path.ends_with(".rs") {
         return None;
     }
-    let l: u32 = parts.next()?.trim().parse().ok()?;
-    let c: u32 = parts.next()?.trim().parse().ok()?;
-    let rest = parts.next()?.trim();
+    let rest = rest.trim();
     let (level, message) = if let Some(r) = rest.strip_prefix("error") {
         (DiagLevel::Error, header_message(r))
     } else if let Some(r) = rest.strip_prefix("warning") {
@@ -813,18 +811,35 @@ fn parse_short(line: &str) -> Option<Diagnostic> {
 }
 
 fn parse_arrow(line: &str) -> Option<(String, u32, u32)> {
-    let t = line.trim();
-    let rest = t.strip_prefix("-->")?;
-    let mut it = rest.trim().split(':');
-    let file = it.next()?.to_string();
-    let l: u32 = it.next()?.parse().ok()?;
-    let c: u32 = it.next()?.parse().ok()?;
-    Some((file, l, c))
+    let rest = line.trim().strip_prefix("-->")?.trim();
+    let (file, l, c) = source_position(rest)?;
+    Some((file.to_string(), l, c))
+}
+
+fn source_position(text: &str) -> Option<(&str, u32, u32)> {
+    let mut parts = text.rsplitn(3, ':');
+    let column = parts.next()?.trim().parse().ok()?;
+    let line = parts.next()?.trim().parse().ok()?;
+    let file = parts.next()?.trim();
+    Some((file, line, column))
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn diagnostics_keep_windows_drive_and_unicode() {
+        let path = r"C:\Meus Projetos\edição\src\main.rs";
+        for output in [
+            format!("{path}:3:12: error[E0308]: erro"),
+            format!("error[E0308]: erro\n --> {path}:3:12"),
+        ] {
+            let diagnostic = parse_diagnostics(&output).pop().unwrap();
+            assert_eq!(diagnostic.file.as_deref(), Some(path));
+            assert_eq!((diagnostic.line, diagnostic.col), (Some(3), Some(12)));
+        }
+    }
 
     #[test]
     fn argv_nunca_monta_shell() {

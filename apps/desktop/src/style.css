@@ -217,3 +217,5 @@ legend { padding: 0 .25rem; font-weight: 600; max-width: 100%; }
 .lesson-next { margin-top: .75rem; }
 .file-tabs { margin-bottom: .7rem; }
 .file-tabs button[aria-pressed=true] { border-color: var(--accent); }
+.markers { display: flex; flex-wrap: wrap; gap: .35rem; overflow: auto; flex: 0 1 auto; max-height: 4.8rem; padding: .35rem .75rem; }
+.markers button { justify-content: flex-start; min-height: 1.9rem; font: .78rem var(--mono); color: var(--accent); }

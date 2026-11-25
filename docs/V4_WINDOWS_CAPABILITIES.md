@@ -6,7 +6,7 @@ A matriz separa a implementação e as verificações por ambiente. Os workflows
 | --- | --- | --- |
 | Lições, quizzes, XP, pré-requisitos | Conteúdo canônico empacotado em pt-BR | 213 IDs validados, testes de quiz e ledger. Fidelidade individual pendente em exercícios que reutilizam conteúdo V3 |
 | Criar/abrir/editar Cargo | Seletores nativos, editor CodeMirror, buffers múltiplos, arquivo novo e detecção de conflito | Testes de criação/edição e migração; diretórios de workspace multi-crate têm cobertura parcial |
-| Compilar/executar/testar/formatar | Cargo real, console com saída, cancelamento, códigos de saída, avaliação de prática | Testes nativos de execução e testes determinísticos. Estado de aprovação separado de sucesso do processo |
+| Compilar/executar/testar/formatar | Cargo real, console com saída, diagnósticos clicáveis do projeto, cancelamento, códigos de saída e avaliação de prática | Testes nativos de execução e testes determinísticos. Estado de aprovação separado de sucesso do processo |
 | ConPTY | Terminal integrado para `cargo run` do projeto, stdin, ANSI e resize | Teste Windows de pseudoconsole, caminho acentuado e entrada. Pong/Snake/editor interativos ainda pedem sessões Windows |
 | Projeto GUI nativo | Templates separados de Mini Paint e CaveGame | Verificação de compilação e escopo dos modelos na lista de QA. Mini Paint preserva o canvas lógico no resize. CaveGame inicial renderiza uma região 32×32 e usa o núcleo voxel Classic |
 | F9 | Catálogo, prévia de diferença de manifesto e verificação Cargo consentida | Teste da alteração TOML. O undo reverte o manifesto e preserva alterações concorrentes; Cargo pode atualizar o lockfile |

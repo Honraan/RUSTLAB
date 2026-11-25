@@ -2418,7 +2418,9 @@ pub fn is_practice_compile_error(text: &str) -> bool {
     let trimmed = text.trim();
     trimmed.contains("could not compile")
         || trimmed.contains("error[E")
-        || trimmed.starts_with("error:")
+        || (trimmed.starts_with("error:")
+            && !trimmed.starts_with("error: test failed")
+            && !trimmed.starts_with("error: process didn't exit successfully"))
 }
 
 fn cycle_demo(cur: Option<&crate::curriculum::Curriculum>, view: &mut LessonView) {

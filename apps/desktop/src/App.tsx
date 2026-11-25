@@ -1,7 +1,7 @@
 import { lazy, Suspense, useCallback, useEffect, useRef, useState } from "react";
 import { ArrowLeft, ArrowRight, BookOpen, Boxes, ChartNoAxesColumnIncreasing, ChevronRight, CircleHelp, CodeXml, FolderOpen, House, Settings, Sparkles, Terminal, X } from "lucide-react";
 import { api, errorMessage } from "./api";
-import type { Course, Entry, Lesson, Line, Outcome } from "./api";
+import type { Course, Entry, Jump, Lesson, Line, Outcome, Project } from "./api";
 import { SettingsPage, LibrariesPage } from "./SettingsPage";
 import ferris from "./ferris.png";
 
@@ -73,9 +73,11 @@ export function App() {
   const [preferences, setPreferences] = useState(loadPreferences);
   const [notice, setNotice] = useState("");
   const [lines, setLines] = useState<Line[]>([]);
-  const [task, setTask] = useState<{ label: string; running: boolean; result: Outcome | null } | null>(null);
+  const [task, setTask] = useState<{ label: string; running: boolean; result: Outcome | null; projectRoot: string | undefined } | null>(null);
   const [consoleOpen, setConsoleOpen] = useState(false);
-  const [projectName, setProjectName] = useState("");
+  const [activeProject, setActiveProject] = useState<Project | null>(null);
+  const [jump, setJump] = useState<Jump | null>(null);
+  const nextJump = useRef(0);
   const [projectVisited, setProjectVisited] = useState(false);
   const [welcome, setWelcome] = useState(() => localStorage.getItem("rustlab-welcome-dismissed") !== "1");
   const pickingLesson = useRef(0);
@@ -123,7 +125,7 @@ export function App() {
     try {
       await start();
       setLines([]);
-      setTask({ label, running: true, result: null });
+      setTask({ label, running: true, result: null, projectRoot: activeProject?.root });
       setConsoleOpen(true);
     } catch (error) {
       taskPending.current = false;
@@ -240,7 +242,7 @@ export function App() {
                 <BookOpen size={22} aria-hidden="true" /><span><small>CONTINUAR TRILHA</small><strong>{next.title}</strong></span><ChevronRight size={18} />
               </button>}
               <button className="feature" onClick={() => navigate("project")}>
-                <FolderOpen size={22} aria-hidden="true" /><span><small>ESPAÇO DE TRABALHO</small><strong>{projectName || "Abra seu primeiro projeto"}</strong></span><ChevronRight size={18} />
+                <FolderOpen size={22} aria-hidden="true" /><span><small>ESPAÇO DE TRABALHO</small><strong>{activeProject?.name || "Abra seu primeiro projeto"}</strong></span><ChevronRight size={18} />
               </button>
             </div>
             {course && <StageGrid course={course} open={(title) => { setStage(title); navigate("course"); }} />}
@@ -268,7 +270,7 @@ export function App() {
             </button>}
           </>}
           {projectVisited && <div hidden={page !== "project"}>
-            <Suspense fallback={<p>Carregando editor…</p>}><ProjectPage report={setNotice} nameChanged={setProjectName} run={run} running={running} fontSize={preferences.font} /></Suspense>
+            <Suspense fallback={<p>Carregando editor…</p>}><ProjectPage report={setNotice} nameChanged={setActiveProject} run={run} running={running} fontSize={preferences.font} jump={jump} /></Suspense>
           </div>}
           {page === "progress" && <>
             <h1>Seu progresso</h1>
@@ -281,7 +283,7 @@ export function App() {
               </div></div>
             </section>}
           </>}
-          {page === "libraries" && <LibrariesPage report={setNotice} run={run} running={running} project={projectName} />}
+          {page === "libraries" && <LibrariesPage report={setNotice} run={run} running={running} project={activeProject?.name ?? ""} />}
           {page === "settings" && <SettingsPage prefs={preferences} update={setPreferences} report={setNotice} refresh={refresh} run={run} running={running} />}
           {page === "help" && <>
             <h1>Ajuda e sobre</h1>
@@ -290,7 +292,7 @@ export function App() {
               <button onClick={() => navigate("settings")}>Verificar ferramentas <ArrowRight size={16} /></button>
             </section>
             <section className="card"><h2>Atalhos</h2>
-              <dl className="keys"><dt><kbd>Ctrl</kbd> <kbd>S</kbd></dt><dd>Salvar no editor</dd><dt><kbd>F9</kbd></dt><dd>Abrir bibliotecas</dd></dl>
+              <dl className="keys"><dt><kbd>Ctrl</kbd> <kbd>S</kbd></dt><dd>Salvar no editor</dd><dt><kbd>F5</kbd></dt><dd>Validar a prática após autorizar Cargo</dd><dt><kbd>F9</kbd></dt><dd>Abrir bibliotecas</dd></dl>
             </section>
             <section className="card"><h2>RustLab Desktop</h2>
               <p>Prévia 4.0 para Windows · Código-fonte GPL-3.0-only</p>
@@ -301,10 +303,21 @@ export function App() {
         {task && consoleOpen && <section className="console" aria-label="Saída do Cargo">
           <div className="console-bar"><strong><Terminal size={17} aria-hidden="true" /> {task.label}</strong>
             <div className="top-actions">
+              {lines.length > 0 && <button onClick={() => {
+                void navigator.clipboard.writeText(lines.map((line) => line.text).join("\n"))
+                  .then(() => setNotice("Saída copiada.")).catch((error: unknown) => setNotice(errorMessage(error)));
+              }}>Copiar saída</button>}
               {running && <button onClick={() => void api.cancel().catch((error: unknown) => setNotice(errorMessage(error)))}>Cancelar</button>}
               <button className="icon-button" aria-label="Ocultar saída" onClick={() => setConsoleOpen(false)}><X size={18} /></button>
             </div>
           </div>
+          {task.result && task.result.markers.length > 0 && task.projectRoot === activeProject?.root &&
+            <div className="markers" aria-label="Diagnósticos do compilador">
+              {task.result.markers.map((marker, index) => <button key={index} title={marker.message} onClick={() => {
+                setJump({ ...marker, sequence: ++nextJump.current });
+                navigate("project");
+              }}>{marker.severity} · {marker.file}:{marker.line}:{marker.column}</button>)}
+            </div>}
           <pre tabIndex={0} aria-label="Log da tarefa">{lines.map((line) => line.text).join("\n")}</pre>
           <div className="console-status" role="status">{task.result
             ? `${task.result.message}${task.result.code !== null ? ` · código ${task.result.code}` : ""}${task.result.awarded ? ` · +${task.result.awarded} XP` : ""}`
