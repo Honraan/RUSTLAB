@@ -1,0 +1,19 @@
+[package]
+name = "rustlab-desktop"
+version = "4.0.0"
+edition = "2024"
+license = "GPL-3.0-only"
+description = "Ambiente gráfico do RustLab para Windows"
+
+[dependencies]
+rustlab = { path = "../../.." }
+serde = { version = "1", features = ["derive"] }
+tempfile = "3"
+toml = "1"
+
+[target.'cfg(windows)'.dependencies]
+tauri = "2"
+tauri-plugin-dialog = "2"
+
+[target.'cfg(windows)'.build-dependencies]
+tauri-build = "2"

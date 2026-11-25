@@ -4,6 +4,7 @@
 
 use std::collections::{BTreeMap, BTreeSet};
 use std::io::Write;
+#[cfg(unix)]
 use std::os::unix::fs::OpenOptionsExt;
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicU64, Ordering};
@@ -126,8 +127,9 @@ pub fn save_to(data: &ProgressData, path: &Path) -> std::io::Result<()> {
     let (tmp, mut file) = create_sibling(path, "tmp")?;
     let result = file
         .write_all(text.as_bytes())
-        .and_then(|()| file.sync_all())
-        .and_then(|()| std::fs::rename(&tmp, path));
+        .and_then(|()| file.sync_all());
+    drop(file);
+    let result = result.and_then(|()| std::fs::rename(&tmp, path));
     if result.is_err() {
         let _ = std::fs::remove_file(tmp);
     }
@@ -143,12 +145,11 @@ fn create_sibling(path: &Path, kind: &str) -> std::io::Result<(PathBuf, std::fs:
             FILE_COUNTER.fetch_add(1, Ordering::Relaxed)
         ));
         let sibling = path.with_file_name(name);
-        match std::fs::OpenOptions::new()
-            .write(true)
-            .create_new(true)
-            .mode(0o600)
-            .open(&sibling)
-        {
+        let mut options = std::fs::OpenOptions::new();
+        options.write(true).create_new(true);
+        #[cfg(unix)]
+        options.mode(0o600);
+        match options.open(&sibling) {
             Ok(file) => return Ok((sibling, file)),
             Err(err) if err.kind() == std::io::ErrorKind::AlreadyExists => continue,
             Err(err) => return Err(err),

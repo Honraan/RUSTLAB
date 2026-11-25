@@ -1,0 +1,6 @@
+{
+  "identifier": "main",
+  "description": "Interface local. Seletores nativos e operações de arquivos ficam no backend.",
+  "windows": ["main"],
+  "permissions": []
+}

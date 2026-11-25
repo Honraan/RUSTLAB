@@ -16,4 +16,12 @@ libc = "0.2"
 
 # O tom de XP usa paplay em runtime, sem dependências nativas no build.
 
+[target.'cfg(windows)'.dependencies]
+windows-sys = { version = "0.61", features = [
+    "Win32_Security",
+    "Win32_System_Diagnostics_ToolHelp",
+    "Win32_System_JobObjects",
+    "Win32_System_Threading",
+] }
+
 [dev-dependencies]

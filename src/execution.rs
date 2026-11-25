@@ -14,11 +14,12 @@
 //! AVISO EXIBIDO AO USUÁRIO (consentimento, tela própria): executar código
 //! localmente NÃO é sandbox. O app só executa após consentimento explícito.
 
+#[cfg(unix)]
 use std::os::unix::fs::PermissionsExt;
 use std::path::{Path, PathBuf};
 use std::process::Stdio;
+use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
-use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
@@ -150,15 +151,32 @@ pub fn sanitize_project_name(raw: &str) -> Option<String> {
 
 /// Resolve `cargo` mesmo quando a aplicação é iniciada por um atalho gráfico
 /// cujo PATH é menor que o PATH de um shell de login.
+#[cfg(windows)]
+#[path = "execution_windows.rs"]
+mod windows;
+
 fn cargo_candidates() -> Vec<PathBuf> {
     let mut candidates = Vec::new();
+    let executable = if cfg!(windows) { "cargo.exe" } else { "cargo" };
     if let Some(path) = std::env::var_os("PATH") {
-        candidates.extend(std::env::split_paths(&path).map(|dir| dir.join("cargo")));
+        candidates.extend(
+            std::env::split_paths(&path)
+                .filter(|dir| dir.is_absolute())
+                .map(|dir| dir.join(executable)),
+        );
+    }
+    if let Some(cargo_home) = std::env::var_os("CARGO_HOME").map(PathBuf::from)
+        && cargo_home.is_absolute()
+    {
+        candidates.push(cargo_home.join("bin").join(executable));
     }
 
-    let home = std::env::var_os("HOME").map(PathBuf::from);
+    let home = std::env::var_os(if cfg!(windows) { "USERPROFILE" } else { "HOME" })
+        .map(PathBuf::from)
+        .filter(|dir| dir.is_absolute());
     if let Some(home) = home.as_ref() {
-        candidates.push(home.join(".cargo/bin/cargo"));
+        candidates.push(home.join(".cargo/bin").join(executable));
+        #[cfg(unix)]
         if let Ok(read) = std::fs::read_dir(home.join(".rustup/toolchains")) {
             let mut entries: Vec<_> = read.filter_map(Result::ok).map(|e| e.path()).collect();
             entries.sort();
@@ -169,6 +187,7 @@ fn cargo_candidates() -> Vec<PathBuf> {
             );
         }
     }
+    #[cfg(unix)]
     candidates.extend([
         PathBuf::from("/usr/local/cargo/bin/cargo"),
         PathBuf::from("/usr/local/bin/cargo"),
@@ -182,10 +201,14 @@ fn is_executable(path: &Path) -> bool {
     let Ok(metadata) = std::fs::metadata(path) else {
         return false;
     };
-    metadata.is_file() && (metadata.permissions().mode() & 0o111) != 0
+    #[cfg(unix)]
+    if metadata.permissions().mode() & 0o111 == 0 {
+        return false;
+    }
+    metadata.is_file()
 }
 
-fn find_cargo() -> Option<PathBuf> {
+pub fn find_cargo() -> Option<PathBuf> {
     cargo_candidates()
         .into_iter()
         .find(|path| is_executable(path))
@@ -235,15 +258,15 @@ enum Command_ {
         cwd: PathBuf,
         target_dir: Option<PathBuf>,
         input: Option<mpsc::Receiver<Option<Vec<u8>>>>,
+        offline: bool,
     },
 }
 
 /// Estado compartilhado entre a fachada (thread da UI) e o executor.
 #[derive(Default)]
 struct ExecState {
-    /// PID (== PGID, pois usamos process_group(0)) do filho atual.
-    pgid: Mutex<Option<u32>>,
     cancelled: AtomicBool,
+    cancel_signal: tokio::sync::Notify,
 }
 
 /// Fachada usada pela UI. `poll_events()` nunca bloqueia.
@@ -284,6 +307,7 @@ impl ExecutionManager {
                     cwd,
                     target_dir,
                     input,
+                    offline,
                 }) = cmd_rx.recv().await
                 {
                     run_one(
@@ -293,6 +317,7 @@ impl ExecutionManager {
                         &state_clone,
                         event_tx.clone(),
                         input,
+                        offline,
                     )
                     .await;
                 }
@@ -321,6 +346,16 @@ impl ExecutionManager {
     /// Enfileira um comando. Se algo estiver rodando, o pedido é recusado
     /// (a UI deve cancelar antes) — evita dois cargos simultâneos.
     pub fn submit(&mut self, cmd: ToolCommand, cwd: PathBuf) -> Result<(), &'static str> {
+        self.submit_with_network(cmd, cwd, true)
+    }
+
+    /// Permite controlar se Cargo pode baixar dependências para esta tarefa.
+    pub fn submit_with_network(
+        &mut self,
+        cmd: ToolCommand,
+        cwd: PathBuf,
+        allow_downloads: bool,
+    ) -> Result<(), &'static str> {
         if let ToolCommand::AddDependency { name } | ToolCommand::RemoveDependency { name } = &cmd {
             if !valid_dependency(name) {
                 return Err("dependência inválida; use nome ou nome@versão");
@@ -359,6 +394,7 @@ impl ExecutionManager {
                 cwd,
                 target_dir,
                 input,
+                offline: !allow_downloads,
             })
             .map_err(|_| "fila de execução cheia")?;
         self.running = true;
@@ -398,10 +434,7 @@ impl ExecutionManager {
     /// binário do aluno + filhos). Seguro chamar sem nada rodando.
     pub fn cancel(&mut self) {
         self.state.cancelled.store(true, Ordering::SeqCst);
-        let pgid = *self.state.pgid.lock().unwrap_or_else(|e| e.into_inner());
-        if let Some(pgid) = pgid {
-            kill_group(pgid);
-        }
+        self.state.cancel_signal.notify_one();
     }
 
     /// Drena eventos disponíveis sem bloquear a UI.
@@ -423,6 +456,14 @@ impl ExecutionManager {
     }
 }
 
+impl Drop for ExecutionManager {
+    fn drop(&mut self) {
+        if self.running {
+            self.cancel();
+        }
+    }
+}
+
 impl Default for ExecutionManager {
     fn default() -> Self {
         Self::new()
@@ -436,8 +477,8 @@ async fn run_one(
     state: &Arc<ExecState>,
     tx: std::sync::mpsc::Sender<ExecEvent>,
     input: Option<mpsc::Receiver<Option<Vec<u8>>>>,
+    offline: bool,
 ) {
-    use std::os::unix::process::CommandExt;
     use tokio::process::Command as AsyncCommand;
 
     let label = cmd.label().to_string();
@@ -451,6 +492,10 @@ async fn run_one(
     };
     let mut ac = AsyncCommand::new(&cargo);
     ac.env("CARGO_TERM_COLOR", "never");
+    ac.env("RUSTUP_AUTO_INSTALL", "0");
+    if offline {
+        ac.env("CARGO_NET_OFFLINE", "true");
+    }
     if let Some(dir) = target_dir {
         let _ = std::fs::create_dir_all(dir);
         ac.env("CARGO_TARGET_DIR", dir);
@@ -476,29 +521,23 @@ async fn run_one(
         .stdout(Stdio::piped())
         .stderr(Stdio::piped())
         .kill_on_drop(true);
-    // Process group próprio: permite matar a árvore inteira no cancel.
-    ac.as_std_mut().process_group(0);
-
-    let mut child = match ac.spawn() {
-        Ok(c) => c,
-        Err(e) => {
-            let reason = if e.kind() == std::io::ErrorKind::NotFound {
-                "cargo não encontrado no PATH — instale o Rust em rustup.rs".to_string()
-            } else {
-                format!("{e}")
-            };
-            let _ = tx.send(ExecEvent::SpawnFailed { label, reason });
+    #[cfg(unix)]
+    let spawned = ac.process_group(0).spawn().map(|child| {
+        let tree = child.id().unwrap_or(0);
+        (child, tree)
+    });
+    #[cfg(windows)]
+    let spawned = windows::spawn_in_job(ac);
+    let (mut child, tree) = match spawned {
+        Ok(spawned) => spawned,
+        Err(error) => {
+            let _ = tx.send(ExecEvent::SpawnFailed {
+                label,
+                reason: error.to_string(),
+            });
             return;
         }
     };
-    let pid = child.id().unwrap_or(0);
-    {
-        let mut g = state.pgid.lock().unwrap_or_else(|e| e.into_inner());
-        *g = Some(pid);
-    }
-    if state.cancelled.load(Ordering::SeqCst) {
-        kill_group(pid);
-    }
     let _ = tx.send(ExecEvent::Started {
         label: label.clone(),
     });
@@ -523,36 +562,36 @@ async fn run_one(
         })
     });
 
-    let status = tokio::select! {
-        res = child.wait() => res,
-        _ = tokio::time::sleep(cmd.timeout()) => {
-            if let Some(handle) = &h_input { handle.abort(); }
-            kill_group(pid);
-            let _ = child.wait().await;
-            let _ = h_out.await;
-            let _ = h_err.await;
-            clear_pgid(state);
-            let _ = tx.send(ExecEvent::TimedOut { label });
-            return;
-        }
+    let (status, interrupted) = tokio::select! {
+        res = child.wait() => (Some(res), None),
+        _ = tokio::time::sleep(cmd.timeout()) => (None, Some(ExecEvent::TimedOut { label: label.clone() })),
+        _ = wait_for_cancel(state) => (None, Some(ExecEvent::Cancelled { label: label.clone() })),
     };
-    if let Some(handle) = h_input {
+    if let Some(handle) = &h_input {
         handle.abort();
     }
+    // Descendentes podem manter pipes abertos após a saída do Cargo.
+    #[cfg(unix)]
+    kill_group(tree);
+    #[cfg(windows)]
+    drop(tree);
+    if status.is_none() {
+        let _ = child.start_kill();
+        let _ = child.wait().await;
+    }
 
-    // Programas que deixam descendentes com os pipes abertos não podem
-    // prender a UI após o processo principal terminar.
-    kill_group(pid);
-
-    // aguarda os leitores chegarem ao EOF para não perder o fim da saída
     let _ = h_out.await;
     let _ = h_err.await;
-    clear_pgid(state);
 
+    if let Some(event) = interrupted {
+        let _ = tx.send(event);
+        return;
+    }
     if state.cancelled.load(Ordering::SeqCst) {
         let _ = tx.send(ExecEvent::Cancelled { label });
         return;
     }
+    let status = status.expect("wait completed");
     match status {
         Ok(st) => {
             let code = st.code();
@@ -572,11 +611,13 @@ async fn run_one(
     }
 }
 
-fn clear_pgid(state: &Arc<ExecState>) {
-    let mut g = state.pgid.lock().unwrap_or_else(|e| e.into_inner());
-    *g = None;
+async fn wait_for_cancel(state: &ExecState) {
+    while !state.cancelled.load(Ordering::SeqCst) {
+        state.cancel_signal.notified().await;
+    }
 }
 
+#[cfg(unix)]
 fn kill_group(pid: u32) {
     if pid != 0 {
         unsafe {

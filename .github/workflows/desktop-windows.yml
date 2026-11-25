@@ -1,0 +1,90 @@
+name: Desktop Windows
+on:
+  push:
+    branches: ['codex/rustlab-v4-windows']
+    paths: ['apps/desktop/**', 'src/**', 'Cargo.*', '.github/workflows/desktop-windows.yml']
+  pull_request:
+    paths: ['apps/desktop/**', 'src/**', 'Cargo.*', '.github/workflows/desktop-windows.yml']
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    runs-on: windows-2025
+    timeout-minutes: 40
+    defaults:
+      run:
+        shell: pwsh
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+          cache-dependency-path: apps/desktop/package-lock.json
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: x86_64-pc-windows-msvc
+          components: rustfmt, clippy
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: |
+            . -> target
+            apps/desktop/src-tauri -> target
+      - name: Verificar TUI Classic e executor
+        run: |
+          cargo check --locked --all-targets
+          cargo test --locked --test cargo_run --test project_flow --test exercise_flow
+      - name: Instalar dependências da interface
+        working-directory: apps/desktop
+        run: npm ci --no-audit --no-fund
+      - name: Testar integração desktop e formatação
+        run: |
+          npm --prefix apps/desktop run build
+          cargo fmt --manifest-path apps/desktop/src-tauri/Cargo.toml -- --check
+          cargo test --locked --manifest-path apps/desktop/src-tauri/Cargo.toml
+      - name: Gerar instalador NSIS x64
+        working-directory: apps/desktop
+        run: npm run tauri -- build --ci --target x86_64-pc-windows-msvc --bundles nsis -- --locked
+      - name: Gerar hashes e reunir arquivos
+        run: |
+          $setups = @(Get-ChildItem apps/desktop/src-tauri/target/x86_64-pc-windows-msvc/release/bundle/nsis/*-setup.exe)
+          if ($setups.Count -eq 0) { throw 'Instalador NSIS ausente.' }
+          New-Item -ItemType Directory windows-artifact
+          $setups | Copy-Item -Destination windows-artifact
+          Copy-Item LICENSE -Destination windows-artifact
+          $setups | ForEach-Object { "$((Get-FileHash $_.FullName -Algorithm SHA256).Hash.ToLowerInvariant())  $($_.Name)" } |
+            Set-Content windows-artifact/SHA256SUMS.txt -Encoding utf8NoBOM
+      - uses: actions/upload-artifact@v4
+        with:
+          name: rustlab-desktop-windows-x64
+          path: windows-artifact
+          if-no-files-found: error
+      - name: Testar instalação, abertura e desinstalação
+        run: |
+          $setup = Get-ChildItem windows-artifact/*-setup.exe | Select-Object -First 1
+          $destination = Join-Path $env:RUNNER_TEMP RustLabSmoke
+          $install = Start-Process -FilePath $setup.FullName -ArgumentList @('/S', "/D=$destination") -PassThru -Wait
+          if ($install.ExitCode -ne 0) { throw "Falha do instalador: $($install.ExitCode)" }
+          $app = Start-Process (Join-Path $destination 'rustlab-desktop.exe') -PassThru
+          try {
+            $opened = $false
+            for ($i = 0; $i -lt 45; $i++) {
+              Start-Sleep -Seconds 1
+              $app.Refresh()
+              if ($app.HasExited) { throw "RustLab encerrou com código $($app.ExitCode)" }
+              if ($app.MainWindowTitle -eq 'RustLab') { $opened = $true; break }
+            }
+            if (-not $opened) { throw 'A janela RustLab não apareceu.' }
+          } finally {
+            if (-not $app.HasExited) {
+              $null = $app.CloseMainWindow()
+              if (-not $app.WaitForExit(10000)) { Stop-Process -Id $app.Id -Force }
+            }
+          }
+          $uninstall = Start-Process (Join-Path $destination 'uninstall.exe') -ArgumentList '/S' -PassThru -Wait
+          if ($uninstall.ExitCode -ne 0 -or (Test-Path (Join-Path $destination 'rustlab-desktop.exe'))) {
+            throw 'A desinstalação falhou.'
+          }

@@ -153,9 +153,10 @@ impl Project {
                 file.set_permissions(metadata.permissions())?;
             }
             file.write_all(content.as_bytes())?;
-            file.sync_all()?;
-            std::fs::rename(&tmp, path)
+            file.sync_all()
         })();
+        drop(file);
+        let result = result.and_then(|()| std::fs::rename(&tmp, path));
         if result.is_err() {
             let _ = std::fs::remove_file(tmp);
         }
@@ -440,9 +441,12 @@ mod tests {
             assert!(project.create_file(invalid).is_err(), "{invalid}");
         }
         let outside = temp_dir("outside");
-        std::os::unix::fs::symlink(&outside, dir.join("outside")).unwrap();
-        assert!(project.create_file("outside/escape.rs").is_err());
-        assert!(!outside.join("escape.rs").exists());
+        #[cfg(unix)]
+        {
+            std::os::unix::fs::symlink(&outside, dir.join("outside")).unwrap();
+            assert!(project.create_file("outside/escape.rs").is_err());
+            assert!(!outside.join("escape.rs").exists());
+        }
         assert!(project.save(&outside.join("escape.rs"), "não").is_err());
         std::fs::remove_dir_all(dir).unwrap();
         std::fs::remove_dir_all(outside).unwrap();
@@ -455,6 +459,7 @@ mod tests {
         project.create_file("tests/integration.rs").unwrap();
         project.create_file("examples/demo.rs").unwrap();
         project.create_file("benches/bench.rs").unwrap();
+        #[cfg(unix)]
         std::os::unix::fs::symlink(&dir, dir.join("src")).unwrap();
         assert_eq!(project.source_files().len(), 3);
         std::fs::remove_dir_all(dir).unwrap();
