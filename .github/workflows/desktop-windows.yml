@@ -37,6 +37,7 @@ jobs:
         run: |
           cargo check --locked --all-targets
           cargo test --locked --test cargo_run --test project_flow --test exercise_flow
+          cargo test --locked --lib conpty_cargo_uses_a_console_and_delivers_keyboard_input
       - name: Instalar dependências da interface
         working-directory: apps/desktop
         run: npm ci --no-audit --no-fund

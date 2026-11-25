@@ -83,6 +83,8 @@ export function App() {
   const celebrate = useCallback((xp: number) => {
     if (xp && !preferences.focus) playXp(preferences.volume);
   }, [preferences.focus, preferences.volume]);
+  const announceXp = useRef(celebrate);
+  announceXp.current = celebrate;
   const navigate = useCallback((destination: Page) => {
     pickingLesson.current += 1;
     setPage(destination);
@@ -138,7 +140,7 @@ export function App() {
           const result = batch.result;
           setTask((current) => current ? { ...current, running: false, result } : current);
           taskPending.current = false;
-          celebrate(result.awarded);
+          announceXp.current(result.awarded);
           await refresh();
           return;
         }
@@ -150,7 +152,7 @@ export function App() {
     };
     void poll();
     return () => { disposed = true; window.clearTimeout(timer); };
-  }, [running, refresh, celebrate]);
+  }, [running, refresh]);
 
   async function openLesson(id: string) {
     const request = ++pickingLesson.current;

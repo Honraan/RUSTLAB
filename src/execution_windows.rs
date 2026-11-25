@@ -1,6 +1,9 @@
 //! Run Cargo in a kill-on-close Job Object. The initial thread is suspended
 //! until assignment, so it cannot create a child outside the job.
 
+#[path = "terminal_windows.rs"]
+pub mod terminal;
+
 use std::io;
 use std::mem::size_of;
 use std::os::windows::io::{AsRawHandle, FromRawHandle, OwnedHandle};
@@ -51,7 +54,7 @@ fn resume_initial_thread(pid: u32) -> io::Result<()> {
     Err(io::Error::other("thread inicial do Cargo não encontrada"))
 }
 
-pub(super) fn spawn_in_job(mut command: Command) -> io::Result<(Child, OwnedHandle)> {
+fn kill_on_close_job() -> io::Result<OwnedHandle> {
     let job = owned(unsafe { CreateJobObjectW(ptr::null(), ptr::null()) })?;
     let mut limits = JOBOBJECT_EXTENDED_LIMIT_INFORMATION::default();
     limits.BasicLimitInformation.LimitFlags = JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE;
@@ -67,6 +70,11 @@ pub(super) fn spawn_in_job(mut command: Command) -> io::Result<(Child, OwnedHand
         return Err(io::Error::last_os_error());
     }
 
+    Ok(job)
+}
+
+pub(super) fn spawn_in_job(mut command: Command) -> io::Result<(Child, OwnedHandle)> {
+    let job = kill_on_close_job()?;
     let mut child = command
         .creation_flags(CREATE_SUSPENDED | CREATE_NO_WINDOW)
         .spawn()?;

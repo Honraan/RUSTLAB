@@ -57,6 +57,12 @@ export const api = {
     invoke<void>("run_project", { action, consent: true, allowDownloads }),
   poll: () => invoke<Batch>("poll_task"),
   cancel: () => invoke<void>("cancel_task"),
+  terminalStart: (allowDownloads: boolean, columns: number, rows: number) =>
+    invoke<void>("terminal_start", { consent: true, allowDownloads, columns, rows }),
+  terminalWrite: (input: number[]) => invoke<void>("terminal_write", { input }),
+  terminalResize: (columns: number, rows: number) => invoke<void>("terminal_resize", { columns, rows }),
+  terminalPoll: () => invoke<{ bytes: number[]; finished: string | null }>("terminal_poll"),
+  terminalCancel: () => invoke<void>("terminal_cancel"),
   doctor: () => invoke<Doctor>("doctor"),
   toolchainTest: () => invoke<void>("test_toolchain", { consent: true }),
   libraries: () => invoke<Library[]>("libraries"),

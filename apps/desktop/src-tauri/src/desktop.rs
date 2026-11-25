@@ -3,6 +3,7 @@ use std::path::PathBuf;
 use std::sync::{Mutex, MutexGuard};
 
 use rustlab::doc_hint::extra_libraries;
+use rustlab::execution::terminal::{End, Session};
 use rustlab::execution::{ToolCommand, find_cargo};
 use serde::{Deserialize, Serialize};
 use tauri::{AppHandle, Manager, State};
@@ -21,6 +22,7 @@ struct Desktop {
     course: Course,
     tasks: Tasks,
     project: Option<Workspace>,
+    terminal: Option<Session>,
 }
 
 impl AppState {
@@ -33,7 +35,7 @@ impl AppState {
 
 impl Desktop {
     fn idle(&self) -> Result<(), String> {
-        if self.tasks.busy() {
+        if self.tasks.busy() || self.terminal.is_some() {
             return Err("Aguarde ou cancele a tarefa atual.".into());
         }
         Ok(())
@@ -84,6 +86,7 @@ async fn start_practice(
 ) -> Result<(), String> {
     require_consent(consent)?;
     let mut desktop = state.lock()?;
+    desktop.idle()?;
     let Desktop { course, tasks, .. } = &mut *desktop;
     tasks.start_practice(course, &id, source)
 }
@@ -215,6 +218,7 @@ async fn run_project(
 ) -> Result<(), String> {
     require_consent(consent)?;
     let mut desktop = state.lock()?;
+    desktop.idle()?;
     let root = desktop.project()?.root().to_owned();
     let tool = match action {
         Action::Check => ToolCommand::Check,
@@ -238,6 +242,86 @@ async fn cancel_task(state: State<'_, AppState>) -> Result<(), String> {
     let mut desktop = state.lock()?;
     if desktop.tasks.busy() {
         desktop.tasks.cancel();
+    }
+    Ok(())
+}
+
+#[tauri::command]
+async fn terminal_start(
+    consent: bool,
+    allow_downloads: bool,
+    columns: u16,
+    rows: u16,
+    state: State<'_, AppState>,
+) -> Result<(), String> {
+    require_consent(consent)?;
+    let mut desktop = state.lock()?;
+    desktop.idle()?;
+    let root = desktop.project()?.root().to_owned();
+    desktop.terminal = Some(
+        Session::cargo_run(root, allow_downloads, columns, rows)
+            .map_err(|error| error.to_string())?,
+    );
+    Ok(())
+}
+
+#[tauri::command]
+async fn terminal_write(input: Vec<u8>, state: State<'_, AppState>) -> Result<(), String> {
+    state
+        .lock()?
+        .terminal
+        .as_ref()
+        .ok_or("Terminal encerrado.")?
+        .write(&input)
+        .map_err(str::to_owned)
+}
+
+#[tauri::command]
+async fn terminal_resize(
+    columns: u16,
+    rows: u16,
+    state: State<'_, AppState>,
+) -> Result<(), String> {
+    if let Some(terminal) = state.lock()?.terminal.as_ref() {
+        terminal.resize(columns, rows);
+    }
+    Ok(())
+}
+
+#[derive(Serialize)]
+struct TerminalBatch {
+    bytes: Vec<u8>,
+    finished: Option<String>,
+}
+
+#[tauri::command]
+async fn terminal_poll(state: State<'_, AppState>) -> Result<TerminalBatch, String> {
+    let mut desktop = state.lock()?;
+    let output = desktop
+        .terminal
+        .as_mut()
+        .ok_or("Terminal encerrado.")?
+        .poll();
+    let finished = output.finished.map(|end| match end {
+        End::Exited(code) => format!("Programa encerrado · código {code}"),
+        End::Cancelled => "Terminal cancelado.".into(),
+        End::TimedOut => "Terminal encerrado após 30 minutos.".into(),
+        End::OutputLimit => "Terminal encerrado por excesso de saída.".into(),
+        End::Failed(error) => format!("Falha do terminal: {error}"),
+    });
+    if finished.is_some() {
+        desktop.terminal = None;
+    }
+    Ok(TerminalBatch {
+        bytes: output.bytes,
+        finished,
+    })
+}
+
+#[tauri::command]
+async fn terminal_cancel(state: State<'_, AppState>) -> Result<(), String> {
+    if let Some(terminal) = state.lock()?.terminal.as_mut() {
+        terminal.cancel();
     }
     Ok(())
 }
@@ -283,7 +367,9 @@ async fn doctor() -> DoctorReport {
 #[tauri::command]
 async fn test_toolchain(consent: bool, state: State<'_, AppState>) -> Result<(), String> {
     require_consent(consent)?;
-    state.lock()?.tasks.test_toolchain()
+    let mut desktop = state.lock()?;
+    desktop.idle()?;
+    desktop.tasks.test_toolchain()
 }
 
 #[derive(Serialize)]
@@ -350,6 +436,7 @@ pub fn run() {
                     course,
                     tasks: Tasks::default(),
                     project: None,
+                    terminal: None,
                 }),
             });
             Ok(())
@@ -373,7 +460,12 @@ pub fn run() {
             cancel_task,
             doctor,
             test_toolchain,
-            libraries
+            libraries,
+            terminal_start,
+            terminal_write,
+            terminal_resize,
+            terminal_poll,
+            terminal_cancel
         ])
         .run(tauri::generate_context!())
         .expect("Não foi possível iniciar o RustLab Desktop");

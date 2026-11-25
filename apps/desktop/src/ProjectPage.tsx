@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { lazy, Suspense, useState } from "react";
 import { FileCode2, FolderOpen, Plus, RefreshCw, Save } from "lucide-react";
 import { api, errorMessage } from "./api";
 import type { Action, Project } from "./api";
@@ -10,6 +10,8 @@ const actions: { action: Action; title: string }[] = [
   { action: "test", title: "Testar" }, { action: "fmt", title: "Formatar" },
   { action: "clippy", title: "Clippy" },
 ];
+const TerminalPanel = lazy(() => import("./TerminalPanel"));
+
 type Buffer = { base: string; text: string };
 
 export function ProjectPage({ report, nameChanged, run, running, fontSize }: {
@@ -27,6 +29,9 @@ export function ProjectPage({ report, nameChanged, run, running, fontSize }: {
   const [working, setWorking] = useState(false);
   const [consent, setConsent] = useState(false);
   const [download, setDownload] = useState(false);
+  const [terminalOpen, setTerminalOpen] = useState(false);
+  const [terminalRunning, setTerminalRunning] = useState(false);
+  const busy = running || terminalRunning;
   const active = selected === null ? null : buffers[selected];
   const dirty = Object.values(buffers).some((buffer) => buffer.text !== buffer.base);
 
@@ -65,7 +70,7 @@ export function ProjectPage({ report, nameChanged, run, running, fontSize }: {
   }
 
   const save = () => act(async () => {
-    if (!selected || !active || running) return;
+    if (!selected || !active || busy) return;
     const { base, text } = active;
     await api.save(selected, base, text);
     setBuffers((existing) => ({ ...existing, [selected]: { base: text, text: existing[selected]?.text ?? text } }));
@@ -76,7 +81,7 @@ export function ProjectPage({ report, nameChanged, run, running, fontSize }: {
     <h1>Modo Criar</h1>
     <p className="lead">Trabalhe com seus próprios projetos Cargo.</p>
     <section className="card project-pickers">
-      <button disabled={working || running} onClick={() => void act(() => changeProject(api.openProject))}>
+      <button disabled={working || busy} onClick={() => void act(() => changeProject(api.openProject))}>
         <FolderOpen size={17} aria-hidden="true" /> Abrir projeto Cargo
       </button>
       <form className="toolbar" onSubmit={(event) => {
@@ -85,7 +90,7 @@ export function ProjectPage({ report, nameChanged, run, running, fontSize }: {
       }}>
         <input aria-label="Nome do novo projeto" placeholder="Nome do novo projeto" value={newProject}
           maxLength={64} onChange={(event) => setNewProject(event.target.value)} required />
-        <button type="submit" disabled={working || running}><Plus size={17} aria-hidden="true" /> Criar projeto</button>
+        <button type="submit" disabled={working || busy}><Plus size={17} aria-hidden="true" /> Criar projeto</button>
       </form>
     </section>
     {project && <section className="card">
@@ -105,8 +110,8 @@ export function ProjectPage({ report, nameChanged, run, running, fontSize }: {
               onChange={(text) => setBuffers((existing) => ({ ...existing, [selected]: { base: existing[selected]?.base ?? active.base, text } }))}
               onSave={() => void save()} />
             <div className="toolbar">
-              <button disabled={working || running || active.text === active.base} onClick={() => void save()}><Save size={16} aria-hidden="true" /> Salvar arquivo</button>
-              <button disabled={working || running} onClick={() => {
+              <button disabled={working || busy || active.text === active.base} onClick={() => void save()}><Save size={16} aria-hidden="true" /> Salvar arquivo</button>
+              <button disabled={working || busy} onClick={() => {
                 if (active.text === active.base || window.confirm("Recarregar o arquivo e descartar sua edição aberta?")) {
                   void act(() => select(selected, true));
                 }
@@ -124,7 +129,7 @@ export function ProjectPage({ report, nameChanged, run, running, fontSize }: {
         });
       }}>
         <input aria-label="Caminho do novo arquivo" placeholder="src/modulo.rs" value={newFile} maxLength={240} onChange={(e) => setNewFile(e.target.value)} required />
-        <button type="submit" disabled={working || running}><Plus size={16} aria-hidden="true" /> Criar arquivo</button>
+        <button type="submit" disabled={working || busy}><Plus size={16} aria-hidden="true" /> Criar arquivo</button>
       </form>
       <div className="task-settings">
         <label className="consent"><input type="checkbox" checked={consent} onChange={(e) => setConsent(e.target.checked)} />
@@ -133,12 +138,21 @@ export function ProjectPage({ report, nameChanged, run, running, fontSize }: {
           Permitir que Cargo baixe dependências para este projeto.</label>
         {dirty && <p>Salve os arquivos alterados antes de iniciar uma tarefa.</p>}
         <div className="toolbar">
-          {actions.map(({ action, title }) => <button key={action} disabled={working || running || dirty || !consent} onClick={() => {
+          {actions.map(({ action, title }) => <button key={action} disabled={working || busy || dirty || !consent} onClick={() => {
             if (action === "fmt" && !window.confirm("Autorizar cargo fmt a reformatar os arquivos no disco?")) return;
             void act(() => run(`cargo ${action}`, () => api.projectTask(action, download)));
           }}>{title}</button>)}
+          <button onClick={() => setTerminalOpen((open) => !open)} aria-expanded={terminalOpen}>
+            {terminalOpen ? "Ocultar terminal" : "Terminal interativo"}
+          </button>
         </div>
       </div>
+      {(terminalOpen || terminalRunning) && <div hidden={!terminalOpen}>
+        <Suspense fallback={<p>Carregando terminal…</p>}>
+          <TerminalPanel allowed={consent && !dirty && !running && !working} download={download}
+            running={terminalRunning} onRunning={setTerminalRunning} report={report} fontSize={fontSize} />
+        </Suspense>
+      </div>}
     </section>}
   </>;
 }

@@ -154,6 +154,8 @@ pub fn sanitize_project_name(raw: &str) -> Option<String> {
 #[cfg(windows)]
 #[path = "execution_windows.rs"]
 mod windows;
+#[cfg(windows)]
+pub use windows::terminal;
 
 fn cargo_candidates() -> Vec<PathBuf> {
     let mut candidates = Vec::new();

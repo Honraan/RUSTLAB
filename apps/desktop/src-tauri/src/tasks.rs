@@ -112,6 +112,16 @@ impl Tasks {
     pub fn test_toolchain(&mut self) -> Result<(), String> {
         let scratch = tempfile::tempdir().map_err(|error| error.to_string())?;
         let project = crate::workspace::Workspace::create(scratch.path(), "rustlab_hello")?;
+        #[cfg(windows)]
+        {
+            let config = project.root().join(".cargo");
+            std::fs::create_dir(&config).map_err(|error| error.to_string())?;
+            std::fs::write(
+                config.join("config.toml"),
+                "[build]\ntarget = \"x86_64-pc-windows-msvc\"\n",
+            )
+            .map_err(|error| error.to_string())?;
+        }
         self.start(ToolCommand::Run, project.root().into(), false)?;
         self.active.as_mut().expect("task started")._scratch = Some(scratch);
         Ok(())

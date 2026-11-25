@@ -1,4 +1,6 @@
 import { EditorState } from "@codemirror/state";
+import { HighlightStyle, syntaxHighlighting } from "@codemirror/language";
+import { tags } from "@lezer/highlight";
 import { EditorView } from "@codemirror/view";
 import { rust } from "@codemirror/lang-rust";
 import { basicSetup } from "codemirror";
@@ -12,8 +14,14 @@ const theme = EditorView.theme({
   ".cm-activeLine, .cm-activeLineGutter": { backgroundColor: "var(--line)" },
   ".cm-cursor": { borderLeftColor: "var(--ink)" },
   ".cm-selectionBackground": { backgroundColor: "var(--selection) !important" },
-  ".tok-keyword": { color: "var(--accent)" },
 });
+
+const highlighter = HighlightStyle.define([
+  { tag: [tags.keyword, tags.operatorKeyword], color: "var(--accent)" },
+  { tag: [tags.string, tags.special(tags.string), tags.character], color: "var(--success)" },
+  { tag: [tags.comment, tags.lineComment, tags.blockComment], color: "var(--muted)", fontStyle: "italic" },
+  { tag: [tags.number, tags.bool, tags.typeName, tags.atom], color: "var(--warn)" },
+]);
 
 export function Editor({ label, value, onChange, language, fontSize, onSave }: {
   label: string;
@@ -35,7 +43,7 @@ export function Editor({ label, value, onChange, language, fontSize, onSave }: {
       state: EditorState.create({
         doc: callbacks.current.value,
         extensions: [
-          basicSetup, theme, EditorView.lineWrapping,
+          basicSetup, theme, syntaxHighlighting(highlighter), EditorView.lineWrapping,
           ...(language === "rust" ? [rust()] : []),
           EditorView.contentAttributes.of({ "aria-label": callbacks.current.label }),
           EditorView.domEventHandlers({
