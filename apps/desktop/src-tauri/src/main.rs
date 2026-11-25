@@ -5,7 +5,11 @@ mod course;
 #[cfg(windows)]
 mod desktop;
 #[cfg(any(windows, test))]
+mod libraries;
+#[cfg(any(windows, test))]
 mod tasks;
+#[cfg(any(windows, test))]
+mod templates;
 #[cfg(any(windows, test))]
 mod workspace;
 

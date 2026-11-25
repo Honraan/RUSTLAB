@@ -111,7 +111,11 @@ impl Tasks {
 
     pub fn test_toolchain(&mut self) -> Result<(), String> {
         let scratch = tempfile::tempdir().map_err(|error| error.to_string())?;
-        let project = crate::workspace::Workspace::create(scratch.path(), "rustlab_hello")?;
+        let project = crate::workspace::Workspace::create(
+            scratch.path(),
+            "rustlab_hello",
+            crate::templates::Template::Basic,
+        )?;
         #[cfg(windows)]
         {
             let config = project.root().join(".cargo");

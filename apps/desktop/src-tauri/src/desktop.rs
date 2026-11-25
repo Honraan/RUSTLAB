@@ -11,6 +11,7 @@ use tauri_plugin_dialog::{DialogExt, FilePath};
 
 use crate::course::{Course, CourseMap, Lesson, QuizResult};
 use crate::tasks::{Batch, Tasks};
+use crate::templates::Template;
 use crate::workspace::{ProjectInfo, Workspace};
 
 struct AppState {
@@ -23,6 +24,7 @@ struct Desktop {
     tasks: Tasks,
     project: Option<Workspace>,
     terminal: Option<Session>,
+    library_undo: Option<crate::libraries::Plan>,
 }
 
 impl AppState {
@@ -145,6 +147,7 @@ async fn open_project(
     let project = Workspace::open(&path)?;
     let info = project.info();
     desktop.project = Some(project);
+    desktop.library_undo = None;
     Ok(Some(info))
 }
 
@@ -152,6 +155,7 @@ async fn open_project(
 async fn create_project(
     app: AppHandle,
     name: String,
+    template: Template,
     state: State<'_, AppState>,
 ) -> Result<Option<ProjectInfo>, String> {
     state.lock()?.idle()?;
@@ -166,9 +170,10 @@ async fn create_project(
     };
     let mut desktop = state.lock()?;
     desktop.idle()?;
-    let project = Workspace::create(&path, &name)?;
+    let project = Workspace::create(&path, &name, template)?;
     let info = project.info();
     desktop.project = Some(project);
+    desktop.library_undo = None;
     Ok(Some(info))
 }
 
@@ -207,6 +212,7 @@ enum Action {
     Test,
     Fmt,
     Clippy,
+    Gui,
 }
 
 #[tauri::command]
@@ -226,6 +232,7 @@ async fn run_project(
         Action::Test => ToolCommand::Test,
         Action::Fmt => ToolCommand::Fmt,
         Action::Clippy => ToolCommand::Clippy,
+        Action::Gui => ToolCommand::RunGui,
     };
     desktop.tasks.start(tool, root, allow_downloads)
 }
@@ -402,6 +409,59 @@ fn libraries() -> Vec<Library> {
         .collect()
 }
 
+#[tauri::command]
+async fn library_preview(
+    name: String,
+    state: State<'_, AppState>,
+) -> Result<crate::libraries::Plan, String> {
+    let desktop = state.lock()?;
+    desktop.idle()?;
+    crate::libraries::plan(&name, desktop.project()?.read("Cargo.toml")?)
+}
+
+#[tauri::command]
+async fn library_apply(
+    name: String,
+    before: String,
+    after: String,
+    consent: bool,
+    allow_downloads: bool,
+    state: State<'_, AppState>,
+) -> Result<(), String> {
+    require_consent(consent)?;
+    let mut desktop = state.lock()?;
+    desktop.idle()?;
+    let project = desktop.project()?;
+    let plan = crate::libraries::plan(&name, project.read("Cargo.toml")?)?;
+    if plan.present || plan.before != before || plan.after != after {
+        return Err(
+            "O manifesto mudou ou a biblioteca já foi declarada. Atualize a prévia.".into(),
+        );
+    }
+    let root = project.root().to_owned();
+    project.save("Cargo.toml", &plan.before, &plan.after)?;
+    desktop.library_undo = Some(plan);
+    desktop
+        .tasks
+        .start(ToolCommand::Check, root, allow_downloads)
+        .map_err(|error| format!("Manifesto alterado. A verificação não iniciou: {error}"))
+}
+
+#[tauri::command]
+async fn library_undo(state: State<'_, AppState>) -> Result<(), String> {
+    let mut desktop = state.lock()?;
+    desktop.idle()?;
+    let previous = desktop
+        .library_undo
+        .as_ref()
+        .ok_or("Sem alteração F9 anterior neste projeto.")?;
+    desktop
+        .project()?
+        .save("Cargo.toml", &previous.after, &previous.before)?;
+    desktop.library_undo = None;
+    Ok(())
+}
+
 fn local_path(picked: Option<FilePath>) -> Result<Option<PathBuf>, String> {
     picked
         .map(|path| path.into_path().map_err(|error| error.to_string()))
@@ -437,6 +497,7 @@ pub fn run() {
                     tasks: Tasks::default(),
                     project: None,
                     terminal: None,
+                    library_undo: None,
                 }),
             });
             Ok(())
@@ -461,6 +522,9 @@ pub fn run() {
             doctor,
             test_toolchain,
             libraries,
+            library_preview,
+            library_apply,
+            library_undo,
             terminal_start,
             terminal_write,
             terminal_resize,

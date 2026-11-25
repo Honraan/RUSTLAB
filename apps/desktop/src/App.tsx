@@ -1,11 +1,12 @@
-import { useCallback, useEffect, useRef, useState } from "react";
+import { lazy, Suspense, useCallback, useEffect, useRef, useState } from "react";
 import { ArrowLeft, ArrowRight, BookOpen, Boxes, ChartNoAxesColumnIncreasing, ChevronRight, CircleHelp, CodeXml, FolderOpen, House, Settings, Sparkles, Terminal, X } from "lucide-react";
 import { api, errorMessage } from "./api";
 import type { Course, Entry, Lesson, Line, Outcome } from "./api";
-import { LessonPage } from "./LessonPage";
-import { ProjectPage } from "./ProjectPage";
 import { SettingsPage, LibrariesPage } from "./SettingsPage";
 import ferris from "./ferris.png";
+
+const LessonPage = lazy(() => import("./LessonPage").then((module) => ({ default: module.LessonPage })));
+const ProjectPage = lazy(() => import("./ProjectPage").then((module) => ({ default: module.ProjectPage })));
 
 export type RunTask = (label: string, start: () => Promise<void>) => Promise<void>;
 export type Preferences = { theme: "system" | "dark" | "light"; motion: boolean; focus: boolean; volume: number; font: number; scale: number };
@@ -75,6 +76,8 @@ export function App() {
   const [task, setTask] = useState<{ label: string; running: boolean; result: Outcome | null } | null>(null);
   const [consoleOpen, setConsoleOpen] = useState(false);
   const [projectName, setProjectName] = useState("");
+  const [projectVisited, setProjectVisited] = useState(false);
+  const [welcome, setWelcome] = useState(() => localStorage.getItem("rustlab-welcome-dismissed") !== "1");
   const pickingLesson = useRef(0);
   const taskPending = useRef(false);
   const heading = useRef<HTMLElement>(null);
@@ -87,6 +90,7 @@ export function App() {
   announceXp.current = celebrate;
   const navigate = useCallback((destination: Page) => {
     pickingLesson.current += 1;
+    if (destination === "project") setProjectVisited(true);
     setPage(destination);
   }, []);
 
@@ -100,6 +104,7 @@ export function App() {
   }, [preferences]);
   useEffect(() => {
     heading.current?.focus();
+    heading.current?.scrollTo({ top: 0 });
   }, [page, lesson?.entry.id]);
   useEffect(() => {
     const shortcuts = (event: KeyboardEvent) => {
@@ -169,6 +174,12 @@ export function App() {
 
   const entries = course?.stages.flatMap((group) => group.entries) ?? [];
   const next = entries.find((entry) => entry.id === course?.next);
+  const activeIndex = entries.findIndex((entry) => entry.id === lesson?.entry.id);
+  const following = activeIndex >= 0 ? entries[activeIndex + 1] : undefined;
+  const dismissWelcome = () => {
+    localStorage.setItem("rustlab-welcome-dismissed", "1");
+    setWelcome(false);
+  };
   const complete = entries.filter((entry) => entry.completed).length;
 
   return (
@@ -217,6 +228,13 @@ export function App() {
                 <code>{course?.ferris || "c(o.o)c"}</code>
               </div>
             </section>
+            {welcome && <section className="card welcome-card">
+              <div><h2>Primeira sessão?</h2><p>Aprenda teoria e responda aos quizzes offline. Configure aparência, som e ferramentas quando quiser.</p></div>
+              <div className="toolbar">
+                <button onClick={() => { dismissWelcome(); navigate("settings"); }}>Configurar agora</button>
+                <button className="ghost" onClick={dismissWelcome}>Configurar depois</button>
+              </div>
+            </section>}
             <div className="home-links">
               {next && <button className="feature" onClick={() => void openLesson(next.id)}>
                 <BookOpen size={22} aria-hidden="true" /><span><small>CONTINUAR TRILHA</small><strong>{next.title}</strong></span><ChevronRight size={18} />
@@ -242,18 +260,28 @@ export function App() {
             <button className="ghost back" onClick={() => { setStage(lesson.stage); navigate("course"); }}>
               <ArrowLeft size={16} aria-hidden="true" /> Voltar à trilha
             </button>
-            <LessonPage key={lesson.entry.id} lesson={lesson} fontSize={preferences.font} run={run} running={running}
+            <Suspense fallback={<p>Carregando lição…</p>}><LessonPage key={lesson.entry.id} lesson={lesson} fontSize={preferences.font} run={run} running={running}
               report={setNotice} refreshed={refresh} celebrate={celebrate} />
+            </Suspense>
+            {following?.unlocked && <button className="lesson-next" onClick={() => void openLesson(following.id)}>
+              Próxima lição <ArrowRight size={17} aria-hidden="true" />
+            </button>}
           </>}
-          <div hidden={page !== "project"}>
-            <ProjectPage report={setNotice} nameChanged={setProjectName} run={run} running={running} fontSize={preferences.font} />
-          </div>
+          {projectVisited && <div hidden={page !== "project"}>
+            <Suspense fallback={<p>Carregando editor…</p>}><ProjectPage report={setNotice} nameChanged={setProjectName} run={run} running={running} fontSize={preferences.font} /></Suspense>
+          </div>}
           {page === "progress" && <>
             <h1>Seu progresso</h1>
             <p className="lead">{complete} de {entries.length} lições e marcos concluídos · {course?.xp ?? 0} XP</p>
             {course && <StageGrid course={course} open={(title) => { setStage(title); navigate("course"); }} />}
+            {course && course.reviews.length > 0 && <section className="card welcome-card">
+              <div><h2>Revisões sugeridas</h2><div className="toolbar">
+                {course.reviews.map((id) => entries.find((entry) => entry.id === id)).filter((entry) => entry?.unlocked)
+                  .slice(0, 8).map((entry) => entry && <button key={entry.id} onClick={() => void openLesson(entry.id)}>{entry.title}</button>)}
+              </div></div>
+            </section>}
           </>}
-          {page === "libraries" && <LibrariesPage report={setNotice} />}
+          {page === "libraries" && <LibrariesPage report={setNotice} run={run} running={running} project={projectName} />}
           {page === "settings" && <SettingsPage prefs={preferences} update={setPreferences} report={setNotice} refresh={refresh} run={run} running={running} />}
           {page === "help" && <>
             <h1>Ajuda e sobre</h1>

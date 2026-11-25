@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
 import { Download, Search, Upload } from "lucide-react";
 import { api, errorMessage } from "./api";
-import type { Doctor, Library } from "./api";
+import type { Doctor, Library, LibraryPlan } from "./api";
 import type { Preferences, RunTask } from "./App";
 
 const doctorNames = { cargo: "Cargo", rustc: "rustc", rustup: "rustup", rustfmt: "rustfmt", clippy: "Clippy", analyzer: "rust-analyzer" };
@@ -60,13 +60,10 @@ export function SettingsPage({ prefs, update, report, refresh, run, running }: {
         <p>Exporte o progresso e os rascunhos salvos em TOML. A importação substitui o progresso local e guarda um backup independente.</p>
         <div className="toolbar">
           <button disabled={working || running} onClick={() => {
-            if (window.confirm("Substituir o progresso local pela cópia selecionada? Os rascunhos de recuperação do editor serão limpos.")) {
+            if (window.confirm("Substituir o progresso local salvo pela cópia selecionada? Rascunhos ainda não salvos continuam neste dispositivo.")) {
               void act(async () => {
                 const result = await api.import();
                 if (!result) return;
-                for (const key of Object.keys(localStorage)) {
-                  if (key.startsWith("rustlab-draft-")) localStorage.removeItem(key);
-                }
                 report(result);
                 await refresh();
               });
@@ -81,9 +78,29 @@ export function SettingsPage({ prefs, update, report, refresh, run, running }: {
   </>;
 }
 
-export function LibrariesPage({ report }: { report: (message: string) => void }) {
+export function LibrariesPage({ report, run, running, project }: {
+  report: (message: string) => void;
+  run: RunTask;
+  running: boolean;
+  project: string;
+}) {
   const [libraries, setLibraries] = useState<Library[]>([]);
   const [search, setSearch] = useState("");
+  const [selection, setSelection] = useState<{ library: Library; plan: LibraryPlan } | null>(null);
+  const [download, setDownload] = useState(false);
+  const [consent, setConsent] = useState(false);
+  const [working, setWorking] = useState(false);
+  async function act(action: () => Promise<void>) {
+    if (working) return;
+    setWorking(true);
+    try {
+      await action();
+    } catch (error) {
+      report(errorMessage(error));
+    } finally {
+      setWorking(false);
+    }
+  }
   useEffect(() => {
     void api.libraries().then(setLibraries).catch((error: unknown) => report(errorMessage(error)));
   }, [report]);
@@ -91,6 +108,34 @@ export function LibrariesPage({ report }: { report: (message: string) => void })
   return <>
     <h1>Bibliotecas</h1>
     <p className="lead">Explore o catálogo F9 da trilha. As versões exibidas vêm da edição Classic.</p>
+    {project
+      ? <div className="toolbar"><p>Projeto ativo: <b>{project}</b></p>
+        <button disabled={working || running} onClick={() => {
+          if (window.confirm("Desfazer a última alteração F9 em Cargo.toml? O Cargo.lock pode ter sido atualizado pela verificação.")) {
+            void act(async () => { await api.libraryUndo(); setSelection(null); report("Alteração F9 desfeita em Cargo.toml."); });
+          }
+        }}>Desfazer alteração F9</button>
+      </div>
+      : <p>Abra um projeto no Modo Criar para preparar uma alteração no manifesto.</p>}
+    {selection && <section className="card">
+      <h2>{selection.library.name} no projeto {project}</h2>
+      {selection.plan.present ? <p>Dependência já declarada no manifesto.</p> : <>
+        <details open><summary>Alteração proposta em Cargo.toml</summary>
+          <div className="library-grid">
+            <figure><figcaption>Atual</figcaption><pre tabIndex={0}>{selection.plan.before}</pre></figure>
+            <figure><figcaption>Proposto</figcaption><pre tabIndex={0}>{selection.plan.after}</pre></figure>
+          </div>
+        </details>
+        <label className="consent"><input type="checkbox" checked={consent} onChange={(e) => setConsent(e.target.checked)} />
+          Autorizo alterar Cargo.toml e verificar o projeto. Scripts de compilação e macros podem executar código com as permissões da minha conta.</label>
+        <label className="consent"><input type="checkbox" checked={download} onChange={(e) => setDownload(e.target.checked)} />
+          Permitir downloads de crates durante a verificação.</label>
+        <button className="primary" disabled={!consent || working || running} onClick={() => void act(async () => {
+          await run("Verificar dependência", () => api.libraryApply(selection.library.name, selection.plan, download));
+          setSelection(null);
+        })}>Aplicar e verificar</button>
+      </>}
+    </section>}
     <label className="search"><Search size={18} aria-hidden="true" /><input placeholder="Buscar bibliotecas" value={search}
       onChange={(e) => setSearch(e.target.value)} /></label>
     <div className="library-grid">
@@ -101,6 +146,13 @@ export function LibrariesPage({ report }: { report: (message: string) => void })
           <p>{lib.warnings}</p><p>Trilha · {lib.lessons.join(", ")}</p>
           <p className="project-root">{lib.docs}</p>
           <p>Compatibilidade Windows a verificar.</p>
+          <button disabled={!project || working || running} onClick={() => void act(async () => {
+            const plan = await api.libraryPreview(lib.name);
+            setSelection({ library: lib, plan });
+            setDownload(false);
+            setConsent(false);
+            window.requestAnimationFrame(() => document.querySelector("main")?.scrollTo({ top: 0 }));
+          })}>Ver alteração no manifesto</button>
         </article>
       ))}
     </div>

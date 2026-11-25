@@ -15,6 +15,7 @@ export function LessonPage({ lesson, fontSize, report, run, running, refreshed, 
   celebrate: (xp: number) => void;
 }) {
   const draftKey = `rustlab-draft-${lesson.entry.id}`;
+  const [recovered, setRecovered] = useState(() => localStorage.getItem(draftKey) !== null);
   const [source, setSource] = useState(() => localStorage.getItem(draftKey) ?? lesson.practice?.source ?? "");
   const [hints, setHints] = useState(lesson.practice?.hints ?? []);
   const [picks, setPicks] = useState<Record<number, number>>({});
@@ -47,6 +48,7 @@ export function LessonPage({ lesson, fontSize, report, run, running, refreshed, 
   const save = () => act(async () => {
     await api.draft(id, source);
     if (localStorage.getItem(draftKey) === source) localStorage.removeItem(draftKey);
+    setRecovered(false);
     report("Rascunho salvo.");
   });
 
@@ -98,6 +100,15 @@ export function LessonPage({ lesson, fontSize, report, run, running, refreshed, 
     {lesson.practice && <section className="card practice">
       <h2>Pratique no editor</h2>
       <p>{lesson.practice.prompt}</p>
+      {recovered && <div className="notice">
+        <span>Rascunho recuperado neste dispositivo.</span>
+        <button onClick={() => {
+          if (!window.confirm("Descartar o rascunho recuperado e carregar a versão salva?")) return;
+          localStorage.removeItem(draftKey);
+          setSource(lesson.practice?.source ?? "");
+          setRecovered(false);
+        }}>Carregar versão salva</button>
+      </div>}
       <Editor label="Código da prática" value={source} language="rust" fontSize={fontSize} onChange={edit} onSave={() => void save()} />
       <label className="consent"><input type="checkbox" checked={consent} onChange={(event) => setConsent(event.target.checked)} />
         Autorizo compilar e executar este código com as permissões da minha conta. A tarefa usa Cargo em modo offline.</label>
@@ -105,6 +116,7 @@ export function LessonPage({ lesson, fontSize, report, run, running, refreshed, 
         <button className="primary" disabled={working || !consent || running} onClick={() => void act(async () => {
           await run("Validar prática", () => api.practice(id, source));
           if (localStorage.getItem(draftKey) === source) localStorage.removeItem(draftKey);
+          setRecovered(false);
         })}><Play size={16} aria-hidden="true" /> Validar prática</button>
         <button disabled={working} onClick={() => void save()}><Save size={16} aria-hidden="true" /> Salvar rascunho</button>
         <button disabled={working || hints.length === 4 || running} onClick={() => void act(async () => setHints(await api.hint(id)))}>

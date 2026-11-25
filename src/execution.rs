@@ -34,6 +34,7 @@ pub enum ToolCommand {
     BuildLinuxRelease,
     BuildWindowsRelease,
     Run,
+    RunGui,
     /// Console por linhas com stdin; não é PTY/emulador de terminal.
     RunInteractive,
     AddDependency {
@@ -70,7 +71,7 @@ impl ToolCommand {
                 s("x86_64-pc-windows-gnu"),
                 s("--message-format=short"),
             ],
-            ToolCommand::Run | ToolCommand::RunInteractive => vec![s("run")],
+            ToolCommand::Run | ToolCommand::RunGui | ToolCommand::RunInteractive => vec![s("run")],
             ToolCommand::AddDependency { name } => vec![s("add"), s("--"), name.clone()],
             ToolCommand::RemoveDependency { name } => vec![s("remove"), s("--"), name.clone()],
             ToolCommand::Test => vec![s("test"), s("--message-format=short")],
@@ -100,7 +101,7 @@ impl ToolCommand {
             ToolCommand::Build => "cargo build",
             ToolCommand::BuildLinuxRelease => "cargo build (Linux)",
             ToolCommand::BuildWindowsRelease => "cargo build (Windows)",
-            ToolCommand::Run | ToolCommand::RunInteractive => "cargo run",
+            ToolCommand::Run | ToolCommand::RunGui | ToolCommand::RunInteractive => "cargo run",
             ToolCommand::AddDependency { .. } => "cargo add",
             ToolCommand::RemoveDependency { .. } => "cargo remove",
             ToolCommand::Test | ToolCommand::ExerciseTest => "cargo test",
@@ -115,6 +116,7 @@ impl ToolCommand {
         match self {
             ToolCommand::Run => Duration::from_secs(30),
             ToolCommand::RunInteractive => Duration::from_secs(300),
+            ToolCommand::RunGui => Duration::from_secs(30 * 60),
             ToolCommand::Test | ToolCommand::ExerciseTest => Duration::from_secs(120),
             ToolCommand::BuildLinuxRelease | ToolCommand::BuildWindowsRelease => {
                 Duration::from_secs(600)

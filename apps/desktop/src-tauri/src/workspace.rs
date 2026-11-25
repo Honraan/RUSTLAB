@@ -7,6 +7,7 @@ use rustlab::projects::Project;
 use serde::Serialize;
 
 use crate::course::MAX_SOURCE;
+use crate::templates::Template;
 
 #[derive(Serialize)]
 pub struct ProjectInfo {
@@ -27,7 +28,7 @@ impl Workspace {
         Ok(workspace)
     }
 
-    pub fn create(parent: &Path, raw_name: &str) -> Result<Self, String> {
+    pub fn create(parent: &Path, raw_name: &str, template: Template) -> Result<Self, String> {
         let name = sanitize_project_name(raw_name)
             .ok_or("Use letras sem acento, números, hífen ou sublinhado no nome do crate.")?;
         validate_component(&name)?;
@@ -37,15 +38,20 @@ impl Workspace {
         if root.try_exists().map_err(error_text)? {
             return Err("Já existe uma pasta com esse nome.".into());
         }
-        fs::create_dir(staging.path().join("src")).map_err(error_text)?;
+        let (dependencies, main, model) = template.build();
+        let source = staging.path().join("src");
+        fs::create_dir(&source).map_err(error_text)?;
         fs::write(staging.path().join("Cargo.toml"), format!(
-            "[package]\nname = \"{name}\"\nversion = \"0.1.0\"\nedition = \"2024\"\n\n[dependencies]\n\n[workspace]\n"
+            "[package]\nname = \"{name}\"\nversion = \"0.1.0\"\nedition = \"2024\"\n\n[dependencies]\n{dependencies}\n[workspace]\n"
         )).map_err(error_text)?;
-        fs::write(
-            staging.path().join("src/main.rs"),
-            "fn main() {\n    println!(\"Olá, Rust!\");\n}\n",
-        )
-        .map_err(error_text)?;
+        fs::write(source.join("main.rs"), main).map_err(error_text)?;
+        if let Some(model) = model {
+            fs::write(
+                source.join("model.rs"),
+                format!("#![allow(dead_code)]\n\n{model}"),
+            )
+            .map_err(error_text)?;
+        }
         // On Windows this operation fails when the destination directory exists.
         fs::rename(staging.path(), &root).map_err(error_text)?;
         Self::open(&root)
@@ -219,11 +225,36 @@ mod tests {
     use super::*;
 
     #[test]
+    fn graphical_project_templates_are_exportable() {
+        let temporary = tempfile::tempdir().unwrap();
+        let requested = std::env::var_os("RUSTLAB_CAPSTONE_QA_DIR").map(PathBuf::from);
+        let output = requested.as_deref().unwrap_or(temporary.path());
+        fs::create_dir_all(output).unwrap();
+        for (name, template, expected, model) in [
+            ("mini_paint", Template::Paint, "=0.27.0", "struct Canvas2D"),
+            (
+                "cavegame",
+                Template::Cavegame,
+                "=0.20.1",
+                "struct VoxelWorld",
+            ),
+        ] {
+            let project = Workspace::create(output, name, template).unwrap();
+            assert_eq!(
+                project.info().files,
+                ["Cargo.toml", "src/main.rs", "src/model.rs"]
+            );
+            assert!(project.read("Cargo.toml").unwrap().contains(expected));
+            assert!(project.read("src/model.rs").unwrap().contains(model));
+        }
+    }
+
+    #[test]
     fn project_creation_editing_and_external_conflict() {
         let parent = tempfile::tempdir().unwrap();
-        let project = Workspace::create(parent.path(), "minha_app").unwrap();
+        let project = Workspace::create(parent.path(), "minha_app", Template::Basic).unwrap();
         assert_eq!(project.info().files, ["Cargo.toml", "src/main.rs"]);
-        assert!(Workspace::create(parent.path(), "minha_app").is_err());
+        assert!(Workspace::create(parent.path(), "minha_app", Template::Basic).is_err());
         project.create_source("src/util.rs").unwrap();
         let base = project.read("src/main.rs").unwrap();
         project.save("src/main.rs", &base, "fn main() {}").unwrap();

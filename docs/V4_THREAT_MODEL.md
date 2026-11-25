@@ -1,0 +1,14 @@
+# Modelo de ameaças do RustLab Desktop
+
+| Fronteira | Risco | Controles e validação |
+| --- | --- | --- |
+| WebView2 → Rust | Conteúdo comprometido tenta chamar métodos privilegiados | Recursos empacotados, CSP, janela única, comandos específicos, ausência de permissões amplas de shell/fs e de conteúdo remoto na WebView |
+| IPC → arquivos | Travessia, ADS, nomes reservados, links, junctions ou edição externa | Raiz selecionada em diálogo nativo, listagem restrita, rejeição de reparse points e canonicalização, verificação de conteúdo externo antes de gravar. Um processo concorrente com acesso ao mesmo diretório ainda pode produzir races entre validação e uso |
+| Cargo → conta Windows | Build scripts, macros, binários e configuração Cargo executam código local | Consentimento por projeto/prática, comando fixo, Cargo offline por padrão no desktop e Job Object com encerramento da árvore. O código continua com as permissões da conta e pode acessar rede e arquivos por conta própria |
+| ConPTY → UI | Sequências ANSI ou saída volumosa, saturação, descendentes e entrada desordenada | API nativa, job, consumidores separados, saída limitada, fila de entrada, xterm sem links ativos, cancelamento e timeout. Cobertura de carregamentos elevados e cancelamento com netos fica na QA |
+| Conteúdo, diagnósticos e documentação | XSS, navegação privilegiada ou engenharia social | Renderização de texto via React, nenhuma renderização HTML da fonte ou log. URLs oficiais são exibidas como texto. Links futuros devem aplicar allowlist e abrir fora da WebView |
+| Progresso e configurações | Corrupção, sobrescrita, duplicação de XP e vazamento | TOML versionado, backup e operação explícita, app data separado, sem upload automático. Prestar atenção ao compartilhar exportações, que contêm rascunhos de código |
+| Mentor → provedor | Envio de código/tokens ou alteração induzida por prompt | O desktop disponibiliza explicações locais e sem ferramentas de edição pelo mentor. Integração futura deve confirmar provedor/dados, manter credenciais no Windows Credential Manager e aplicar a política de Learn Mode |
+| Instalador/atualizações | Binário alterado, SmartScreen e atualização não autorizada | Build por SHA em runner, artefato com SHA-256, instalação por usuário. A prévia é unsigned. Para distribuição estável, exigir validação de proveniência e estratégia de assinatura. A versão não configura updater |
+
+Os logs de saída Cargo podem repetir qualquer texto produzido por um projeto. A interface os exibe em memória. O usuário deve revisar conteúdo antes de extrair ou compartilhar. O modo diagnóstico verifica presença de executáveis e, a pedido, compila um projeto temporário para MSVC. Não altera PATH, não eleva e não instala ferramentas automaticamente. O bootstrapper do instalador para WebView2 segue a experiência descrita no ADR.

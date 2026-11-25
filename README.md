@@ -3,6 +3,13 @@
 Aprenda Rust no terminal com lições, exercícios e uma mini-IDE.
 O mentor é opcional: o guia local funciona sem serviço de IA.
 
+## RustLab Desktop para Windows
+
+A prévia V4 empacota a trilha em uma aplicação Windows com editor e Cargo local.
+Veja a [arquitetura e as instruções de build](docs/V4_ARCHITECTURE.md), a
+[matriz de capacidades](docs/V4_WINDOWS_CAPABILITIES.md) e o
+[checklist de validação](docs/V4_WINDOWS_RELEASE_CHECKLIST.md).
+
 ## Começar
 
 Instale [Rust stable](https://rustup.rs) com Cargo e use um terminal interativo.

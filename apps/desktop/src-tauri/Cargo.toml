@@ -10,6 +10,7 @@ rustlab = { path = "../../.." }
 serde = { version = "1", features = ["derive"] }
 tempfile = "3"
 toml = "1"
+toml_edit = "0.25"
 
 [target.'cfg(windows)'.dependencies]
 tauri = "2"

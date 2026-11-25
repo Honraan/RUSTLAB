@@ -20,6 +20,7 @@ pub struct CourseMap {
     pub stages: Vec<Stage>,
     pub xp: u64,
     pub next: Option<&'static str>,
+    pub reviews: Vec<String>,
     pub ferris: &'static str,
     pub warning: Option<String>,
 }
@@ -141,6 +142,7 @@ impl Course {
                 .map(|&xp| u64::from(xp))
                 .sum(),
             next,
+            reviews: self.progress.due_srs_items(),
             ferris: FerrisMood::Neutral.ascii(),
             warning: self.warning.clone(),
         }
