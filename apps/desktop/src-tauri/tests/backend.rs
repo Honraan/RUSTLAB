@@ -11,6 +11,7 @@ fn test_state(tag: &str) -> (AppState, PathBuf) {
         std::env::temp_dir().join(format!("rustlab-desktop-test-{tag}-{}", std::process::id()));
     let _ = std::fs::remove_dir_all(&dir);
     std::fs::create_dir_all(&dir).unwrap();
+    let dir = rustlab::projects::normalize_display_path(&std::fs::canonicalize(&dir).unwrap());
     let cfg = rustlab::config::Config::desktop_defaults();
     let cur = rustlab::curriculum::Curriculum::embedded_for(false).unwrap();
     let inner = InnerState {

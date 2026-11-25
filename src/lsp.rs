@@ -1194,14 +1194,15 @@ mod tests {
     #[test]
     fn indice_indexa_simbolos_docs_e_busca_definicao() {
         let dir = tempfile_dir("idx");
+        let dir = crate::projects::normalize_display_path(&std::fs::canonicalize(&dir).unwrap());
         std::fs::write(
             dir.join("Cargo.toml"),
             "[package]\nname = \"demo\"\nversion = \"0.1.0\"\nedition = \"2024\"\n",
         )
         .unwrap();
         std::fs::create_dir_all(dir.join("src")).unwrap();
-        let main_rs = dir.join("src/main.rs");
-        let utils_rs = dir.join("src/utils.rs");
+        let main_rs = dir.join("src").join("main.rs");
+        let utils_rs = dir.join("src").join("utils.rs");
         std::fs::write(
             &main_rs,
             "mod utils;\nfn main() {\n    let _ = utils::somar(1, 2);\n}\n",

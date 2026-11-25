@@ -5112,12 +5112,17 @@ mod tests {
     fn diagnostico_abre_arquivo_e_formatacao_nao_descarta_edicao_nova() {
         let root = std::env::temp_dir().join(format!("rustlab-jump-{}", std::process::id()));
         std::fs::create_dir_all(root.join("src")).unwrap();
+        let root = crate::projects::normalize_display_path(&std::fs::canonicalize(&root).unwrap());
         std::fs::write(
             root.join("Cargo.toml"),
             "[package]\nname='jump'\nversion='0.1.0'\n",
         )
         .unwrap();
-        std::fs::write(root.join("src/main.rs"), "fn main() {\n    erro();\n}\n").unwrap();
+        std::fs::write(
+            root.join("src").join("main.rs"),
+            "fn main() {\n    erro();\n}\n",
+        )
+        .unwrap();
         let mut app = App::for_snapshot();
         app.set_config_path(root.join("config.toml"));
         let mut state = CreateState::new();
@@ -5131,7 +5136,7 @@ mod tests {
             col: Some(5),
         }];
         state.on_key(&mut app, KeyEvent::from(KeyCode::F(12)));
-        assert_eq!(state.editor.path, Some(root.join("src/main.rs")));
+        assert_eq!(state.editor.path, Some(root.join("src").join("main.rs")));
         assert_eq!(state.cursor_line_col(), (2, 5));
         state.after_exec_reload = true;
         state.editor.insert_text("// resposta ainda não salva");
@@ -5154,18 +5159,19 @@ mod tests {
         let root = std::env::temp_dir().join(format!("rustlab-ide-p7-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&root);
         std::fs::create_dir_all(root.join("src")).unwrap();
+        let root = crate::projects::normalize_display_path(&std::fs::canonicalize(&root).unwrap());
         std::fs::write(
             root.join("Cargo.toml"),
             "[package]\nname='idep7'\nversion='0.1.0'\nedition='2024'\n",
         )
         .unwrap();
         std::fs::write(
-            root.join("src/main.rs"),
+            root.join("src").join("main.rs"),
             "mod ajuda;\nfn main() {\n    let x = ajuda::saudar();\n}\n",
         )
         .unwrap();
         std::fs::write(
-            root.join("src/ajuda.rs"),
+            root.join("src").join("ajuda.rs"),
             "/// Produz uma saudação acolhedora.\npub fn saudar() -> &'static str {\n    \"oi\"\n}\n",
         )
         .unwrap();
@@ -5174,7 +5180,7 @@ mod tests {
         app.set_config_path(root.join("config.toml"));
         let mut state = CreateState::new();
         state.open_project(&root, &mut app);
-        assert_eq!(state.editor.path, Some(root.join("src/main.rs")));
+        assert_eq!(state.editor.path, Some(root.join("src").join("main.rs")));
 
         // Cursor sobre `saudar` em src/main.rs (linha 2, col 21)
         state.editor.cursor.line = 2;
@@ -5192,7 +5198,7 @@ mod tests {
 
         // F11 salta para a definição em src/ajuda.rs
         state.on_key(&mut app, KeyEvent::from(KeyCode::F(11)));
-        assert_eq!(state.editor.path, Some(root.join("src/ajuda.rs")));
+        assert_eq!(state.editor.path, Some(root.join("src").join("ajuda.rs")));
         assert_eq!(state.cursor_line_col().0, 2);
 
         // Ctrl+G abre busca global e encontra nos 2 arquivos
@@ -5221,6 +5227,7 @@ mod tests {
         let root = std::env::temp_dir().join(format!("rustlab-etapa10-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&root);
         std::fs::create_dir_all(root.join("src")).unwrap();
+        let root = crate::projects::normalize_display_path(&std::fs::canonicalize(&root).unwrap());
         std::fs::write(
             root.join("Cargo.toml"),
             "[package]\nname='etapa10'\nversion='0.1.0'\nedition='2024'\n",
