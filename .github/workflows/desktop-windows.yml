@@ -35,7 +35,7 @@ jobs:
             apps/desktop/src-tauri -> target
       - name: Verificar TUI Classic e executor
         run: |
-          cargo check --locked --all-targets
+          cargo clippy --locked --all-targets -- -D warnings
           cargo test --locked --test cargo_run --test project_flow --test exercise_flow
           cargo test --locked --lib conpty_cargo_uses_a_console_and_delivers_keyboard_input
       - name: Instalar dependências da interface
@@ -68,38 +68,40 @@ jobs:
           if ($install.ExitCode -ne 0) { throw "Falha do instalador: $($install.ExitCode)" }
           $appPath = Join-Path $destination 'rustlab-desktop.exe'
           $env:WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS = '--force-renderer-accessibility'
-          $app = Start-Process $appPath -PassThru
           try {
-            $opened = $false
-            for ($i = 0; $i -lt 45; $i++) {
-              Start-Sleep -Seconds 1
-              $app.Refresh()
-              if ($app.HasExited) { throw "RustLab encerrou com código $($app.ExitCode)" }
-              if ($app.MainWindowTitle -eq 'RustLab') { $opened = $true; break }
+            $app = Start-Process $appPath -PassThru
+            try {
+              $opened = $false
+              for ($i = 0; $i -lt 45; $i++) {
+                Start-Sleep -Seconds 1
+                $app.Refresh()
+                if ($app.HasExited) { throw "RustLab encerrou com código $($app.ExitCode)" }
+                if ($app.MainWindowTitle -eq 'RustLab') { $opened = $true; break }
+              }
+              if (-not $opened) { throw 'A janela RustLab não apareceu.' }
+              Write-Host 'Instalação e janela nativa confirmadas.'
+              powershell.exe -NoProfile -ExecutionPolicy Bypass -File apps/desktop/tests/windows-smoke.ps1 -AppPid $app.Id
+              if ($LASTEXITCODE -ne 0) { throw 'Falha ao validar a interface instalada.' }
+            } finally {
+              if (-not $app.HasExited) {
+                $null = $app.CloseMainWindow()
+                if (-not $app.WaitForExit(10000)) { Stop-Process -Id $app.Id -Force }
+              }
             }
-            if (-not $opened) { throw 'A janela RustLab não apareceu.' }
-            powershell.exe -NoProfile -ExecutionPolicy Bypass -File apps/desktop/tests/windows-smoke.ps1 -AppPid $app.Id
-            if ($LASTEXITCODE -ne 0) { throw 'Falha ao validar a interface instalada.' }
+            $app = Start-Process $appPath -PassThru
+            try {
+              powershell.exe -NoProfile -ExecutionPolicy Bypass -File apps/desktop/tests/windows-smoke.ps1 -AppPid $app.Id -Restored
+              if ($LASTEXITCODE -ne 0) { throw 'O progresso não persistiu após reabrir o app.' }
+            } finally {
+              if (-not $app.HasExited) {
+                $null = $app.CloseMainWindow()
+                if (-not $app.WaitForExit(10000)) { Stop-Process -Id $app.Id -Force }
+              }
+            }
           } finally {
-            if (-not $app.HasExited) {
-              $null = $app.CloseMainWindow()
-              if (-not $app.WaitForExit(10000)) { Stop-Process -Id $app.Id -Force }
-            }
-          }
-          Start-Sleep -Seconds 2
-          $app = Start-Process $appPath -PassThru
-          try {
-            powershell.exe -NoProfile -ExecutionPolicy Bypass -File apps/desktop/tests/windows-smoke.ps1 -AppPid $app.Id -Restored
-            if ($LASTEXITCODE -ne 0) { throw 'O progresso não persistiu após reabrir o app.' }
-          } finally {
-            if (-not $app.HasExited) {
-              $null = $app.CloseMainWindow()
-              if (-not $app.WaitForExit(10000)) { Stop-Process -Id $app.Id -Force }
-            }
-          }
-          $uninstall = Start-Process (Join-Path $destination 'uninstall.exe') -ArgumentList '/S' -PassThru -Wait
-          if ($uninstall.ExitCode -ne 0 -or (Test-Path (Join-Path $destination 'rustlab-desktop.exe'))) {
-            throw 'A desinstalação falhou.'
+            $uninstall = Start-Process (Join-Path $destination 'uninstall.exe') -ArgumentList '/S' -PassThru -Wait
+            if ($uninstall.ExitCode -ne 0 -or (Test-Path $appPath)) { throw 'A desinstalação falhou.' }
+            Write-Host 'Desinstalação confirmada.'
           }
       - uses: actions/upload-artifact@v4
         if: ${{ !cancelled() }}
