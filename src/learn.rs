@@ -1056,6 +1056,7 @@ pub struct Progress {
     pub srs_cards: HashMap<String, crate::storage::SrsCard>,
     pub error_counts: HashMap<String, u32>,
     pub onboarding_completed: bool,
+    pub last_entry_id: Option<String>,
 }
 
 impl Progress {
@@ -1155,6 +1156,7 @@ impl Progress {
             srs_cards: data.srs_cards.into_iter().collect(),
             error_counts: data.error_counts.into_iter().collect(),
             onboarding_completed: data.onboarding_completed,
+            last_entry_id: data.last_entry_id,
         }
     }
 
@@ -1191,6 +1193,7 @@ impl Progress {
                 .map(|(k, v)| (k.clone(), *v))
                 .collect(),
             onboarding_completed: self.onboarding_completed,
+            last_entry_id: self.last_entry_id.clone(),
         }
     }
 }
@@ -2014,7 +2017,7 @@ fn reveal_practice_hint(app: &mut App) {
     );
 }
 
-fn fresh_practice_temp_dir(spec_id: &str) -> std::io::Result<PathBuf> {
+pub fn fresh_practice_temp_dir(spec_id: &str) -> std::io::Result<PathBuf> {
     for _ in 0..100 {
         let nonce = PRACTICE_TEMP_COUNTER.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
         let dir = std::env::temp_dir().join(format!(
@@ -2033,7 +2036,7 @@ fn fresh_practice_temp_dir(spec_id: &str) -> std::io::Result<PathBuf> {
     ))
 }
 
-fn prepare_practice_project(
+pub fn prepare_practice_project(
     dir: &std::path::Path,
     spec: &PracticeSpec,
     code: &str,
@@ -2414,7 +2417,7 @@ pub fn on_lesson_exec_event(app: &mut App, ev: ExecEvent) {
     }
 }
 
-fn is_practice_compile_error(text: &str) -> bool {
+pub fn is_practice_compile_error(text: &str) -> bool {
     let trimmed = text.trim();
     trimmed.contains("could not compile")
         || trimmed.contains("error[E")

@@ -4767,7 +4767,7 @@ fn spawn_external_terminal_command(
     }
     #[cfg(target_os = "windows")]
     {
-        return std::process::Command::new("cmd")
+        std::process::Command::new("cmd")
             .args(["/C", "start", program])
             .args(cmd_args)
             .current_dir(workdir)
@@ -4800,7 +4800,7 @@ fn spawn_external_terminal_command(
                         workdir.display()
                     )
                 }
-            });
+            })
     }
     #[cfg(target_os = "macos")]
     {

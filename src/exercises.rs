@@ -1254,7 +1254,7 @@ impl ExerciseSession {
     }
 }
 
-fn is_compile_error(text: &str) -> bool {
+pub fn is_compile_error(text: &str) -> bool {
     let text = text.trim();
     text.contains("could not compile")
         || text.contains("error[E")
@@ -1282,7 +1282,7 @@ pub fn prepare_fixture(dir: &Path, exercise: &Exercise, source: &str) -> std::io
     std::fs::write(dir.join("tests/rustlab_validation.rs"), tests)
 }
 
-fn fresh_temp_dir(id: &str) -> std::io::Result<PathBuf> {
+pub fn fresh_temp_dir(id: &str) -> std::io::Result<PathBuf> {
     for _ in 0..100 {
         let nonce = TEMP_COUNTER.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
         let dir = std::env::temp_dir().join(format!(

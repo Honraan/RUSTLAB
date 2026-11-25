@@ -4,9 +4,7 @@ use std::time::{Duration, Instant};
 use rustlab::execution::{ExecEvent, ExecutionManager, ToolCommand};
 
 fn cargo() -> Option<PathBuf> {
-    let home = std::env::var_os("HOME").map(PathBuf::from)?;
-    let path = home.join(".cargo/bin/cargo");
-    path.is_file().then_some(path)
+    rustlab::execution::resolve_cargo_path()
 }
 
 fn wait(manager: &mut ExecutionManager, limit: Duration) -> Vec<ExecEvent> {
@@ -30,11 +28,11 @@ fn cargo_real_check_e_run_capturam_saida_e_diagnostico() {
     };
     // Executor usa PATH; adiciona o diretório somente neste processo de teste.
     let parent = cargo.parent().unwrap();
-    let path = format!(
-        "{}:{}",
-        parent.display(),
-        std::env::var("PATH").unwrap_or_default()
-    );
+    let mut dirs = vec![parent.to_path_buf()];
+    if let Some(existing) = std::env::var_os("PATH") {
+        dirs.extend(std::env::split_paths(&existing));
+    }
+    let path = std::env::join_paths(dirs).unwrap();
     // SAFETY: teste single-thread nesta integração.
     unsafe {
         std::env::set_var("PATH", path);
@@ -87,7 +85,10 @@ fn cargo_real_check_e_run_capturam_saida_e_diagnostico() {
         })
         .collect::<Vec<_>>()
         .join("\n");
-    assert!(stderr.contains("src/main.rs:1:"), "stderr: {stderr}");
+    assert!(
+        stderr.contains("src/main.rs:1:") || stderr.contains("src\\main.rs:1:"),
+        "stderr: {stderr}"
+    );
     std::fs::write(
         root.join("src/main.rs"),
         "fn main() { println!(\"Hello, world!\"); }\n",

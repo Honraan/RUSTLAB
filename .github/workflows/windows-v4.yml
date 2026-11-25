@@ -1,0 +1,80 @@
+name: Windows V4 Desktop & Core CI
+
+on:
+  push:
+    branches: [main, master]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  windows-build-and-test:
+    runs-on: windows-latest
+    timeout-minutes: 45
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Install Rust toolchain (MSVC + components)
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt, clippy
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: apps/desktop/package-lock.json
+
+      - name: Cache Cargo artifacts
+        uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: |
+            .
+            apps/desktop/src-tauri
+
+      - name: Check formatting
+        run: cargo fmt --all -- --check
+
+      - name: Run Clippy across workspace
+        run: cargo clippy --workspace --all-targets -- -D warnings
+
+      - name: Install frontend dependencies & verify UI
+        working-directory: apps/desktop
+        run: |
+          npm ci
+          npm run typecheck
+          npm test
+          npm run build
+
+      - name: Run workspace Rust tests (TUI Core + Desktop Backend)
+        run: cargo test --workspace --all-targets
+
+      - name: Build Windows NSIS installer
+        working-directory: apps/desktop
+        run: npx tauri build --bundles nsis
+
+      - name: Generate SHA256SUMS
+        shell: pwsh
+        run: |
+          $nsisDir = "target/release/bundle/nsis"
+          $installers = Get-ChildItem -Path $nsisDir -Filter "*-setup.exe"
+          if (-not $installers) { throw "Nenhum instalador NSIS encontrado em $nsisDir" }
+          $lines = foreach ($f in $installers) {
+            $hash = (Get-FileHash -Path $f.FullName -Algorithm SHA256).Hash.ToLowerInvariant()
+            "$hash  $($f.Name)"
+          }
+          $lines | Set-Content -Path "$nsisDir/SHA256SUMS" -Encoding utf8
+          Get-Content "$nsisDir/SHA256SUMS"
+
+      - name: Upload NSIS Installer & Checksums
+        uses: actions/upload-artifact@v4
+        with:
+          name: rustlab-windows-nsis
+          path: |
+            target/release/bundle/nsis/*-setup.exe
+            target/release/bundle/nsis/SHA256SUMS
+          if-no-files-found: error

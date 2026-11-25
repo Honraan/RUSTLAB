@@ -387,6 +387,24 @@ impl ExecSettings {
         {
             return Some(PathBuf::from(custom));
         }
+        #[cfg(windows)]
+        {
+            if let Some(local) = std::env::var_os("LOCALAPPDATA") {
+                let p = PathBuf::from(local);
+                if p.is_absolute() {
+                    return Some(p.join("RustLab").join("target-cache"));
+                }
+            }
+            if let Some(up) = std::env::var_os("USERPROFILE") {
+                return Some(
+                    PathBuf::from(up)
+                        .join("AppData")
+                        .join("Local")
+                        .join("RustLab")
+                        .join("target-cache"),
+                );
+            }
+        }
         if let Some(cache_home) = std::env::var_os("XDG_CACHE_HOME") {
             let p = PathBuf::from(cache_home);
             if p.is_absolute() {
@@ -433,6 +451,36 @@ pub fn default_language() -> String {
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "kebab-case", default)]
+pub struct DesktopSettings {
+    /// Tema da interface desktop: "system" | "dark" | "light" | "high-contrast".
+    pub desktop_theme: String,
+    /// Oculta celebrações e partículas distrativas mantendo funcionalidade.
+    pub focus_mode: bool,
+    /// Escala percentual da interface (90..=140).
+    pub ui_scale: u16,
+    /// Tamanho da fonte no editor CodeMirror (12..=24).
+    pub editor_font_size: u16,
+    /// Se o assistente de primeira execução (Toolchain Doctor) já foi concluído.
+    pub first_run_completed: bool,
+    /// Pastas de projetos externos explicitamente confiadas pelo usuário.
+    pub trusted_projects: Vec<String>,
+}
+
+impl Default for DesktopSettings {
+    fn default() -> Self {
+        Self {
+            desktop_theme: "dark".to_string(),
+            focus_mode: false,
+            ui_scale: 100,
+            editor_font_size: 14,
+            first_run_completed: false,
+            trusted_projects: Vec::new(),
+        }
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "kebab-case", default)]
 pub struct Config {
     #[serde(default = "default_language")]
     pub language: String,
@@ -443,6 +491,8 @@ pub struct Config {
     pub ai: AiSettings,
     pub execution: ExecSettings,
     pub workspace: WorkspaceSettings,
+    #[serde(default)]
+    pub desktop: DesktopSettings,
 }
 
 impl Default for Config {
@@ -455,14 +505,23 @@ impl Default for Config {
             ai: AiSettings::default(),
             execution: ExecSettings::default(),
             workspace: WorkspaceSettings::default(),
+            desktop: DesktopSettings::default(),
         }
     }
 }
 
 impl Config {
-    /// Construção a partir dos padrões; inglês (`en-US`) é o padrão inicial.
+    /// Construção a partir dos padrões; inglês (`en-US`) é o padrão inicial da TUI.
     pub fn defaults() -> Self {
         Self::default()
+    }
+
+    /// Padrão inicial da edição Windows Desktop V4: `pt-BR`.
+    pub fn desktop_defaults() -> Self {
+        Self {
+            language: "pt-BR".to_string(),
+            ..Self::default()
+        }
     }
 
     pub fn is_english(&self) -> bool {
@@ -488,6 +547,30 @@ pub struct LoadOutcome {
 pub fn config_path() -> Option<PathBuf> {
     if let Some(path) = std::env::var_os("RUSTLAB_CONFIG") {
         return Some(PathBuf::from(path));
+    }
+    #[cfg(windows)]
+    {
+        if let Some(dir) = std::env::var_os("APPDATA") {
+            let dir = PathBuf::from(dir);
+            if dir.is_absolute() {
+                return Some(dir.join("RustLab").join("config.toml"));
+            }
+        }
+        if let Some(dir) = std::env::var_os("LOCALAPPDATA") {
+            let dir = PathBuf::from(dir);
+            if dir.is_absolute() {
+                return Some(dir.join("RustLab").join("config.toml"));
+            }
+        }
+        if let Some(up) = std::env::var_os("USERPROFILE") {
+            return Some(
+                PathBuf::from(up)
+                    .join("AppData")
+                    .join("Roaming")
+                    .join("RustLab")
+                    .join("config.toml"),
+            );
+        }
     }
     if let Some(dir) = std::env::var_os("XDG_CONFIG_HOME") {
         let dir = PathBuf::from(dir);
@@ -618,6 +701,7 @@ mod tests {
             ai: AiSettings::default(),
             execution: ExecSettings::default(),
             workspace: WorkspaceSettings::default(),
+            desktop: DesktopSettings::default(),
         };
         let text = toml::to_string_pretty(&cfg).unwrap();
         let back: Config = toml::from_str(&text).unwrap();

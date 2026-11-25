@@ -14,6 +14,7 @@
 //! AVISO EXIBIDO AO USUÁRIO (consentimento, tela própria): executar código
 //! localmente NÃO é sandbox. O app só executa após consentimento explícito.
 
+#[cfg(unix)]
 use std::os::unix::fs::PermissionsExt;
 use std::path::{Path, PathBuf};
 use std::process::Stdio;
@@ -151,24 +152,31 @@ pub fn sanitize_project_name(raw: &str) -> Option<String> {
 /// Resolve `cargo` mesmo quando a aplicação é iniciada por um atalho gráfico
 /// cujo PATH é menor que o PATH de um shell de login.
 fn cargo_candidates() -> Vec<PathBuf> {
+    let bin = if cfg!(windows) { "cargo.exe" } else { "cargo" };
     let mut candidates = Vec::new();
     if let Some(path) = std::env::var_os("PATH") {
-        candidates.extend(std::env::split_paths(&path).map(|dir| dir.join("cargo")));
+        candidates.extend(std::env::split_paths(&path).map(|dir| dir.join(bin)));
     }
 
-    let home = std::env::var_os("HOME").map(PathBuf::from);
+    let home = if cfg!(windows) {
+        std::env::var_os("USERPROFILE").or_else(|| std::env::var_os("HOME"))
+    } else {
+        std::env::var_os("HOME")
+    }
+    .map(PathBuf::from);
     if let Some(home) = home.as_ref() {
-        candidates.push(home.join(".cargo/bin/cargo"));
-        if let Ok(read) = std::fs::read_dir(home.join(".rustup/toolchains")) {
+        candidates.push(home.join(".cargo").join("bin").join(bin));
+        if let Ok(read) = std::fs::read_dir(home.join(".rustup").join("toolchains")) {
             let mut entries: Vec<_> = read.filter_map(Result::ok).map(|e| e.path()).collect();
             entries.sort();
             candidates.extend(
                 entries
                     .into_iter()
-                    .map(|toolchain| toolchain.join("bin/cargo")),
+                    .map(|toolchain| toolchain.join("bin").join(bin)),
             );
         }
     }
+    #[cfg(unix)]
     candidates.extend([
         PathBuf::from("/usr/local/cargo/bin/cargo"),
         PathBuf::from("/usr/local/bin/cargo"),
@@ -182,13 +190,25 @@ fn is_executable(path: &Path) -> bool {
     let Ok(metadata) = std::fs::metadata(path) else {
         return false;
     };
-    metadata.is_file() && (metadata.permissions().mode() & 0o111) != 0
+    #[cfg(unix)]
+    {
+        metadata.is_file() && (metadata.permissions().mode() & 0o111) != 0
+    }
+    #[cfg(windows)]
+    {
+        metadata.is_file()
+    }
 }
 
 fn find_cargo() -> Option<PathBuf> {
     cargo_candidates()
         .into_iter()
         .find(|path| is_executable(path))
+}
+
+/// Caminho absoluto resolvido do executável `cargo` / `cargo.exe`, se disponível.
+pub fn resolve_cargo_path() -> Option<PathBuf> {
+    find_cargo()
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -241,8 +261,12 @@ enum Command_ {
 /// Estado compartilhado entre a fachada (thread da UI) e o executor.
 #[derive(Default)]
 struct ExecState {
-    /// PID (== PGID, pois usamos process_group(0)) do filho atual.
+    /// PID (== PGID no Unix) do filho atual.
+    #[cfg(unix)]
     pgid: Mutex<Option<u32>>,
+    /// Handle do Windows Job Object (como usize para Send + Sync) associado ao filho atual.
+    #[cfg(windows)]
+    job: Mutex<Option<usize>>,
     cancelled: AtomicBool,
 }
 
@@ -394,13 +418,28 @@ impl ExecutionManager {
         Ok(())
     }
 
-    /// Cancela o comando atual matando o PROCESS GROUP inteiro (cargo +
+    /// Cancela o comando atual matando o grupo/job de processos inteiro (cargo +
     /// binário do aluno + filhos). Seguro chamar sem nada rodando.
     pub fn cancel(&mut self) {
         self.state.cancelled.store(true, Ordering::SeqCst);
-        let pgid = *self.state.pgid.lock().unwrap_or_else(|e| e.into_inner());
-        if let Some(pgid) = pgid {
-            kill_group(pgid);
+        #[cfg(unix)]
+        {
+            let pgid = *self.state.pgid.lock().unwrap_or_else(|e| e.into_inner());
+            if let Some(pgid) = pgid {
+                kill_group(pgid);
+            }
+        }
+        #[cfg(windows)]
+        {
+            let job = self
+                .state
+                .job
+                .lock()
+                .unwrap_or_else(|e| e.into_inner())
+                .take();
+            if let Some(job) = job {
+                win_job::terminate_and_close(job);
+            }
         }
     }
 
@@ -437,15 +476,22 @@ async fn run_one(
     tx: std::sync::mpsc::Sender<ExecEvent>,
     input: Option<mpsc::Receiver<Option<Vec<u8>>>>,
 ) {
+    #[cfg(unix)]
     use std::os::unix::process::CommandExt;
+    #[cfg(windows)]
+    use std::os::windows::process::CommandExt;
     use tokio::process::Command as AsyncCommand;
 
     let label = cmd.label().to_string();
     let Some(cargo) = find_cargo() else {
         let _ = tx.send(ExecEvent::SpawnFailed {
             label,
-            reason: "não encontrei o executável do Cargo; instale o Rust ou adicione ~/.cargo/bin ao PATH"
-                .to_string(),
+            reason: if cfg!(windows) {
+                "não encontrei cargo.exe; instale o Rust (rustup.rs) ou adicione %USERPROFILE%\\.cargo\\bin ao PATH".to_string()
+            } else {
+                "não encontrei o executável do Cargo; instale o Rust ou adicione ~/.cargo/bin ao PATH"
+                    .to_string()
+            },
         });
         return;
     };
@@ -476,8 +522,14 @@ async fn run_one(
         .stdout(Stdio::piped())
         .stderr(Stdio::piped())
         .kill_on_drop(true);
-    // Process group próprio: permite matar a árvore inteira no cancel.
+    // Process group / Job próprio: permite matar a árvore inteira no cancel.
+    #[cfg(unix)]
     ac.as_std_mut().process_group(0);
+    #[cfg(windows)]
+    {
+        const CREATE_NO_WINDOW: u32 = 0x0800_0000;
+        ac.as_std_mut().creation_flags(CREATE_NO_WINDOW);
+    }
 
     let mut child = match ac.spawn() {
         Ok(c) => c,
@@ -491,13 +543,24 @@ async fn run_one(
             return;
         }
     };
+    #[cfg(unix)]
     let pid = child.id().unwrap_or(0);
+    #[cfg(unix)]
     {
         let mut g = state.pgid.lock().unwrap_or_else(|e| e.into_inner());
         *g = Some(pid);
     }
+    #[cfg(windows)]
+    {
+        if let Some(raw_handle) = child.raw_handle()
+            && let Some(job) = win_job::create_and_assign(raw_handle)
+        {
+            let mut g = state.job.lock().unwrap_or_else(|e| e.into_inner());
+            *g = Some(job);
+        }
+    }
     if state.cancelled.load(Ordering::SeqCst) {
-        kill_group(pid);
+        kill_active(state);
     }
     let _ = tx.send(ExecEvent::Started {
         label: label.clone(),
@@ -527,11 +590,12 @@ async fn run_one(
         res = child.wait() => res,
         _ = tokio::time::sleep(cmd.timeout()) => {
             if let Some(handle) = &h_input { handle.abort(); }
-            kill_group(pid);
+            kill_active(state);
+            let _ = child.kill().await;
             let _ = child.wait().await;
             let _ = h_out.await;
             let _ = h_err.await;
-            clear_pgid(state);
+            clear_active(state);
             let _ = tx.send(ExecEvent::TimedOut { label });
             return;
         }
@@ -542,12 +606,12 @@ async fn run_one(
 
     // Programas que deixam descendentes com os pipes abertos não podem
     // prender a UI após o processo principal terminar.
-    kill_group(pid);
+    kill_active(state);
 
     // aguarda os leitores chegarem ao EOF para não perder o fim da saída
     let _ = h_out.await;
     let _ = h_err.await;
-    clear_pgid(state);
+    clear_active(state);
 
     if state.cancelled.load(Ordering::SeqCst) {
         let _ = tx.send(ExecEvent::Cancelled { label });
@@ -572,15 +636,95 @@ async fn run_one(
     }
 }
 
-fn clear_pgid(state: &Arc<ExecState>) {
-    let mut g = state.pgid.lock().unwrap_or_else(|e| e.into_inner());
-    *g = None;
+fn kill_active(state: &Arc<ExecState>) {
+    #[cfg(unix)]
+    {
+        let pid = *state.pgid.lock().unwrap_or_else(|e| e.into_inner());
+        if let Some(pid) = pid {
+            kill_group(pid);
+        }
+    }
+    #[cfg(windows)]
+    {
+        let job = state.job.lock().unwrap_or_else(|e| e.into_inner()).take();
+        if let Some(job) = job {
+            win_job::terminate_and_close(job);
+        }
+    }
 }
 
+fn clear_active(state: &Arc<ExecState>) {
+    #[cfg(unix)]
+    {
+        let mut g = state.pgid.lock().unwrap_or_else(|e| e.into_inner());
+        *g = None;
+    }
+    #[cfg(windows)]
+    {
+        let job = state.job.lock().unwrap_or_else(|e| e.into_inner()).take();
+        if let Some(job) = job {
+            win_job::close(job);
+        }
+    }
+}
+
+#[cfg(unix)]
 fn kill_group(pid: u32) {
     if pid != 0 {
         unsafe {
             libc::killpg(pid as libc::pid_t, libc::SIGKILL);
+        }
+    }
+}
+
+#[cfg(windows)]
+mod win_job {
+    use std::os::windows::io::RawHandle;
+    use windows_sys::Win32::Foundation::{CloseHandle, HANDLE};
+    use windows_sys::Win32::System::JobObjects::{
+        AssignProcessToJobObject, CreateJobObjectW, JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE,
+        JOBOBJECT_EXTENDED_LIMIT_INFORMATION, JobObjectExtendedLimitInformation,
+        SetInformationJobObject, TerminateJobObject,
+    };
+
+    pub fn create_and_assign(child_handle: RawHandle) -> Option<usize> {
+        unsafe {
+            let job: HANDLE = CreateJobObjectW(std::ptr::null(), std::ptr::null());
+            if job.is_null() {
+                return None;
+            }
+            let mut info: JOBOBJECT_EXTENDED_LIMIT_INFORMATION = std::mem::zeroed();
+            info.BasicLimitInformation.LimitFlags = JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE;
+            let ok_info = SetInformationJobObject(
+                job,
+                JobObjectExtendedLimitInformation,
+                &info as *const _ as *const _,
+                std::mem::size_of::<JOBOBJECT_EXTENDED_LIMIT_INFORMATION>() as u32,
+            );
+            if ok_info == 0 {
+                CloseHandle(job);
+                return None;
+            }
+            let ok_assign = AssignProcessToJobObject(job, child_handle as HANDLE);
+            if ok_assign == 0 {
+                CloseHandle(job);
+                return None;
+            }
+            Some(job as usize)
+        }
+    }
+
+    pub fn terminate_and_close(job: usize) {
+        unsafe {
+            let handle = job as HANDLE;
+            let _ = TerminateJobObject(handle, 1);
+            let _ = CloseHandle(handle);
+        }
+    }
+
+    pub fn close(job: usize) {
+        unsafe {
+            let _ = CloseHandle(job as HANDLE);
         }
     }
 }
@@ -739,12 +883,12 @@ fn header_message(rest: &str) -> String {
 }
 
 fn parse_short(line: &str) -> Option<Diagnostic> {
-    // path:line:col: level[...]: message
-    let mut parts = line.splitn(4, ':');
-    let path = parts.next()?;
-    if !path.ends_with(".rs") {
-        return None;
-    }
+    // path:line:col: level[...]: message (suporta C:\... no Windows)
+    let rs_idx = line.find(".rs:")?;
+    let path_end = rs_idx + 3;
+    let path = &line[..path_end];
+    let rest_after_path = line.get(path_end + 1..)?;
+    let mut parts = rest_after_path.splitn(3, ':');
     let l: u32 = parts.next()?.trim().parse().ok()?;
     let c: u32 = parts.next()?.trim().parse().ok()?;
     let rest = parts.next()?.trim();
@@ -769,11 +913,11 @@ fn parse_short(line: &str) -> Option<Diagnostic> {
 
 fn parse_arrow(line: &str) -> Option<(String, u32, u32)> {
     let t = line.trim();
-    let rest = t.strip_prefix("-->")?;
-    let mut it = rest.trim().split(':');
-    let file = it.next()?.to_string();
-    let l: u32 = it.next()?.parse().ok()?;
-    let c: u32 = it.next()?.parse().ok()?;
+    let rest = t.strip_prefix("-->")?.trim();
+    let mut rsplit = rest.rsplitn(3, ':');
+    let c: u32 = rsplit.next()?.parse().ok()?;
+    let l: u32 = rsplit.next()?.parse().ok()?;
+    let file = rsplit.next()?.to_string();
     Some((file, l, c))
 }
 
@@ -890,6 +1034,21 @@ mod tests {
         assert_eq!(d[0].file.as_deref(), Some("src/main.rs"));
         assert_eq!((d[0].line, d[0].col), (Some(3), Some(5)));
         assert_eq!(d[1].level, DiagLevel::Warning);
+    }
+
+    #[test]
+    fn diagnostico_caminho_absoluto_windows() {
+        let out = "C:\\Users\\aluno\\meu projeto\\src\\main.rs:12:5: error[E0308]: mismatched types\n\
+                   error[E0384]: cannot assign twice\n --> C:\\Users\\aluno\\src\\lib.rs:4:9";
+        let d = parse_diagnostics(out);
+        assert_eq!(d.len(), 2);
+        assert_eq!(
+            d[0].file.as_deref(),
+            Some(r"C:\Users\aluno\meu projeto\src\main.rs")
+        );
+        assert_eq!((d[0].line, d[0].col), (Some(12), Some(5)));
+        assert_eq!(d[1].file.as_deref(), Some(r"C:\Users\aluno\src\lib.rs"));
+        assert_eq!((d[1].line, d[1].col), (Some(4), Some(9)));
     }
 
     #[test]

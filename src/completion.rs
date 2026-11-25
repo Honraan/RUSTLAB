@@ -9,6 +9,50 @@ pub struct Completion {
     end: usize,
 }
 
+pub fn rust_keywords() -> &'static [&'static str] {
+    &[
+        "println!",
+        "print!",
+        "eprintln!",
+        "format!",
+        "vec!",
+        "assert_eq!",
+        "let",
+        "mut",
+        "fn",
+        "pub",
+        "use",
+        "mod",
+        "struct",
+        "enum",
+        "impl",
+        "match",
+        "if",
+        "else",
+        "for",
+        "while",
+        "loop",
+        "return",
+        "break",
+        "continue",
+        "true",
+        "false",
+        "String",
+        "Vec",
+        "Option",
+        "Result",
+        "Some",
+        "None",
+        "Ok",
+        "Err",
+        "usize",
+        "i32",
+        "u32",
+        "bool",
+        "str",
+    ]
+}
+
 impl Completion {
     pub fn refresh(&mut self, editor: &Editor, explicit: bool) {
         self.refresh_with_extras(editor, explicit, &[]);
@@ -44,50 +88,8 @@ impl Completion {
         if prefix.is_empty() || (!explicit && end - start < 2) {
             return;
         }
-        let mut candidates: std::collections::BTreeSet<String> = [
-            "println!",
-            "print!",
-            "eprintln!",
-            "format!",
-            "vec!",
-            "assert_eq!",
-            "let",
-            "mut",
-            "fn",
-            "pub",
-            "use",
-            "mod",
-            "struct",
-            "enum",
-            "impl",
-            "match",
-            "if",
-            "else",
-            "for",
-            "while",
-            "loop",
-            "return",
-            "break",
-            "continue",
-            "true",
-            "false",
-            "String",
-            "Vec",
-            "Option",
-            "Result",
-            "Some",
-            "None",
-            "Ok",
-            "Err",
-            "usize",
-            "i32",
-            "u32",
-            "bool",
-            "str",
-        ]
-        .into_iter()
-        .map(String::from)
-        .collect();
+        let mut candidates: std::collections::BTreeSet<String> =
+            rust_keywords().iter().copied().map(String::from).collect();
         let full_code = editor.buf.to_string_lossy();
         for word in full_code.split(|ch: char| !ident(ch)) {
             if word

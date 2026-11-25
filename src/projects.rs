@@ -2,6 +2,36 @@
 
 use std::path::{Path, PathBuf};
 
+/// Remove prefixo verbatim `\\?\` no Windows para exibição e comparações consistentes.
+pub fn normalize_display_path(p: &Path) -> PathBuf {
+    #[cfg(windows)]
+    {
+        let raw = p.to_string_lossy();
+        if let Some(stripped) = raw.strip_prefix(r"\\?\UNC\") {
+            return PathBuf::from(format!(r"\\{stripped}"));
+        }
+        if let Some(stripped) = raw.strip_prefix(r"\\?\") {
+            return PathBuf::from(stripped);
+        }
+    }
+    p.to_path_buf()
+}
+
+fn is_reparse_or_symlink(meta: &std::fs::Metadata) -> bool {
+    if meta.file_type().is_symlink() {
+        return true;
+    }
+    #[cfg(windows)]
+    {
+        use std::os::windows::fs::MetadataExt;
+        const FILE_ATTRIBUTE_REPARSE_POINT: u32 = 0x0400;
+        if (meta.file_attributes() & FILE_ATTRIBUTE_REPARSE_POINT) != 0 {
+            return true;
+        }
+    }
+    false
+}
+
 /// Capacidades técnicas verificáveis em um projeto independente da Etapa 10.
 #[derive(Debug, Default, Clone, PartialEq, Eq)]
 pub struct ProjectCapabilities {
@@ -25,7 +55,7 @@ impl Project {
         let root = expand_home(root.as_ref());
         if root.join("Cargo.toml").is_file() {
             Some(Project {
-                root: root.canonicalize().ok()?,
+                root: normalize_display_path(&root.canonicalize().ok()?),
             })
         } else {
             None
@@ -163,8 +193,8 @@ impl Project {
     }
 
     fn check_path(&self, path: &Path) -> std::io::Result<()> {
-        let root = self.root.canonicalize()?;
-        let resolved = path.canonicalize().or_else(|_| {
+        let root = normalize_display_path(&self.root.canonicalize()?);
+        let resolved_raw = path.canonicalize().or_else(|_| {
             Ok::<_, std::io::Error>(
                 path.parent()
                     .ok_or_else(|| std::io::Error::other("caminho sem diretório"))?
@@ -172,7 +202,8 @@ impl Project {
                     .join(path.file_name().unwrap_or_default()),
             )
         })?;
-        if !resolved.starts_with(root) {
+        let resolved = normalize_display_path(&resolved_raw);
+        if !resolved.starts_with(&root) {
             return Err(std::io::Error::other("arquivo fora do projeto"));
         }
         Ok(())
@@ -209,14 +240,14 @@ impl Project {
                 "caminho profundo demais ou oculto; use até cinco subdiretórios",
             ));
         }
-        let root = self.root.canonicalize()?;
+        let root = normalize_display_path(&self.root.canonicalize()?);
         let mut parent = root.clone();
         for part in path.parent().into_iter().flat_map(Path::components) {
             parent.push(part);
             if !parent.exists() {
                 std::fs::create_dir(&parent)?;
             }
-            if !parent.canonicalize()?.starts_with(&root) {
+            if !normalize_display_path(&parent.canonicalize()?).starts_with(&root) {
                 return Err(std::io::Error::other("diretório fora do projeto"));
             }
         }
@@ -231,7 +262,7 @@ impl Project {
 }
 
 fn collect_rs(dir: &Path, out: &mut Vec<PathBuf>, depth: u8) {
-    if depth == 0 || std::fs::symlink_metadata(dir).map_or(true, |m| m.is_symlink()) {
+    if depth == 0 || std::fs::symlink_metadata(dir).map_or(true, |m| is_reparse_or_symlink(&m)) {
         return;
     }
     let Ok(entries) = std::fs::read_dir(dir) else {
@@ -240,7 +271,7 @@ fn collect_rs(dir: &Path, out: &mut Vec<PathBuf>, depth: u8) {
     let mut entries: Vec<_> = entries.filter_map(Result::ok).collect();
     entries.sort_by_key(|e| e.file_name());
     for e in entries {
-        if e.file_type().map_or(true, |kind| kind.is_symlink()) {
+        if std::fs::symlink_metadata(e.path()).map_or(true, |m| is_reparse_or_symlink(&m)) {
             continue;
         }
         let p = e.path();
@@ -260,8 +291,13 @@ fn collect_rs(dir: &Path, out: &mut Vec<PathBuf>, depth: u8) {
 /// Expande um `~` inicial (não usamos shell, então fazemos aqui).
 pub fn expand_home(p: &Path) -> PathBuf {
     let s = p.to_string_lossy();
-    if (s == "~" || s.starts_with("~/"))
-        && let Some(home) = std::env::var_os("HOME")
+    let home = if cfg!(windows) {
+        std::env::var_os("USERPROFILE").or_else(|| std::env::var_os("HOME"))
+    } else {
+        std::env::var_os("HOME")
+    };
+    if (s == "~" || s.starts_with("~/") || s.starts_with("~\\"))
+        && let Some(home) = home
     {
         let mut base = PathBuf::from(home);
         for part in p.components().skip(1) {
@@ -274,14 +310,31 @@ pub fn expand_home(p: &Path) -> PathBuf {
 
 /// Diretório padrão onde o RustLab cria projetos do aluno.
 pub fn default_workspace_dir() -> PathBuf {
-    let base = std::env::var_os("XDG_DATA_HOME")
-        .map(PathBuf::from)
-        .filter(|p| p.is_absolute())
-        .or_else(|| std::env::var_os("HOME").map(|h| PathBuf::from(h).join(".local").join("share")))
-        .unwrap_or_else(|| PathBuf::from("."));
-    workspace_dir_for(&base)
+    #[cfg(windows)]
+    {
+        if let Some(up) = std::env::var_os("USERPROFILE").filter(|s| !s.is_empty()) {
+            return PathBuf::from(up).join("Documents").join("RustLab Projetos");
+        }
+        let base = std::env::var_os("LOCALAPPDATA")
+            .map(PathBuf::from)
+            .filter(|p| p.is_absolute())
+            .unwrap_or_else(|| PathBuf::from("."));
+        base.join("RustLab").join("projetos")
+    }
+    #[cfg(not(windows))]
+    {
+        let base = std::env::var_os("XDG_DATA_HOME")
+            .map(PathBuf::from)
+            .filter(|p| p.is_absolute())
+            .or_else(|| {
+                std::env::var_os("HOME").map(|h| PathBuf::from(h).join(".local").join("share"))
+            })
+            .unwrap_or_else(|| PathBuf::from("."));
+        workspace_dir_for(&base)
+    }
 }
 
+#[cfg_attr(windows, allow(dead_code))]
 fn workspace_dir_for(base: &Path) -> PathBuf {
     base.join("rustlab").join("projetos")
 }
@@ -371,7 +424,12 @@ mod tests {
         let files: Vec<String> = p
             .source_files()
             .iter()
-            .map(|f| f.strip_prefix(&d).unwrap().to_string_lossy().to_string())
+            .map(|f| {
+                f.strip_prefix(&d)
+                    .unwrap()
+                    .to_string_lossy()
+                    .replace('\\', "/")
+            })
             .collect();
         assert_eq!(
             files,
@@ -402,16 +460,29 @@ mod tests {
 
     #[test]
     fn expand_home_funciona() {
-        let home = std::env::var("HOME").unwrap();
+        let home = std::env::var("USERPROFILE")
+            .or_else(|_| std::env::var("HOME"))
+            .unwrap();
         let p = expand_home(Path::new("~/projetos/x"));
         assert!(p.starts_with(home));
-        let abs = expand_home(Path::new("/tmp/x"));
-        assert_eq!(abs, PathBuf::from("/tmp/x"));
+        let abs = expand_home(Path::new(if cfg!(windows) {
+            r"C:\tmp\x"
+        } else {
+            "/tmp/x"
+        }));
+        assert_eq!(
+            abs,
+            PathBuf::from(if cfg!(windows) { r"C:\tmp\x" } else { "/tmp/x" })
+        );
     }
 
     #[test]
     fn workspace_dir_absoluto() {
-        assert!(default_workspace_dir().is_absolute() || std::env::var_os("HOME").is_none());
+        assert!(
+            default_workspace_dir().is_absolute()
+                || (std::env::var_os("HOME").is_none()
+                    && std::env::var_os("USERPROFILE").is_none())
+        );
     }
 
     #[test]
@@ -440,9 +511,12 @@ mod tests {
             assert!(project.create_file(invalid).is_err(), "{invalid}");
         }
         let outside = temp_dir("outside");
-        std::os::unix::fs::symlink(&outside, dir.join("outside")).unwrap();
-        assert!(project.create_file("outside/escape.rs").is_err());
-        assert!(!outside.join("escape.rs").exists());
+        #[cfg(unix)]
+        {
+            std::os::unix::fs::symlink(&outside, dir.join("outside")).unwrap();
+            assert!(project.create_file("outside/escape.rs").is_err());
+            assert!(!outside.join("escape.rs").exists());
+        }
         assert!(project.save(&outside.join("escape.rs"), "não").is_err());
         std::fs::remove_dir_all(dir).unwrap();
         std::fs::remove_dir_all(outside).unwrap();
@@ -455,7 +529,10 @@ mod tests {
         project.create_file("tests/integration.rs").unwrap();
         project.create_file("examples/demo.rs").unwrap();
         project.create_file("benches/bench.rs").unwrap();
-        std::os::unix::fs::symlink(&dir, dir.join("src")).unwrap();
+        #[cfg(unix)]
+        {
+            std::os::unix::fs::symlink(&dir, dir.join("src")).unwrap();
+        }
         assert_eq!(project.source_files().len(), 3);
         std::fs::remove_dir_all(dir).unwrap();
     }
@@ -503,7 +580,11 @@ mod tests {
 
     #[test]
     fn resolve_alvo_em_pasta_padrao_subpasta_e_caminho_absoluto() {
-        let default_base = PathBuf::from("/tmp/base-projetos");
+        let default_base = PathBuf::from(if cfg!(windows) {
+            r"C:\tmp\base-projetos"
+        } else {
+            "/tmp/base-projetos"
+        });
 
         let (dir, name) = resolve_new_project_target("meu_cli", &default_base).unwrap();
         assert_eq!(dir, default_base);
@@ -513,8 +594,18 @@ mod tests {
         assert_eq!(dir, default_base.join("ferramentas"));
         assert_eq!(name, "calc-rs");
 
-        let (dir, name) = resolve_new_project_target("/tmp/outro_dir/app2", &default_base).unwrap();
-        assert_eq!(dir, PathBuf::from("/tmp/outro_dir"));
+        let outro_input = if cfg!(windows) {
+            r"C:\tmp\outro_dir\app2"
+        } else {
+            "/tmp/outro_dir/app2"
+        };
+        let outro_expected = if cfg!(windows) {
+            r"C:\tmp\outro_dir"
+        } else {
+            "/tmp/outro_dir"
+        };
+        let (dir, name) = resolve_new_project_target(outro_input, &default_base).unwrap();
+        assert_eq!(dir, PathBuf::from(outro_expected));
         assert_eq!(name, "app2");
 
         assert!(resolve_new_project_target("../fora/app", &default_base).is_err());

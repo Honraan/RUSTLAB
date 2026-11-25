@@ -1,13 +1,32 @@
 # RustLab 🦀
 
-Aprenda Rust no terminal com lições, exercícios e uma mini-IDE.
-O mentor é opcional: o guia local funciona sem serviço de IA.
+Aprenda Rust na prática com lições, exercícios, mini-IDE e mentor pedagógico.
+O **RustLab 4.0** adiciona a edição **Windows Desktop (Tauri v2 + React + CodeMirror 6 + ConPTY)** sobre o mesmo núcleo pedagógico da edição **TUI Classic** (`GPL-3.0-only`).
 
-## Começar
+## RustLab 4.0 — Windows Desktop
+
+- **Currículo canônico de 213 entradas em `pt-BR`** (6 estágios: Básico, Meio, Difícil, Fim, Mini Paint e CaveGame), 100% utilizável offline mesmo antes de instalar o compilador Rust.
+- **Toolchain Doctor em 7 passos:** inspeciona `rustup`, `rustc`, `cargo`, `rustfmt`, `clippy`, `rust-analyzer`, linkers MSVC/MinGW e Windows SDK sem modificar seu `PATH` silenciosamente.
+- **Compilação Cargo real e Terminal Windows ConPTY:** executa práticas (`100+100 XP` de independência), testes, Clippy, Rustfmt, programas com `stdin` e jogos TUI com Job Objects e encerramento limpo.
+- **Mini-IDE & Catálogo `F9`:** criação de projetos Cargo (`hello`, `pong`, `snake`, `editor`, `paint_gui`, `cavegame_bevy`), detecção de conflitos por hash, janelas separadas (`F4`) para apps GUI e migração segura de `progresso.toml` da TUI V3.
+- **Documentação V4:** [V4_RELEASE_NOTES.md](docs/V4_RELEASE_NOTES.md), [V4_WINDOWS_RELEASE_CHECKLIST.md](docs/V4_WINDOWS_RELEASE_CHECKLIST.md), [V4_WINDOWS_CAPABILITIES.md](docs/V4_WINDOWS_CAPABILITIES.md), [V4_THREAT_MODEL.md](docs/V4_THREAT_MODEL.md) e [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md).
+
+### Desenvolvendo a Edição Desktop no Windows
+
+```powershell
+cd apps\desktop
+npm install
+npm run typecheck
+npm test
+npx tauri build --bundles nsis
+```
+
+---
+
+## Edição TUI Classic (Terminal)
 
 Instale [Rust stable](https://rustup.rs) com Cargo e use um terminal interativo.
-A validação automatizada principal roda em Linux x86_64; outras plataformas
-precisam de validação antes de serem anunciadas como suportadas.
+A validação automatizada da TUI Linux roda em Ubuntu x86_64 via `.github/workflows/ci.yml`; a edição Windows Desktop tem pipeline dedicado em `.github/workflows/windows-v4.yml`.
 
 ```sh
 git clone https://github.com/Honraan/RUSTLAB.git

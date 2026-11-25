@@ -33,6 +33,7 @@ fn should_play(volume: u8, terminal: bool) -> bool {
 }
 
 /// 110 ms, 660 Hz, envelope senoidal: sem estalos, pico máximo de 8%.
+#[cfg(any(not(windows), test))]
 fn xp_pcm(volume: u8) -> Vec<u8> {
     let samples = 22_050 * 110 / 1000;
     let gain = f32::from(volume.min(100)) / 100.0 * 0.08;
@@ -46,6 +47,10 @@ fn xp_pcm(volume: u8) -> Vec<u8> {
         .collect()
 }
 
+#[cfg(windows)]
+fn play_pcm(_volume: u8) {}
+
+#[cfg(not(windows))]
 fn play_pcm(volume: u8) {
     use std::io::Write;
     use std::process::{Command, Stdio};
@@ -228,7 +233,8 @@ mod tests {
 
     impl FsProbe for FakeFs {
         fn exists(&self, path: &Path) -> bool {
-            self.existing.contains(&path.display().to_string())
+            let normalized = path.to_string_lossy().replace('\\', "/");
+            self.existing.contains(&normalized)
         }
         fn runtime_dir(&self) -> Option<String> {
             self.runtime.clone()

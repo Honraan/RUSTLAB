@@ -500,16 +500,27 @@ pub fn find_rust_analyzer() -> Option<PathBuf> {
         }
     }
 
+    let bin = if cfg!(windows) {
+        "rust-analyzer.exe"
+    } else {
+        "rust-analyzer"
+    };
     let mut candidates = Vec::new();
     if let Some(path) = std::env::var_os("PATH") {
-        candidates.extend(std::env::split_paths(&path).map(|dir| dir.join("rust-analyzer")));
+        candidates.extend(std::env::split_paths(&path).map(|dir| dir.join(bin)));
     }
-    if let Some(home) = std::env::var_os("HOME").map(PathBuf::from) {
-        candidates.push(home.join(".cargo/bin/rust-analyzer"));
-        if let Ok(entries) = std::fs::read_dir(home.join(".rustup/toolchains")) {
+    let home = if cfg!(windows) {
+        std::env::var_os("USERPROFILE").or_else(|| std::env::var_os("HOME"))
+    } else {
+        std::env::var_os("HOME")
+    }
+    .map(PathBuf::from);
+    if let Some(home) = home {
+        candidates.push(home.join(".cargo").join("bin").join(bin));
+        if let Ok(entries) = std::fs::read_dir(home.join(".rustup").join("toolchains")) {
             let mut dirs: Vec<_> = entries.filter_map(Result::ok).map(|e| e.path()).collect();
             dirs.sort();
-            candidates.extend(dirs.into_iter().map(|d| d.join("bin/rust-analyzer")));
+            candidates.extend(dirs.into_iter().map(|d| d.join("bin").join(bin)));
         }
     }
 
@@ -524,13 +535,17 @@ fn probe_rust_analyzer(path: &Path) -> bool {
     if !path.is_file() {
         return false;
     }
-    Command::new(path)
-        .arg("--version")
+    let mut cmd = Command::new(path);
+    cmd.arg("--version")
         .stdin(Stdio::null())
         .stdout(Stdio::null())
-        .stderr(Stdio::null())
-        .status()
-        .is_ok_and(|status| status.success())
+        .stderr(Stdio::null());
+    #[cfg(windows)]
+    {
+        use std::os::windows::process::CommandExt;
+        cmd.creation_flags(0x0800_0000);
+    }
+    cmd.status().is_ok_and(|status| status.success())
 }
 
 pub struct LspClient {
@@ -563,11 +578,17 @@ impl LspClient {
     }
 
     pub fn start_with_binary(bin: &Path, root: &Path) -> Result<Self, String> {
-        let mut child = Command::new(bin)
-            .current_dir(root)
+        let mut cmd = Command::new(bin);
+        cmd.current_dir(root)
             .stdin(Stdio::piped())
             .stdout(Stdio::piped())
-            .stderr(Stdio::null())
+            .stderr(Stdio::null());
+        #[cfg(windows)]
+        {
+            use std::os::windows::process::CommandExt;
+            cmd.creation_flags(0x0800_0000);
+        }
+        let mut child = cmd
             .spawn()
             .map_err(|err| format!("falha ao iniciar rust-analyzer: {err}"))?;
 
@@ -1106,11 +1127,23 @@ fn extract_inlay_hints(result: &JsonValue) -> Vec<InlayHint> {
 }
 
 pub fn path_to_uri(path: &Path) -> String {
-    let raw = path.to_string_lossy();
+    let raw_owned = path.to_string_lossy().to_string();
+    let stripped = raw_owned
+        .strip_prefix(r"\\?\")
+        .unwrap_or(&raw_owned)
+        .replace('\\', "/");
+    let normalized = if stripped.len() >= 2
+        && stripped.as_bytes()[0].is_ascii_alphabetic()
+        && stripped.as_bytes()[1] == b':'
+    {
+        format!("/{stripped}")
+    } else {
+        stripped
+    };
     let mut out = String::from("file://");
-    for byte in raw.as_bytes() {
+    for byte in normalized.as_bytes() {
         match byte {
-            b'A'..=b'Z' | b'a'..=b'z' | b'0'..=b'9' | b'/' | b'-' | b'.' | b'_' | b'~' => {
+            b'A'..=b'Z' | b'a'..=b'z' | b'0'..=b'9' | b'/' | b'-' | b'.' | b'_' | b'~' | b':' => {
                 out.push(*byte as char)
             }
             _ => {
@@ -1140,7 +1173,17 @@ pub fn uri_to_path(uri: &str) -> Option<PathBuf> {
         bytes.push(raw_bytes[i]);
         i += 1;
     }
-    String::from_utf8(bytes).ok().map(PathBuf::from)
+    let decoded = String::from_utf8(bytes).ok()?;
+    let trimmed = if decoded.len() >= 3
+        && decoded.starts_with('/')
+        && decoded.as_bytes()[1].is_ascii_alphabetic()
+        && decoded.as_bytes()[2] == b':'
+    {
+        &decoded[1..]
+    } else {
+        decoded.as_str()
+    };
+    Some(PathBuf::from(trimmed))
 }
 
 #[cfg(test)]
@@ -1198,6 +1241,18 @@ mod tests {
         );
         assert_eq!(word_at_cursor("somar(a)", 5).as_deref(), Some("somar"));
         assert_eq!(word_at_cursor("123 + 4", 1), None);
+    }
+
+    #[test]
+    fn uri_windows_normaliza_verbatim_e_barra() {
+        let p = Path::new(r"\\?\C:\Users\aluno\meu projeto\src\main.rs");
+        let uri = path_to_uri(p);
+        assert_eq!(uri, "file:///C:/Users/aluno/meu%20projeto/src/main.rs");
+        let back = uri_to_path(&uri).unwrap();
+        assert_eq!(
+            back,
+            PathBuf::from("C:/Users/aluno/meu projeto/src/main.rs")
+        );
     }
 
     #[test]

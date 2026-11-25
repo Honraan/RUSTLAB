@@ -1,0 +1,119 @@
+:root {
+  --font-sans: 'Segoe UI Variable', 'Segoe UI', system-ui, -apple-system, sans-serif;
+  --font-mono: 'Cascadia Code', 'Consolas', 'JetBrains Mono', monospace;
+  --ui-scale: 1;
+  --editor-font-size: 14px;
+
+  /* Light Theme (clean Windows 11/10 palette) */
+  --bg-canvas: #f6f7fb;
+  --bg-surface: #ffffff;
+  --bg-elevated: #eef1f7;
+  --bg-subtle: #e5e9f2;
+  --bg-terminal: #12151f;
+  --fg-primary: #141824;
+  --fg-secondary: #4a5568;
+  --fg-muted: #64748b;
+  --fg-terminal: #e6edf3;
+
+  --border-subtle: #d6dce8;
+  --border-strong: #94a3b8;
+
+  --accent: #d94e1f;
+  --accent-hover: #bf3f14;
+  --accent-soft: rgba(217, 78, 31, 0.12);
+  --accent-fg: #ffffff;
+
+  --ok: #15803d;
+  --ok-soft: rgba(21, 128, 61, 0.12);
+  --warn: #b45309;
+  --warn-soft: rgba(180, 83, 9, 0.13);
+  --danger: #b91c1c;
+  --danger-soft: rgba(185, 28, 28, 0.12);
+  --info: #0369a1;
+  --info-soft: rgba(3, 105, 161, 0.12);
+
+  --radius-sm: 6px;
+  --radius-md: 10px;
+  --radius-lg: 14px;
+  --shadow-sm: 0 1px 3px rgba(15, 23, 42, 0.08);
+  --shadow-md: 0 8px 24px rgba(15, 23, 42, 0.12);
+}
+
+[data-theme='dark'],
+[data-theme='cuia'] {
+  --bg-canvas: #0f1117;
+  --bg-surface: #171a24;
+  --bg-elevated: #1f2433;
+  --bg-subtle: #282e40;
+  --bg-terminal: #0b0d13;
+  --fg-primary: #eef2f8;
+  --fg-secondary: #b6c0d4;
+  --fg-muted: #8b95ac;
+  --fg-terminal: #edf2f7;
+
+  --border-subtle: #2b3245;
+  --border-strong: #4a5572;
+
+  --accent: #ff703d;
+  --accent-hover: #ff8559;
+  --accent-soft: rgba(255, 112, 61, 0.16);
+  --accent-fg: #0b0d13;
+
+  --ok: #4ade80;
+  --ok-soft: rgba(74, 222, 128, 0.14);
+  --warn: #fbbf24;
+  --warn-soft: rgba(251, 191, 36, 0.14);
+  --danger: #f87171;
+  --danger-soft: rgba(248, 113, 113, 0.15);
+  --info: #38bdf8;
+  --info-soft: rgba(56, 189, 248, 0.14);
+
+  --shadow-sm: 0 1px 4px rgba(0, 0, 0, 0.35);
+  --shadow-md: 0 12px 32px rgba(0, 0, 0, 0.45);
+}
+
+[data-theme='high-contrast'] {
+  --bg-canvas: #000000;
+  --bg-surface: #0a0a0a;
+  --bg-elevated: #141414;
+  --bg-subtle: #222222;
+  --bg-terminal: #000000;
+  --fg-primary: #ffffff;
+  --fg-secondary: #f1f5f9;
+  --fg-muted: #cbd5e1;
+  --fg-terminal: #ffffff;
+
+  --border-subtle: #ffffff;
+  --border-strong: #ffffff;
+
+  --accent: #ffd400;
+  --accent-hover: #ffe548;
+  --accent-soft: rgba(255, 212, 0, 0.22);
+  --accent-fg: #000000;
+
+  --ok: #39ff14;
+  --ok-soft: rgba(57, 255, 20, 0.18);
+  --warn: #ffea00;
+  --warn-soft: rgba(255, 234, 0, 0.18);
+  --danger: #ff4d4d;
+  --danger-soft: rgba(255, 77, 77, 0.22);
+  --info: #00e5ff;
+  --info-soft: rgba(0, 229, 255, 0.18);
+
+  --shadow-sm: none;
+  --shadow-md: none;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  * {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+  }
+}
+
+[data-motion='reduced'] * {
+  animation-duration: 0.01ms !important;
+  animation-iteration-count: 1 !important;
+  transition-duration: 0.01ms !important;
+}

@@ -28,8 +28,9 @@ pub(super) fn http_curl_https_for(
                 format!("falha ao preparar corpo JSON: {err}")
             });
         }
+        let normalized = p.to_string_lossy().replace('\\', "/");
         config.push_str("header = \"Content-Type: application/json\"\n");
-        config.push_str(&format!("data-binary = \"@{}\"\n", p.display()));
+        config.push_str(&format!("data-binary = \"@{normalized}\"\n"));
         body_path = Some(p);
     }
     if let Some(tok) = bearer_token {

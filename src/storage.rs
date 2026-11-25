@@ -4,6 +4,7 @@
 
 use std::collections::{BTreeMap, BTreeSet};
 use std::io::Write;
+#[cfg(unix)]
 use std::os::unix::fs::OpenOptionsExt;
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicU64, Ordering};
@@ -40,6 +41,8 @@ pub struct ProgressData {
     pub error_counts: BTreeMap<String, u32>,
     /// Se o tour de onboarding inicial foi concluído.
     pub onboarding_completed: bool,
+    /// Última entrada V3 ou lição aberta pelo usuário (V4).
+    pub last_entry_id: Option<String>,
 }
 
 impl ProgressData {
@@ -52,12 +55,34 @@ impl ProgressData {
 }
 
 pub fn default_path() -> PathBuf {
-    let base = std::env::var_os("XDG_DATA_HOME")
-        .map(PathBuf::from)
-        .filter(|p| p.is_absolute())
-        .or_else(|| std::env::var_os("HOME").map(|h| PathBuf::from(h).join(".local/share")))
-        .unwrap_or_else(|| PathBuf::from("."));
-    base.join("rustlab").join("progresso.toml")
+    #[cfg(windows)]
+    {
+        if let Some(dir) = std::env::var_os("RUSTLAB_DATA_DIR")
+            .map(PathBuf::from)
+            .filter(|p| !p.as_os_str().is_empty())
+        {
+            return dir.join("progresso.toml");
+        }
+        let base = std::env::var_os("LOCALAPPDATA")
+            .map(PathBuf::from)
+            .filter(|p| p.is_absolute())
+            .or_else(|| {
+                std::env::var_os("USERPROFILE")
+                    .or_else(|| std::env::var_os("HOME"))
+                    .map(|h| PathBuf::from(h).join("AppData").join("Local"))
+            })
+            .unwrap_or_else(|| PathBuf::from("."));
+        base.join("RustLab").join("progresso.toml")
+    }
+    #[cfg(not(windows))]
+    {
+        let base = std::env::var_os("XDG_DATA_HOME")
+            .map(PathBuf::from)
+            .filter(|p| p.is_absolute())
+            .or_else(|| std::env::var_os("HOME").map(|h| PathBuf::from(h).join(".local/share")))
+            .unwrap_or_else(|| PathBuf::from("."));
+        base.join("rustlab").join("progresso.toml")
+    }
 }
 
 pub fn load() -> (ProgressData, Option<String>) {
@@ -67,7 +92,7 @@ pub fn load() -> (ProgressData, Option<String>) {
 pub fn load_from(path: &Path) -> (ProgressData, Option<String>) {
     match std::fs::read_to_string(path) {
         Ok(text) => match toml::from_str::<ProgressData>(&text) {
-            Ok(data) if data.version <= 1 => (data, None),
+            Ok(data) if data.version <= 2 => (data, None),
             Ok(_) => (
                 ProgressData::current(),
                 Some("versão de progresso desconhecida; usando sessão vazia e bloqueando gravação para preservar o arquivo".into()),
@@ -90,7 +115,7 @@ pub fn save(data: &ProgressData) -> std::io::Result<()> {
 }
 
 pub fn save_to(data: &ProgressData, path: &Path) -> std::io::Result<()> {
-    if data.version > 1 {
+    if data.version > 2 {
         return Err(std::io::Error::other(
             "não é possível gravar esta versão de progresso",
         ));
@@ -105,7 +130,7 @@ pub fn save_to(data: &ProgressData, path: &Path) -> std::io::Result<()> {
                 .ok()
                 .and_then(|s| toml::from_str::<ProgressData>(s).ok());
             match parsed {
-                Some(previous) if previous.version > 1 => {
+                Some(previous) if previous.version > 2 => {
                     return Err(std::io::Error::other(
                         "versão de progresso mais nova; arquivo preservado, salvamento bloqueado",
                     ));
@@ -127,11 +152,33 @@ pub fn save_to(data: &ProgressData, path: &Path) -> std::io::Result<()> {
     let result = file
         .write_all(text.as_bytes())
         .and_then(|()| file.sync_all())
-        .and_then(|()| std::fs::rename(&tmp, path));
+        .and_then(|()| {
+            drop(file);
+            replace_atomic(&tmp, path)
+        });
     if result.is_err() {
         let _ = std::fs::remove_file(tmp);
     }
     result
+}
+
+fn replace_atomic(tmp: &Path, path: &Path) -> std::io::Result<()> {
+    #[cfg(windows)]
+    {
+        for attempt in 0..5 {
+            match std::fs::rename(tmp, path) {
+                Ok(()) => return Ok(()),
+                Err(err)
+                    if attempt < 4
+                        && matches!(err.kind(), std::io::ErrorKind::PermissionDenied) =>
+                {
+                    std::thread::sleep(std::time::Duration::from_millis(15));
+                }
+                Err(err) => return Err(err),
+            }
+        }
+    }
+    std::fs::rename(tmp, path)
 }
 
 fn create_sibling(path: &Path, kind: &str) -> std::io::Result<(PathBuf, std::fs::File)> {
@@ -143,12 +190,11 @@ fn create_sibling(path: &Path, kind: &str) -> std::io::Result<(PathBuf, std::fs:
             FILE_COUNTER.fetch_add(1, Ordering::Relaxed)
         ));
         let sibling = path.with_file_name(name);
-        match std::fs::OpenOptions::new()
-            .write(true)
-            .create_new(true)
-            .mode(0o600)
-            .open(&sibling)
-        {
+        let mut opts = std::fs::OpenOptions::new();
+        opts.write(true).create_new(true);
+        #[cfg(unix)]
+        opts.mode(0o600);
+        match opts.open(&sibling) {
             Ok(file) => return Ok((sibling, file)),
             Err(err) if err.kind() == std::io::ErrorKind::AlreadyExists => continue,
             Err(err) => return Err(err),
