@@ -173,6 +173,8 @@ pub fn pty_start(
     let app_exit = app.clone();
     std::thread::spawn(move || {
         let exit_code = child.wait().ok().map(|s| s.exit_code());
+        // Pequena janela para o conhost.exe drenar os quadros finais antes do ClosePseudoConsole.
+        std::thread::sleep(std::time::Duration::from_millis(120));
         // Remover a sessão antes do join libera MasterPty (ClosePseudoConsole) e fecha o pipe de saída.
         if let Ok(mut inner) = shared_inner.lock() {
             inner.pty_sessions.remove(&sid_wait);

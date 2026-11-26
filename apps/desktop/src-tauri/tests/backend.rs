@@ -187,6 +187,7 @@ async fn mentor_learn_mode_bloqueia_codigo() {
 fn windows_conpty_real_executa_stdin_e_stdout() {
     use portable_pty::{CommandBuilder, PtySize, native_pty_system};
     use std::io::{Read, Write};
+    use std::time::{Duration, Instant};
 
     let pty = native_pty_system();
     let pair = pty
@@ -198,28 +199,56 @@ fn windows_conpty_real_executa_stdin_e_stdout() {
         })
         .unwrap();
     let mut cmd = CommandBuilder::new("cmd.exe");
-    cmd.args(["/C", "echo CONPTY_OK"]);
+    // Mantém o processo filho vivo lendo stdin até o ConPTY drenar "CONPTY_OK" no pipe de saída.
+    cmd.args(["/Q", "/C", "echo CONPTY_OK& set /p _x="]);
     let mut child = pair.slave.spawn_command(cmd).unwrap();
     drop(pair.slave);
 
     let mut reader = pair.master.try_clone_reader().unwrap();
     let mut writer = pair.master.take_writer().unwrap();
+    let (seen_tx, seen_rx) = std::sync::mpsc::channel::<()>();
     let reader_handle = std::thread::spawn(move || {
         let mut out = String::new();
         let mut buf = [0u8; 1024];
+        let mut notified = false;
         while let Ok(n) = reader.read(&mut buf) {
             if n == 0 {
                 break;
             }
             out.push_str(&String::from_utf8_lossy(&buf[..n]));
+            if !notified && out.contains("CONPTY_OK") {
+                notified = true;
+                let _ = seen_tx.send(());
+            }
         }
         out
     });
 
+    // Responde imediatamente ao DSR (\x1b[6n) exigido por PSEUDOCONSOLE_INHERIT_CURSOR no Windows ConPTY.
     let _ = writer.write_all(b"\x1b[1;1R");
     let _ = writer.flush();
+
+    let _ = seen_rx.recv_timeout(Duration::from_secs(10));
+
+    let _ = writer.write_all(b"ok\r\n");
+    let _ = writer.flush();
     drop(writer);
-    let _ = child.wait();
+
+    let deadline = Instant::now() + Duration::from_secs(2);
+    loop {
+        match child.try_wait() {
+            Ok(Some(_)) => break,
+            Ok(None) if Instant::now() < deadline => {
+                std::thread::sleep(Duration::from_millis(25));
+            }
+            _ => {
+                let _ = child.kill();
+                let _ = child.wait();
+                break;
+            }
+        }
+    }
+
     // Em ConPTY, dropar MasterPty chama ClosePseudoConsole e fecha o pipe para o reader encerrar.
     drop(pair.master);
 
